@@ -13,11 +13,11 @@ module AppleSDKKnowledge
       private
 
       def run_clang_ast_dump(path)
-        out, _err, status = Open3.capture3(
+        out, err, status = Open3.capture3(
           "clang", "-Xclang", "-ast-dump=json", "-fsyntax-only",
           "-x", "c", path
         )
-        raise "clang failed for #{path}" unless status.success?
+        raise "clang failed for #{path}: #{err.strip}" unless status.success?
         JSON.parse(out)
       rescue JSON::ParserError => e
         raise "clang produced invalid JSON for #{path}: #{e.message}"
