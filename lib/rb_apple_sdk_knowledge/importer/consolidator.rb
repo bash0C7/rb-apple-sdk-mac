@@ -12,7 +12,7 @@ module AppleSDKKnowledge
         all_symbols = swift_symbols + c_symbols
         seen = {}
         all_symbols.each do |sym|
-          key = "#{sym[:name]}|#{normalize_signature(sym[:signature])}"
+          key = "#{sym[:parent_name]}|#{sym[:name]}|#{normalize_signature(sym[:signature])}"
           existing = seen[key]
           if existing
             seen[key] = sym if sym[:abi] == "swift"
@@ -25,7 +25,7 @@ module AppleSDKKnowledge
           docc = docc_by_name[sym[:name]]
           enriched = sym.merge(documentation: sym[:documentation] || docc&.fetch(:documentation, nil))
           enriched[:content_hash] = Digest::SHA256.hexdigest(
-            "#{sym[:name]}|#{normalize_signature(sym[:signature])}|#{sym[:abi]}"
+            "#{sym[:parent_name]}|#{sym[:name]}|#{normalize_signature(sym[:signature])}|#{sym[:abi]}"
           )
           enriched
         end
