@@ -50,7 +50,8 @@ module AppleSDKKnowledge
         when "TypedefDecl"
           name = node["name"]
           underlying = node.dig("type", "qualType") || ""
-          if underlying.include?("struct ") || underlying.include?("*")
+          function_pointer = underlying.include?("(*)") || underlying.include?("(^)")
+          if !function_pointer && (underlying.include?("struct ") || underlying.include?("*"))
             symbols << {
               name: name,
               kind: "struct",
