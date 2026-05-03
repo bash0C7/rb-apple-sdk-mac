@@ -31,8 +31,8 @@ module AppleSDKKnowledge
       private
 
       def xcrun(*args)
-        out, status = Open3.capture2("xcrun", *args)
-        raise "xcrun failed: xcrun #{args.join(' ')}" unless status.success?
+        out, err, status = Open3.capture3("xcrun", *args)
+        raise "xcrun failed (#{args.join(' ')}): #{err.strip}" unless status.success?
         out
       end
     end
