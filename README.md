@@ -1,35 +1,60 @@
-# Rb::Apple::Sdk::Knowledge
+# rb-apple-sdk-knowledge
 
-TODO: Delete this and the text below, and describe your gem
+A SQLite knowledge base of every public Apple framework on the local Xcode SDK.
+Built at install time on the user's machine. Read-only after that.
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/rb/apple/sdk/knowledge`. To experiment with that code, run `bin/console` for an interactive prompt.
+## Use cases
+
+- Lexical and semantic search over Apple SDK symbols
+- IDE/editor autocomplete data source
+- RBS generation for Apple frameworks
+- Knowledge backend for `rb-apple-sdk-mac` (the dynamic Ruby↔Apple bridge)
+
+## Requirements
+
+- macOS with Xcode installed (provides `xcrun`, headers, `.swiftinterface` files, optional DocC archives)
+- Ruby 3.2+
+- swift-syntax-compatible Swift 6.3+ toolchain (only required at SDK parse time)
 
 ## Installation
 
-TODO: Replace `UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG` with your gem name right after releasing it to RubyGems.org. Please do not do it earlier due to security reasons. Alternatively, replace this section with instructions to install your gem from git if you don't plan to release to RubyGems.org.
-
-Install the gem and add to the application's Gemfile by executing:
-
-```bash
-bundle add UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+```ruby
+gem "rb-apple-sdk-knowledge"
 ```
 
-If bundler is not being used to manage dependencies, install the gem by executing:
+After install, build the knowledge base for your local SDK:
 
 ```bash
-gem install UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+bundle exec rake apple:knowledge:rebuild
 ```
 
-## Usage
+Skip embeddings (much faster, FTS5 search still works):
 
-TODO: Write usage instructions here
+```bash
+RB_APPLE_SDK_KNOWLEDGE_FAST=1 bundle exec rake apple:knowledge:rebuild
+```
 
-## Development
+## CLI
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake test` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+```bash
+apple-sdk-knowledge rebuild
+apple-sdk-knowledge info
+apple-sdk-knowledge search CoreMIDI MIDIClient
+```
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+## Library API
 
-## Contributing
+```ruby
+require "rb_apple_sdk_knowledge"
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/rb-apple-sdk-knowledge.
+store = AppleSDKKnowledge.open
+search = AppleSDKKnowledge::Search.new(store)
+search.lexical(framework: "CoreMIDI", query: "MIDIClient").each do |r|
+  puts "#{r[:name]} (#{r[:kind]})"
+end
+store.close
+```
+
+## License
+
+MIT
