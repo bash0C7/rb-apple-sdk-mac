@@ -108,6 +108,40 @@ module AppleSDKKnowledge
       @db.last_insert_row_id
     end
 
+    def rebuild_fts!
+      @db.execute("INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')")
+    end
+
+    def fts_search(framework_name, query, limit: 5)
+      sql = <<~SQL
+        SELECT s.name, s.kind, s.signature, f.name AS framework
+        FROM symbols_fts ft
+        JOIN symbols s ON s.id = ft.rowid
+        JOIN frameworks f ON s.framework_id = f.id
+        WHERE symbols_fts MATCH ? AND f.name = ?
+        ORDER BY rank
+        LIMIT ?
+      SQL
+      sanitized = query.to_s.gsub(/[-+*^"()]/, " ").squeeze(" ").strip
+      return [] if sanitized.empty?
+      @db.execute(sql, [sanitized, framework_name, limit]).map do |row|
+        { name: row[0], kind: row[1], signature: row[2], framework: row[3] }
+      end
+    end
+
+    def vec_insert(symbol_id, embedding)
+      blob = embedding.pack("f*")
+      @db.execute(
+        "INSERT OR REPLACE INTO symbols_vec(symbol_id, embedding) VALUES (?, ?)",
+        [symbol_id, blob]
+      )
+    end
+
+    def find_framework_id_by_name(name)
+      row = @db.execute("SELECT id FROM frameworks WHERE name = ?", [name]).first
+      row && row.first
+    end
+
     def close
       @db.close
     end

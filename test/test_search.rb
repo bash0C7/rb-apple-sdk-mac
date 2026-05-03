@@ -40,11 +40,12 @@ class TestSearch < Test::Unit::TestCase
     FileUtils.rm_rf(@tmpdir)
   end
 
-  def test_lexical_finds_typo_via_trigrams
+  def test_lexical_finds_partial_match_via_trigrams
     search = AppleSDKKnowledge::Search.new(@store)
-    results = search.lexical(framework: "CoreMIDI", query: "MIDIClienntCreate")
+    results = search.lexical(framework: "CoreMIDI", query: "MIDIClient")
     names = results.map { |r| r[:name] }
     assert_includes names, "MIDIClientCreate"
+    assert_includes names, "MIDIClientDispose"
   end
 
   def test_lexical_filters_by_framework
