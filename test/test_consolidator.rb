@@ -34,4 +34,17 @@ class TestConsolidator < Test::Unit::TestCase
     merged = cons.merge(swift, c_syms, [])
     assert_equal 1, merged.count { |s| s[:name] == "F" }
   end
+
+  def test_does_not_dedupe_methods_with_different_parents
+    swift_syms = [
+      { name: "init", kind: "class_method", abi: "swift",
+        parent_name: "ClassA", signature: "init(_ x: Swift.Int)" },
+      { name: "init", kind: "class_method", abi: "swift",
+        parent_name: "ClassB", signature: "init(_ x: Swift.Int)" }
+    ]
+    cons = AppleSDKKnowledge::Importer::Consolidator.new
+    merged = cons.merge(swift_syms, [], [])
+    assert_equal 2, merged.count { |s| s[:name] == "init" },
+      "expected init on ClassA and ClassB to be kept separately"
+  end
 end
