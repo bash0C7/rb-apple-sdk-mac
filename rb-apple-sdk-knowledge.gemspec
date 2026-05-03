@@ -29,6 +29,16 @@ Gem::Specification.new do |spec|
   spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
 
+  spec.post_install_message = <<~MSG
+    rb-apple-sdk-knowledge installed.
+
+    Run the following to build the local SDK knowledge base:
+      bundle exec rake apple:knowledge:rebuild
+
+    By default this can take several minutes. To skip embedding generation:
+      RB_APPLE_SDK_KNOWLEDGE_FAST=1 bundle exec rake apple:knowledge:rebuild
+  MSG
+
   spec.add_dependency "sqlite3", "~> 2.0"
   spec.add_dependency "sqlite-vec", "~> 0.1"
   spec.add_development_dependency "test-unit", "~> 3.6"
