@@ -7,6 +7,8 @@ typedef int32_t MiniStatus;
 
 typedef struct MiniClient *MiniClientRef;
 
+typedef void (*MiniCallback)(MiniStatus status, void *userData);
+
 typedef enum {
   kMiniErrorNone = 0,
   kMiniErrorBadInput = -1

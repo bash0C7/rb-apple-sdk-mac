@@ -30,4 +30,14 @@ class TestHeaderParser < Test::Unit::TestCase
     c = @symbols.find { |s| s[:name] == "kMiniDefaultName" && s[:kind] == "global_constant" }
     assert_not_nil c
   end
+
+  def test_does_not_classify_function_pointer_typedef_as_struct
+    cb = @symbols.find { |s| s[:name] == "MiniCallback" }
+    if cb
+      assert_not_equal "struct", cb[:kind],
+        "function-pointer typedef should not be classified as struct"
+    end
+    # Either it's not emitted at all, or it's emitted with a non-struct kind.
+    # The current acceptable shapes are: omitted, or kind=function_pointer (future).
+  end
 end
