@@ -1,0 +1,28 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.3
+// swift-module-flags: -target arm64-apple-macos26.0 -enable-objc-interop -module-name MiniFramework
+import Foundation
+@_exported import MiniFramework
+
+public func miniFunction(_ input: Swift.String) -> Swift.Int
+
+public class MiniClass {
+  public init()
+  public func doThing(_ count: Swift.Int) -> Swift.String
+  public var label: Swift.String { get set }
+}
+
+public enum MiniEnum {
+  case alpha
+  case beta
+  case gamma(Swift.Int)
+}
+
+public struct MiniStruct : Swift.Sendable {
+  public let id: Swift.String
+  public init(id: Swift.String)
+}
+
+public protocol MiniProtocol {
+  func required() -> Swift.Bool
+}
