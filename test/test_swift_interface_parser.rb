@@ -41,4 +41,18 @@ class TestSwiftInterfaceParser < Test::Unit::TestCase
     p = @symbols.find { |s| s[:name] == "MiniProtocol" && s[:kind] == "protocol" }
     assert_not_nil p
   end
+
+  def test_extracts_extension_body_methods
+    methods = @symbols.select { |s| s[:parent_name] == "MiniClass" && s[:kind] == "instance_method" }
+    method_names = methods.map { |m| m[:name] }
+    assert_includes method_names, "extendedMethod",
+      "expected extension method to be attributed to MiniClass"
+  end
+
+  def test_extracts_extension_body_properties
+    props = @symbols.select { |s| s[:parent_name] == "MiniClass" && s[:kind] == "instance_property" }
+    prop_names = props.map { |p| p[:name] }
+    assert_includes prop_names, "extendedProperty",
+      "expected extension property to be attributed to MiniClass"
+  end
 end

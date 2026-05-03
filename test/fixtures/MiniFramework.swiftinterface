@@ -26,3 +26,8 @@ public struct MiniStruct : Swift.Sendable {
 public protocol MiniProtocol {
   func required() -> Swift.Bool
 }
+
+extension MiniClass {
+  public func extendedMethod() -> Swift.Bool
+  public var extendedProperty: Swift.Int { get }
+}
