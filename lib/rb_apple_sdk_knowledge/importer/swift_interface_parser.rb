@@ -4,6 +4,7 @@ module AppleSDKKnowledge
   module Importer
     class SwiftInterfaceParser
       FUNC_RE   = /^public\s+(?:static\s+)?func\s+(\w+)\s*(\([^)]*\))\s*(->\s*[\w.<>\[\]?!,\s]+)?$/
+      EXTENSION_RE = /^public\s+extension\s+(\w+)|^extension\s+(\w+)/
       CLASS_RE  = /^public\s+(?:final\s+)?class\s+(\w+)/
       STRUCT_RE = /^public\s+struct\s+(\w+)/
       ENUM_RE   = /^public\s+enum\s+(\w+)/
@@ -33,7 +34,9 @@ module AppleSDKKnowledge
             current_parent = nil
           end
 
-          if (m = stripped.match(CLASS_RE))
+          if (m = stripped.match(EXTENSION_RE))
+            current_parent = m[1] || m[2]
+          elsif (m = stripped.match(CLASS_RE))
             symbols << { name: m[1], kind: "class", abi: "swift", parent_name: nil, signature: stripped.strip }
             current_parent = m[1]
           elsif (m = stripped.match(STRUCT_RE))
