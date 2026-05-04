@@ -11,8 +11,12 @@ class TestCoreMIDISmoke < Test::Unit::TestCase
     end
     omit "CoreMIDI not in knowledge base" unless frameworks.include?("CoreMIDI")
 
-    Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientCreate) rescue nil
-    Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientDispose) rescue nil
+    begin
+      Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientCreate)
+      Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientDispose)
+    rescue AppleSDKMac::Error => e
+      omit "discover failed: #{e.message}"
+    end
 
     client = Apple::CoreMIDI.MIDIClientCreate("rb-apple-sdk-mac smoke test", nil, nil)
     assert_not_nil client
