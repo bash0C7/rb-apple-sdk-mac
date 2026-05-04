@@ -18,3 +18,26 @@ public func runtime_ref_lookup_test(_ handle: UInt32) -> UInt64 {
 public func runtime_ref_release(_ handle: UInt32) {
     RefTable.release(handle)
 }
+
+@c
+public func runtime_marshal_string_round_trip(
+    _ input: UnsafePointer<CChar>
+) -> UnsafeMutablePointer<CChar> {
+    let s = Marshal.swiftString(fromCString: input)
+    return Marshal.cString(fromSwift: s)
+}
+
+@c
+public func runtime_marshal_int_round_trip(_ value: Int64) -> Int64 {
+    return value
+}
+
+@c
+public func runtime_marshal_array_count(_ count: Int64) -> Int64 {
+    return count
+}
+
+@c
+public func runtime_string_free(_ ptr: UnsafeMutablePointer<CChar>?) {
+    free(ptr)
+}
