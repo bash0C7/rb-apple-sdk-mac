@@ -61,7 +61,8 @@ module AppleSDKKnowledge
               abi: "c",
               parent_name: nil,
               signature: function_signature(node),
-              return_type: node.dig("type", "qualType")
+              return_type: node.dig("type", "qualType"),
+              parameters: function_parameters(node)
             }
           end
         when "RecordDecl"
@@ -117,6 +118,12 @@ module AppleSDKKnowledge
         params = (node["inner"] || []).select { |i| i["kind"] == "ParmVarDecl" }
         param_str = params.map { |p| "#{p.dig('type', 'qualType')} #{p['name']}" }.join(", ")
         "#{return_type.split(" (").first} #{node['name']}(#{param_str})"
+      end
+
+      def function_parameters(node)
+        (node["inner"] || []).select { |i| i["kind"] == "ParmVarDecl" }.each_with_index.map do |p, i|
+          { name: p["name"] || "_arg#{i}", type: p.dig("type", "qualType") || "" }
+        end
       end
     end
   end
