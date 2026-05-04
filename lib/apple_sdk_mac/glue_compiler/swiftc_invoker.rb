@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 require "open3"
+require "rb_apple_sdk_knowledge"
 
 module AppleSDKMac
   class GlueCompiler
@@ -10,7 +11,7 @@ module AppleSDKMac
       end
 
       def compile(source_path:, dylib_path:, runtime_dylib_path: nil, link_libs: [])
-        sdk = @sdk_path || `xcrun --show-sdk-path`.strip
+        sdk = @sdk_path || AppleSDKKnowledge::SDK.path
         args = [
           "-emit-library",
           "-target", "arm64-apple-macos26.0",

@@ -34,7 +34,7 @@ module AppleSDKMac
     end
 
     def glue_cache
-      @glue_cache ||= CompiledGlueCache.open(config.cache_dir, sdk_version: detect_sdk_version)
+      @glue_cache ||= CompiledGlueCache.open(config.cache_dir, sdk_version: AppleSDKKnowledge::SDK.version)
     end
 
     def loader
@@ -90,10 +90,6 @@ module AppleSDKMac
     end
 
     private
-
-    def detect_sdk_version
-      `xcrun --show-sdk-version`.strip
-    end
 
     def runtime_dylib_path
       File.expand_path("../apple_sdk_mac_runtime.bundle", __FILE__)
