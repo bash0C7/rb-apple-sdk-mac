@@ -66,4 +66,18 @@ class TestHeaderParser < Test::Unit::TestCase
     assert_empty foreign,
       "expected only Mini* symbols, got foreign: #{foreign.inspect}"
   end
+
+  def test_classifies_string_param
+    fn = @symbols.find { |s| s[:name] == "MiniCreate" && s[:kind] == "function" }
+    name_param = fn[:parameters].find { |p| p[:name] == "name" }
+    assert_equal "string", name_param[:kind]
+  end
+
+  def test_classifies_int_param
+    fn = @symbols.find { |s| s[:name] == "MiniDispose" && s[:kind] == "function" }
+    client_param = fn[:parameters].find { |p| p[:name] == "client" }
+    # MiniClientRef = struct *, name ends in Ref, becomes opaque_ref later;
+    # for THIS step we only assert kind is set (not nil).
+    assert_not_nil client_param[:kind]
+  end
 end
