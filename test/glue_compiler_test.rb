@@ -8,7 +8,7 @@ require "apple_sdk_mac/compiled_glue_cache"
 
 class TestGlueCompiler < Test::Unit::TestCase
   class StubSwiftc
-    def compile(source_path:, dylib_path:, runtime_dylib_path: nil, link_libs: [])
+    def compile(source_path:, dylib_path:, runtime_dylib_path: nil, link_libs: [], module_search_paths: [])
       File.write(dylib_path, "")
       [true, ""]
     end
