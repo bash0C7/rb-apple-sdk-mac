@@ -803,37 +803,63 @@ git commit -m "chore: drop ErrorBridge.swift; raise via @_silgen_name rb_raise f
 
 ---
 
-## Task 9: DB rebuild and SQL verification
+## Task 9: In-place reclassify + SQL verification
+
+> **Replaces the original "4hr rebuild" approach.** The new fields (`kind`, `is_out_param`, `nullability`) are pure functions of `parameters_json` already in the DB — recompute in place via the dedicated rake task instead of re-fetching the SDK headers.
+>
+> Implementation plan: `~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/docs/superpowers/plans/2026-05-05-reclassify-task.md` (Tasks 1–5 build the rake task + Kind module + tests; Task 6 is the docs pointer this task points back to; the steps below complete T9 of Bug C).
 
 **Files:**
-- Delete and rebuild: `~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/data/sdk_knowledge_26.2.sqlite`
+- Read-then-mutate: `~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/data/sdk_knowledge_26.2.sqlite`
+- Backup written by the task: `~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/data/sdk_knowledge_26.2.sqlite.bak`
+- Logs: `~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/tmp/longrun/bug-c-reclassify.log` and `...-unsupported.jsonl`
 
-- [ ] **Step 1: Push gem B commits and confirm the importer is the latest**
+- [ ] **Step 1: Implement the reclassify plan**
+
+Execute Tasks 1–5 of `~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/docs/superpowers/plans/2026-05-05-reclassify-task.md`. That builds `Importer::Kind`, `Reclassifier`, the `unsupported.jsonl` + `_summary` shape, and the `apple:knowledge:reclassify` rake task. After Task 5 the smoke run on the existing DB will already have produced an updated `parameters_json` for every row — so for the typical Bug C flow this single execution is enough and the screen-pattern launch below is only required if the smoke run was aborted or the DB has grown so large that it exceeds 2 minutes.
+
+- [ ] **Step 2: Pre-run safety check (only needed if Step 1 smoke was not run, or before a re-run).** Confirm no other writer is active and the DB exists.
+
+```bash
+ls -la ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/data/sdk_knowledge_26.2.sqlite*
+pgrep -fl 'rake apple:knowledge'   # must be empty
+```
+
+- [ ] **Step 3: Launch reclassify under the long-batch screen pattern (only required for re-run or if Step 1 smoke could not complete inline).** Per `~/dev/src/CLAUDE.md` "ロングバッチ実行パターン":
 
 ```bash
 cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge
-git log --oneline -5
-git push origin main
+mkdir -p tmp/longrun
+screen -dmS bug-c-reclassify bash -c '
+  cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge
+  bundle exec rake apple:knowledge:reclassify > tmp/longrun/bug-c-reclassify.log 2>&1
+  echo "DONE: exit=$?" >> tmp/longrun/bug-c-reclassify.log
+'
 ```
 
-- [ ] **Step 2: Delete old DB and rebuild (~4 hours, run in background)**
+End the Claude turn here.
 
-Ask the user for explicit authorization to delete the DB file (per project policy). Then:
+- [ ] **Step 4: In a later turn, verify completion (only if Step 3 was used).**
 
 ```bash
-cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge
-rm -f data/sdk_knowledge_26.2.sqlite data/sdk_knowledge_26.2.sqlite-wal data/sdk_knowledge_26.2.sqlite-shm
-bundle exec rake apple:knowledge:rebuild
+grep "^DONE:" ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/tmp/longrun/bug-c-reclassify.log
 ```
-Expected: completes after ~4 hours with no errors.
+Must show `DONE: exit=0`. If absent the job is still running (or has crashed); inspect the log.
 
-- [ ] **Step 3: Verify parameters_json now contains kind / is_out_param**
+- [ ] **Step 5: Read the unsupported summary; enter recovery loop only if needed.**
+
+```bash
+tail -1 ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/tmp/longrun/reclassify-unsupported.jsonl | jq ._summary
+```
+For Bug C smoke acceptance, the only required outcome is that `MIDIClientCreate`'s `name` and `outClient` parameters classify correctly (next step). `notifyProc` and `notifyRefCon` MAY remain `unsupported` — that is acceptable. If extending `Kind.classify_kind` to absorb a high-count cluster is desired, do it now and re-run from Step 3; otherwise proceed.
+
+- [ ] **Step 6: SQL verification (the original Task 9 acceptance check).**
 
 ```bash
 sqlite3 ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/data/sdk_knowledge_26.2.sqlite \
-  "SELECT s.name, s.parameters_json FROM symbols s JOIN frameworks f ON s.framework_id=f.id WHERE s.name='MIDIClientCreate';"
+  "SELECT s.parameters_json FROM symbols s JOIN frameworks f ON s.framework_id=f.id WHERE s.name='MIDIClientCreate' AND f.name='CoreMIDI';"
 ```
-Expected: `parameters_json` contains `"kind":"string"` for `name`, `"kind":"unsupported"` for `notifyProc` and `notifyRefCon`, `"kind":"opaque_ref"` for `outClient`, and `"is_out_param":true` for `outClient`.
+Expected: the JSON contains `"kind":"string"` for `name`, `"kind":"opaque_ref"` for `outClient`, and `"is_out_param":true` for `outClient`. (`notifyProc` / `notifyRefCon` may be `unsupported`.)
 
 ---
 
