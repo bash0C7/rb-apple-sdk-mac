@@ -40,4 +40,20 @@ class TestHeaderParser < Test::Unit::TestCase
     # Either it's not emitted at all, or it's emitted with a non-struct kind.
     # The current acceptable shapes are: omitted, or kind=function_pointer (future).
   end
+
+  def test_does_not_leak_symbols_from_transitively_included_headers
+    # MiniHeader.h #includes <stdint.h>, which transitively pulls in
+    # pthread/NSConstantString/__builtin_va_list etc. The parser must filter
+    # by source location and only emit symbols declared in the parsed file.
+    leaked = @symbols.map { |s| s[:name] }.select do |n|
+      n.start_with?("__", "_opaque_") || n == "MiniStatus" && false # keep MiniStatus
+    end
+    assert_empty leaked,
+      "expected no system-header symbols, got: #{leaked.inspect}"
+    # Sanity: only Mini-prefixed names plus enum constants should remain.
+    own_names = @symbols.map { |s| s[:name] }.uniq
+    foreign = own_names.reject { |n| n.match?(/\A(Mini|kMini)/) }
+    assert_empty foreign,
+      "expected only Mini* symbols, got foreign: #{foreign.inspect}"
+  end
 end
