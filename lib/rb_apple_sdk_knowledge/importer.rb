@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+require "json"
 require_relative "importer/sdk_resolver"
 require_relative "importer/swift_interface_parser"
 require_relative "importer/header_parser"
@@ -54,6 +55,8 @@ module AppleSDKKnowledge
               abi: sym[:abi],
               signature: sym[:signature],
               documentation: sym[:documentation],
+              return_type: sym[:return_type],
+              parameters_json: sym[:parameters] && JSON.generate(sym[:parameters]),
               content_hash: sym[:content_hash]
             )
             if embedder && embedder.available?
