@@ -1,0 +1,5 @@
+  {
+    "permissions": {                                                                                                                                                                                         "allow": [
+        "Write(/Users/bash/dev/src/github.com/bash0C7/rb-apple-sdk-mac/lib/apple_sdk_mac/security_cop.rb)",                                                                                                    "Edit(/Users/bash/dev/src/github.com/bash0C7/rb-apple-sdk-mac/lib/apple_sdk_mac/security_cop.rb)"
+      ]                                                                                                                                                                                                    }
+  }
