@@ -1,34 +1,51 @@
 # rb-apple-sdk-mac
 
-TODO: Describe rb-apple-sdk-mac.
+Runtime dynamic Ruby ↔ Apple SDK bridge for macOS. Call any public Apple framework API from Ruby with no pre-declarations.
 
-Built on top of [swift_gem](https://github.com/bash0C7/swift_gem). macOS / Apple Silicon only.
+## Requirements
+
+- macOS 26+
+- Ruby 4.x master with `RUBY_BOX=1` (required for namespace isolation)
+- Xcode + Swift 6.3+
+- Sibling gems: `rb-foundation-model-mac`, `rb-apple-sdk-knowledge`, `swift_gem`
+
+## Installation
+
+```ruby
+gem "rb-apple-sdk-mac"
+```
+
+After install:
+
+```bash
+bundle exec rake apple:knowledge:rebuild   # see rb-apple-sdk-knowledge
+```
 
 ## Usage
 
 ```ruby
 require "apple_sdk_mac"
 
-# TODO
+# First-time: declare you want to call this API
+Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientCreate)
+
+# Use it
+client = Apple::CoreMIDI.MIDIClientCreate("MyClient", nil, nil)
 ```
 
-## CLI
+See `examples/` for more.
 
-```bash
-apple-sdk-mac <input>
-```
+## Architecture
 
-```bash
-swift examples/apple_sdk_mac.swift <input>
-```
+See `docs/superpowers/specs/2026-05-04-rb-apple-sdk-mac-design.md` in the swift_gem repo.
 
-## Development
+The bridge is composed of:
 
-```bash
-bundle install
-bundle exec rake test
-```
+- **Glue Runtime** (`ext/apple_sdk_mac_runtime/`): static Swift dylib with 9 pillars (Ref Table, Marshal, Callback, ARC, Error, Async, Threading, RunLoop, Conformance) bridged to CRuby via SE-0495 `@c`.
+- **Ruby cache layer**: Config (XDG/ENV/YAML), CompiledGlueCache (SQLite + dylib FS), KnowledgeCache (consume rb-apple-sdk-knowledge).
+- **Glue Compiler pipeline**: TemplateGenerator (deterministic shape catalog) → LLMGenerator fallback (rb-foundation-model-mac via Ollama) → ValidationGates (allowed imports / banned APIs / glue shape) → SwiftcInvoker.
+- **Ruby runtime**: GlueLoader (dlopen + pointer cache), Dispatcher, SecurityCop (in-Box monkey patches with allow-list bypass), NamespaceBuilder (eager `Apple::<Framework>` definition), `Apple` Ruby::Box bootstrap.
 
 ## License
 
-MIT.
+MIT
