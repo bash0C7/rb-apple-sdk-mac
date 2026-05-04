@@ -2,7 +2,6 @@
 require_relative "importer/sdk_resolver"
 require_relative "importer/swift_interface_parser"
 require_relative "importer/header_parser"
-require_relative "importer/docc_parser"
 require_relative "importer/consolidator"
 require_relative "importer/embedder"
 require_relative "store"
@@ -23,11 +22,10 @@ module AppleSDKKnowledge
         embedder = @fast ? nil : Embedder.new
         swift_parser = SwiftInterfaceParser.new
         header_parser = HeaderParser.new
-        docc_parser = DoccParser.new
         consolidator = Consolidator.new
 
         resolver.frameworks.each do |fw|
-          process_framework(fw, store, swift_parser, header_parser, docc_parser, consolidator, embedder)
+          process_framework(fw, store, swift_parser, header_parser, consolidator, embedder)
         end
 
         store.rebuild_fts!
@@ -38,16 +36,14 @@ module AppleSDKKnowledge
 
       private
 
-      def process_framework(fw, store, swift_parser, header_parser, docc_parser, consolidator, embedder)
-        # Reuse existing framework id on re-runs to avoid UNIQUE constraint on name
+      def process_framework(fw, store, swift_parser, header_parser, consolidator, embedder)
         fw_id = store.find_framework_id_by_name(fw.name)
         fw_id ||= store.insert_framework(name: fw.name, swift_module: fw.name)
 
         swift_syms = collect_swift_symbols(fw, swift_parser)
         c_syms = collect_c_symbols(fw, header_parser)
-        docc_syms = [] # doc enrichment optional in v1
 
-        merged = consolidator.merge(swift_syms, c_syms, docc_syms)
+        merged = consolidator.merge(swift_syms, c_syms)
 
         merged.each do |sym|
           begin
