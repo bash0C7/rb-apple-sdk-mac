@@ -41,6 +41,16 @@ class TestHeaderParser < Test::Unit::TestCase
     # The current acceptable shapes are: omitted, or kind=function_pointer (future).
   end
 
+  def test_emits_structured_parameters_for_function
+    fn = @symbols.find { |s| s[:name] == "MiniCreate" && s[:kind] == "function" }
+    assert_not_nil fn
+    assert_not_nil fn[:parameters], "FunctionDecl should expose :parameters array for downstream marshalling"
+    assert_equal %w[name outClient], fn[:parameters].map { |p| p[:name] }
+    types = fn[:parameters].map { |p| p[:type] }
+    assert_match(/const char \*/, types[0])
+    assert_match(/MiniClientRef \*/, types[1])
+  end
+
   def test_does_not_leak_symbols_from_transitively_included_headers
     # MiniHeader.h #includes <stdint.h>, which transitively pulls in
     # pthread/NSConstantString/__builtin_va_list etc. The parser must filter
