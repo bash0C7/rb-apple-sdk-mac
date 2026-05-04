@@ -86,3 +86,15 @@ public func runtime_arc_counter_bump(_ handle: UInt32) {
 public func runtime_arc_counter_value(_ handle: UInt32) -> Int64 {
     return ARCBridge.value(handle)
 }
+
+@c
+public func runtime_async_test_sleep_and_double(_ millis: Int64) -> Int64 {
+    do {
+        return try AsyncBridge.runSync { () async throws -> Int64 in
+            try await Task.sleep(nanoseconds: UInt64(millis) * 1_000_000)
+            return millis * 2
+        }
+    } catch {
+        return -1
+    }
+}

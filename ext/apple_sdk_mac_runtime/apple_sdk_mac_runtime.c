@@ -78,6 +78,10 @@ static VALUE rb_arc_counter_value(VALUE self, VALUE h) {
     return LL2NUM(runtime_arc_counter_value(NUM2UINT(h)));
 }
 
+static VALUE rb_async_await_sleep(VALUE self, VALUE millis) {
+    return LL2NUM(runtime_async_test_sleep_and_double(NUM2LL(millis)));
+}
+
 static VALUE rb_raise_runtime_error_test(VALUE self, VALUE msg) {
     char *m = runtime_raise_request(0, StringValueCStr(msg));
     VALUE str = rb_utf8_str_new_cstr(m);
@@ -114,4 +118,5 @@ void Init_apple_sdk_mac_runtime(void) {
     rb_define_singleton_method(module, "arc_release_counter_init", rb_arc_counter_init, 0);
     rb_define_singleton_method(module, "arc_counter_bump", rb_arc_counter_bump, 1);
     rb_define_singleton_method(module, "arc_release_counter_value", rb_arc_counter_value, 1);
+    rb_define_singleton_method(module, "async_await_test_sleep_and_double", rb_async_await_sleep, 1);
 }
