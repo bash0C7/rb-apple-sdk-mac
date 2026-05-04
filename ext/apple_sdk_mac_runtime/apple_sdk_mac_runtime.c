@@ -1,6 +1,28 @@
 #include <ruby.h>
 #include "AppleSDKMacRuntime-Swift.h"
 
+static VALUE proc_registry = Qnil;
+
+static void ruby_callback_dispatcher(uint64_t proc_id, int64_t arg) {
+    VALUE pid = ULL2NUM(proc_id);
+    VALUE proc = rb_hash_lookup(proc_registry, pid);
+    if (NIL_P(proc)) return;
+    VALUE args[1] = { LL2NUM(arg) };
+    rb_proc_call_with_block(proc, 1, args, Qnil);
+}
+
+static VALUE rb_callback_register_test(VALUE self) {
+    VALUE block = rb_block_proc();
+    VALUE pid = ULL2NUM((uint64_t)NUM2ULL(rb_obj_id(block)));
+    rb_hash_aset(proc_registry, pid, block);
+    return pid;
+}
+
+static VALUE rb_callback_invoke_test(VALUE self, VALUE pid, VALUE arg) {
+    runtime_callback_invoke(NUM2ULL(pid), NUM2LL(arg));
+    return Qnil;
+}
+
 static VALUE rb_ref_retain_test(VALUE self, VALUE oid) {
     uint64_t id = NUM2ULL(oid);
     return UINT2NUM(runtime_ref_retain_test(id));
@@ -63,7 +85,12 @@ static VALUE rb_raise_argument_error_test(VALUE self, VALUE msg) {
 }
 
 void Init_apple_sdk_mac_runtime(void) {
+    proc_registry = rb_hash_new();
+    rb_global_variable(&proc_registry);
+    runtime_callback_set_dispatcher(ruby_callback_dispatcher);
     VALUE module = rb_define_module("AppleSDKMacRuntime");
+    rb_define_singleton_method(module, "callback_register_test", rb_callback_register_test, 0);
+    rb_define_singleton_method(module, "callback_invoke_test", rb_callback_invoke_test, 2);
     rb_define_singleton_method(module, "ref_retain_test_object", rb_ref_retain_test, 1);
     rb_define_singleton_method(module, "ref_lookup_test_object_id", rb_ref_lookup_test, 1);
     rb_define_singleton_method(module, "ref_release", rb_ref_release, 1);

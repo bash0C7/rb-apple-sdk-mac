@@ -51,6 +51,18 @@ public func runtime_raise_request(
 }
 
 @c
+public func runtime_callback_set_dispatcher(
+    _ fn: @convention(c) (UInt64, Int64) -> Void
+) {
+    CallbackBridge.rubyDispatcher = fn
+}
+
+@c
+public func runtime_callback_invoke(_ procId: UInt64, _ arg: Int64) {
+    CallbackBridge.dispatch(procId: procId, arg: arg)
+}
+
+@c
 public func runtime_arc_counter_init() -> UInt32 {
     return ARCBridge.makeCounter()
 }
