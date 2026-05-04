@@ -19,4 +19,11 @@ extern const char *kMiniDefaultName;
 MiniStatus MiniCreate(const char *name, MiniClientRef *outClient);
 MiniStatus MiniDispose(MiniClientRef client);
 
+typedef uint32_t MiniNodeRef;
+
+double MiniGetRatio(MiniClientRef client);
+_Bool MiniIsActive(MiniClientRef client, _Bool checkPower);
+MiniStatus MiniWithCallback(MiniCallback cb, void *userData);
+MiniStatus MiniMakeNode(MiniClientRef client, MiniNodeRef *outNode);
+
 #endif
