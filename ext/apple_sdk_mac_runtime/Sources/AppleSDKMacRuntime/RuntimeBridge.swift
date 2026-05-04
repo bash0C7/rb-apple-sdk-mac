@@ -49,3 +49,18 @@ public func runtime_raise_request(
 ) -> UnsafeMutablePointer<CChar> {
     return strdup(String(cString: message))!
 }
+
+@c
+public func runtime_arc_counter_init() -> UInt32 {
+    return ARCBridge.makeCounter()
+}
+
+@c
+public func runtime_arc_counter_bump(_ handle: UInt32) {
+    ARCBridge.bump(handle)
+}
+
+@c
+public func runtime_arc_counter_value(_ handle: UInt32) -> Int64 {
+    return ARCBridge.value(handle)
+}
