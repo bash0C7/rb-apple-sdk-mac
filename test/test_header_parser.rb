@@ -80,4 +80,37 @@ class TestHeaderParser < Test::Unit::TestCase
     # for THIS step we only assert kind is set (not nil).
     assert_not_nil client_param[:kind]
   end
+
+  def test_classifies_bool_param
+    fn = @symbols.find { |s| s[:name] == "MiniIsActive" && s[:kind] == "function" }
+    bool_param = fn[:parameters].find { |p| p[:name] == "checkPower" }
+    assert_equal "bool", bool_param[:kind]
+  end
+
+  def test_classifies_float_return_function
+    # Float kind shows up on the parameters; here MiniIsActive's BOOL-like return
+    # is not exposed via :parameters. Use MiniGetRatio, whose only param is
+    # MiniClientRef (opaque_ref).
+    fn = @symbols.find { |s| s[:name] == "MiniGetRatio" && s[:kind] == "function" }
+    client = fn[:parameters].find { |p| p[:name] == "client" }
+    assert_equal "opaque_ref", client[:kind]
+  end
+
+  def test_classifies_opaque_ref_for_ref_typedef
+    fn = @symbols.find { |s| s[:name] == "MiniDispose" && s[:kind] == "function" }
+    client = fn[:parameters].find { |p| p[:name] == "client" }
+    assert_equal "opaque_ref", client[:kind]
+  end
+
+  def test_classifies_void_pointer_as_unsupported
+    fn = @symbols.find { |s| s[:name] == "MiniWithCallback" && s[:kind] == "function" }
+    user_data = fn[:parameters].find { |p| p[:name] == "userData" }
+    assert_equal "unsupported", user_data[:kind]
+  end
+
+  def test_classifies_callback_typedef_as_unsupported
+    fn = @symbols.find { |s| s[:name] == "MiniWithCallback" && s[:kind] == "function" }
+    cb = fn[:parameters].find { |p| p[:name] == "cb" }
+    assert_equal "unsupported", cb[:kind]
+  end
 end
