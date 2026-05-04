@@ -1,5 +1,5 @@
 # frozen_string_literal: true
-require "open3"
+require_relative "../sdk"
 
 module AppleSDKKnowledge
   module Importer
@@ -7,33 +7,21 @@ module AppleSDKKnowledge
       Framework = Struct.new(:name, :path, keyword_init: true)
 
       def sdk_version
-        @sdk_version ||= xcrun("--show-sdk-version").strip
+        SDK.version
       end
 
       def sdk_path
-        @sdk_path ||= xcrun("--show-sdk-path").strip
+        SDK.path
       end
 
       def frameworks
-        return @frameworks if @frameworks
-        root = File.join(sdk_path, "System", "Library", "Frameworks")
-        @frameworks = Dir.children(root)
-          .select { |entry| entry.end_with?(".framework") }
-          .map do |entry|
-            Framework.new(
-              name: entry.delete_suffix(".framework"),
-              path: File.join(root, entry)
-            )
-          end
-          .sort_by(&:name)
-      end
-
-      private
-
-      def xcrun(*args)
-        out, err, status = Open3.capture3("xcrun", *args)
-        raise "xcrun failed (#{args.join(' ')}): #{err.strip}" unless status.success?
-        out
+        @frameworks ||= begin
+          root = File.join(sdk_path, "System", "Library", "Frameworks")
+          Dir.children(root)
+            .select { |entry| entry.end_with?(".framework") }
+            .map { |entry| Framework.new(name: entry.delete_suffix(".framework"), path: File.join(root, entry)) }
+            .sort_by(&:name)
+        end
       end
     end
   end

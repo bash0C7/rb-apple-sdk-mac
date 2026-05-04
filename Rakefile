@@ -17,7 +17,7 @@ namespace :apple do
     desc "Rebuild the local SDK knowledge base"
     task :rebuild do
       require "rb_apple_sdk_knowledge"
-      sdk_version = AppleSDKKnowledge.detect_sdk_version
+      sdk_version = AppleSDKKnowledge::SDK.version
       path = AppleSDKKnowledge.knowledge_path(sdk_version: sdk_version)
       FileUtils.mkdir_p(File.dirname(path))
       puts "Building knowledge base at #{path}..."
