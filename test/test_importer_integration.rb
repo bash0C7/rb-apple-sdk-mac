@@ -9,7 +9,7 @@ class TestImporterIntegration < Test::Unit::TestCase
     Dir.mktmpdir do |dir|
       path = File.join(dir, "kb.sqlite")
       ENV["RB_APPLE_SDK_KNOWLEDGE_FAST"] = "1"
-      AppleSDKKnowledge::Importer.new(store_path: path).run
+      AppleSDKKnowledge::Importer::Pipeline.new(store_path: path).run
       ENV.delete("RB_APPLE_SDK_KNOWLEDGE_FAST")
 
       store = AppleSDKKnowledge::Store.open(path)
@@ -31,14 +31,14 @@ class TestImporterIntegration < Test::Unit::TestCase
     Dir.mktmpdir do |dir|
       path = File.join(dir, "kb.sqlite")
       ENV["RB_APPLE_SDK_KNOWLEDGE_FAST"] = "1"
-      AppleSDKKnowledge::Importer.new(store_path: path).run
+      AppleSDKKnowledge::Importer::Pipeline.new(store_path: path).run
 
       store = AppleSDKKnowledge::Store.open(path)
       first_count = store.db.execute("SELECT COUNT(*) FROM symbols").flatten.first
       store.close
 
       assert_nothing_raised do
-        AppleSDKKnowledge::Importer.new(store_path: path).run
+        AppleSDKKnowledge::Importer::Pipeline.new(store_path: path).run
       end
 
       store = AppleSDKKnowledge::Store.open(path)

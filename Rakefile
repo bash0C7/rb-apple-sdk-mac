@@ -21,7 +21,7 @@ namespace :apple do
       path = AppleSDKKnowledge.knowledge_path(sdk_version: sdk_version)
       FileUtils.mkdir_p(File.dirname(path))
       puts "Building knowledge base at #{path}..."
-      AppleSDKKnowledge::Importer.new(store_path: path).run
+      AppleSDKKnowledge::Importer::Pipeline.new(store_path: path).run
       puts "Done."
     end
 

@@ -8,15 +8,8 @@ require_relative "importer/embedder"
 require_relative "store"
 
 module AppleSDKKnowledge
-  # Importer is already defined as a module (namespace for sub-parsers).
-  # Runner is the orchestrator class nested inside that module.
-  # Importer.new(...) is a convenience module method that returns a Runner.
   module Importer
-    def self.new(**kwargs)
-      Runner.new(**kwargs)
-    end
-
-    class Runner
+    class Pipeline
       def initialize(store_path:, fast: ENV["RB_APPLE_SDK_KNOWLEDGE_FAST"] == "1",
                      offline: ENV["RB_APPLE_SDK_KNOWLEDGE_OFFLINE"] == "1")
         @store_path = store_path
