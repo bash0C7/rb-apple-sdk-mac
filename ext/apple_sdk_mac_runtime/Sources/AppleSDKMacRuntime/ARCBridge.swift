@@ -8,7 +8,7 @@ public enum ARCBridge {
         func value() -> Int64 { queue.sync { count } }
     }
 
-    nonisolated(unsafe) private static let queue = DispatchQueue(label: "ARCBridge.counters")
+    private static let queue = DispatchQueue(label: "ARCBridge.counters")
     nonisolated(unsafe) private static var counters: [UInt32: ReleaseCounter] = [:]
     nonisolated(unsafe) private static var next: UInt32 = 1
 

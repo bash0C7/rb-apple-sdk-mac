@@ -6,7 +6,7 @@ public enum ThreadingBridge {
         let arg: Int64
     }
 
-    nonisolated(unsafe) private static let queue = DispatchQueue(label: "ThreadingBridge.lockfree")
+    private static let queue = DispatchQueue(label: "ThreadingBridge.lockfree")
     nonisolated(unsafe) private static var pending: [Pending] = []
 
     public static func enqueueFromAppleThread(procId: UInt64, arg: Int64) {
