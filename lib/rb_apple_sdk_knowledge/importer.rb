@@ -69,9 +69,14 @@ module AppleSDKKnowledge
 
       def collect_swift_symbols(fw, parser)
         pattern = File.join(fw.path, "Modules", "*.swiftmodule", "*.swiftinterface")
-        Dir.glob(pattern).flat_map { |path| parser.parse_file(path) }
-      rescue
-        []
+        Dir.glob(pattern).flat_map do |path|
+          begin
+            parser.parse_file(path)
+          rescue StandardError => e
+            warn "[importer] skipping swift interface #{path}: #{e.class}: #{e.message}"
+            []
+          end
+        end
       end
 
       def collect_c_symbols(fw, parser)
@@ -79,7 +84,8 @@ module AppleSDKKnowledge
         return [] unless File.directory?(headers_dir)
         Dir.glob(File.join(headers_dir, "*.h")).flat_map do |h|
           parser.parse_file(h)
-        rescue
+        rescue StandardError => e
+          warn "[importer] skipping header #{h}: #{e.class}: #{e.message}"
           []
         end
       end
