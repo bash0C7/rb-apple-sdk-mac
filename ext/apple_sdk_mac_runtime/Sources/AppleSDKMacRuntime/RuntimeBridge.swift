@@ -98,3 +98,8 @@ public func runtime_async_test_sleep_and_double(_ millis: Int64) -> Int64 {
         return -1
     }
 }
+
+@c
+public func runtime_runloop_pump(_ timeoutSeconds: Double) {
+    RunLoopBridge.pump(timeoutSeconds: timeoutSeconds)
+}
