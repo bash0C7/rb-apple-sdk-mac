@@ -7,7 +7,12 @@ module AppleSDKKnowledge
     class HeaderParser
       def parse_file(path)
         json = run_clang_ast_dump(path)
-        extract_symbols(json)
+        symbols = []
+        # Top-level siblings before any explicit `loc.file` are compiler-builtin
+        # types (__builtin_va_list etc.) — initialize inherited file as nil so
+        # they are skipped, and let the first explicit marker set the context.
+        walk(json["inner"], nil, path, symbols)
+        symbols
       end
 
       private
@@ -23,8 +28,30 @@ module AppleSDKKnowledge
         raise "clang produced invalid JSON for #{path}: #{e.message}"
       end
 
-      def extract_symbols(node, symbols = [])
-        return symbols unless node.is_a?(Hash)
+      # Walks AST sibling lists and only emits symbols whose source location
+      # matches `target`. clang's JSON loc inherits across siblings: a node
+      # without an explicit `file` keeps the file of the previous sibling.
+      def walk(siblings, parent_file, target, symbols)
+        current_file = parent_file
+        (siblings || []).each do |node|
+          next unless node.is_a?(Hash)
+          f = resolve_file(node)
+          current_file = f if f
+          emit_symbol(node, symbols) if current_file == target
+          walk(node["inner"], current_file, target, symbols)
+        end
+      end
+
+      def resolve_file(node)
+        loc = node["loc"] || {}
+        return loc["file"] if loc["file"]
+        return loc.dig("expansionLoc", "file") if loc.dig("expansionLoc", "file")
+        rb = node.dig("range", "begin") || {}
+        return rb["file"] if rb["file"]
+        rb.dig("expansionLoc", "file")
+      end
+
+      def emit_symbol(node, symbols)
         case node["kind"]
         when "FunctionDecl"
           if node["storageClass"] != "static"
@@ -83,8 +110,6 @@ module AppleSDKKnowledge
             }
           end
         end
-        (node["inner"] || []).each { |child| extract_symbols(child, symbols) }
-        symbols
       end
 
       def function_signature(node)
