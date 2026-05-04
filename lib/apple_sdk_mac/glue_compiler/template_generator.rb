@@ -2,7 +2,7 @@
 require "json"
 
 module AppleSDKMac
-  module GlueCompiler
+  class GlueCompiler
     class TemplateGenerator
       def generate(framework:, symbol:, glue_id:)
         case [symbol[:kind], symbol[:abi]]

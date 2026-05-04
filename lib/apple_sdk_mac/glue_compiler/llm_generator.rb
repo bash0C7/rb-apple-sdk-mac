@@ -2,7 +2,7 @@
 require "foundation_model_mac"
 
 module AppleSDKMac
-  module GlueCompiler
+  class GlueCompiler
     class LLMGenerator
       INSTRUCTIONS = <<~TXT.freeze
         You generate Swift glue code for the rb-apple-sdk-mac runtime bridge.

@@ -2,7 +2,7 @@
 require "open3"
 
 module AppleSDKMac
-  module GlueCompiler
+  class GlueCompiler
     class SwiftcInvoker
       def initialize(swiftc: nil, sdk_path: nil)
         @swiftc = swiftc || ENV["RB_APPLE_SDK_MAC_SWIFTC"] || "swiftc"

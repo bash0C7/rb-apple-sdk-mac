@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module AppleSDKMac
-  module GlueCompiler
+  class GlueCompiler
     class ValidationGates
       Result = Struct.new(:pass?, :errors)
 
