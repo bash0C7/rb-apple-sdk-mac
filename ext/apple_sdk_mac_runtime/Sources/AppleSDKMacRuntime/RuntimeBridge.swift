@@ -103,3 +103,13 @@ public func runtime_async_test_sleep_and_double(_ millis: Int64) -> Int64 {
 public func runtime_runloop_pump(_ timeoutSeconds: Double) {
     RunLoopBridge.pump(timeoutSeconds: timeoutSeconds)
 }
+
+@c
+public func runtime_conformance_register(_ rubyTableId: UInt64) -> UInt32 {
+    return ConformanceBridge.register(rubyTableId: rubyTableId)
+}
+
+@c
+public func runtime_conformance_release(_ handle: UInt32) {
+    ConformanceBridge.release(handle)
+}

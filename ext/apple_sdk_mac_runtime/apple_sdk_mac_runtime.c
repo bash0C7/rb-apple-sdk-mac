@@ -87,6 +87,18 @@ static VALUE rb_runloop_pump(VALUE self, VALUE timeout) {
     return Qnil;
 }
 
+static VALUE rb_conformance_register(VALUE self, VALUE handlers) {
+    Check_Type(handlers, T_HASH);
+    uint64_t table_id = (uint64_t)rb_obj_id(handlers);
+    rb_hash_aset(proc_registry, ULL2NUM(table_id), handlers);
+    return UINT2NUM(runtime_conformance_register(table_id));
+}
+
+static VALUE rb_conformance_release(VALUE self, VALUE handle) {
+    runtime_conformance_release(NUM2UINT(handle));
+    return Qnil;
+}
+
 static VALUE rb_raise_runtime_error_test(VALUE self, VALUE msg) {
     char *m = runtime_raise_request(0, StringValueCStr(msg));
     VALUE str = rb_utf8_str_new_cstr(m);
@@ -125,4 +137,6 @@ void Init_apple_sdk_mac_runtime(void) {
     rb_define_singleton_method(module, "arc_release_counter_value", rb_arc_counter_value, 1);
     rb_define_singleton_method(module, "async_await_test_sleep_and_double", rb_async_await_sleep, 1);
     rb_define_singleton_method(module, "runloop_pump", rb_runloop_pump, 1);
+    rb_define_singleton_method(module, "conformance_register_handlers", rb_conformance_register, 1);
+    rb_define_singleton_method(module, "conformance_release_handlers", rb_conformance_release, 1);
 }
