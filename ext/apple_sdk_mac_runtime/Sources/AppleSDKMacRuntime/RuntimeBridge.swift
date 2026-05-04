@@ -41,3 +41,11 @@ public func runtime_marshal_array_count(_ count: Int64) -> Int64 {
 public func runtime_string_free(_ ptr: UnsafeMutablePointer<CChar>?) {
     free(ptr)
 }
+
+@c
+public func runtime_raise_request(
+    _ kind: Int32,
+    _ message: UnsafePointer<CChar>
+) -> UnsafeMutablePointer<CChar> {
+    return strdup(String(cString: message))!
+}

@@ -35,6 +35,22 @@ static VALUE rb_marshal_array_count(VALUE self, VALUE ary) {
     return LL2NUM(r);
 }
 
+static VALUE rb_raise_runtime_error_test(VALUE self, VALUE msg) {
+    char *m = runtime_raise_request(0, StringValueCStr(msg));
+    VALUE str = rb_utf8_str_new_cstr(m);
+    runtime_string_free(m);
+    rb_raise(rb_eRuntimeError, "%s", StringValueCStr(str));
+    return Qnil;
+}
+
+static VALUE rb_raise_argument_error_test(VALUE self, VALUE msg) {
+    char *m = runtime_raise_request(1, StringValueCStr(msg));
+    VALUE str = rb_utf8_str_new_cstr(m);
+    runtime_string_free(m);
+    rb_raise(rb_eArgError, "%s", StringValueCStr(str));
+    return Qnil;
+}
+
 void Init_apple_sdk_mac_runtime(void) {
     VALUE module = rb_define_module("AppleSDKMacRuntime");
     rb_define_singleton_method(module, "ref_retain_test_object", rb_ref_retain_test, 1);
@@ -43,4 +59,6 @@ void Init_apple_sdk_mac_runtime(void) {
     rb_define_singleton_method(module, "marshal_string_round_trip", rb_marshal_string_rt, 1);
     rb_define_singleton_method(module, "marshal_int_round_trip", rb_marshal_int_rt, 1);
     rb_define_singleton_method(module, "marshal_array_to_swift_count", rb_marshal_array_count, 1);
+    rb_define_singleton_method(module, "raise_runtime_error_test", rb_raise_runtime_error_test, 1);
+    rb_define_singleton_method(module, "raise_argument_error_test", rb_raise_argument_error_test, 1);
 }
