@@ -82,7 +82,7 @@ module AppleSDKMac
     end
 
     def box_module?(mod)
-      @box_modules.value?(mod) || @box_modules.values.any? { |fw| fw.const_defined?(mod.name.split("::").last) }
+      @box_modules.value?(mod)
     end
 
     def register_framework_module(name, mod)
@@ -112,6 +112,5 @@ module AppleSDKMac
     def stop; @stopped = true; end
     def stopped?; @stopped; end
     def elapsed; Time.now - @start_time; end
-    def fiber_scheduler_active?; !Fiber.scheduler.nil?; end
   end
 end
