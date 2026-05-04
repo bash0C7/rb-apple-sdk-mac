@@ -1,7 +1,33 @@
 #include <ruby.h>
+#include <dlfcn.h>
 #include "AppleSDKMacRuntime-Swift.h"
 
 static VALUE proc_registry = Qnil;
+
+static VALUE rb_dlopen_glue(VALUE self, VALUE path) {
+    void *h = dlopen(StringValueCStr(path), RTLD_NOW | RTLD_LOCAL);
+    if (!h) {
+        rb_raise(rb_eRuntimeError, "dlopen failed: %s", dlerror());
+    }
+    return ULL2NUM((uint64_t)h);
+}
+
+static VALUE rb_dlsym_glue(VALUE self, VALUE handle, VALUE symname) {
+    void *h = (void *)NUM2ULL(handle);
+    void *fn = dlsym(h, StringValueCStr(symname));
+    if (!fn) {
+        rb_raise(rb_eRuntimeError, "dlsym failed: %s", dlerror());
+    }
+    return ULL2NUM((uint64_t)fn);
+}
+
+typedef VALUE (*glue_fn_t)(const VALUE *argv, int argc);
+
+static VALUE rb_invoke_glue(VALUE self, VALUE fn_ptr_v, VALUE args_v) {
+    Check_Type(args_v, T_ARRAY);
+    glue_fn_t fn = (glue_fn_t)NUM2ULL(fn_ptr_v);
+    return fn(RARRAY_CONST_PTR(args_v), (int)RARRAY_LEN(args_v));
+}
 
 static void ruby_callback_dispatcher(uint64_t proc_id, int64_t arg) {
     VALUE pid = ULL2NUM(proc_id);
@@ -139,4 +165,7 @@ void Init_apple_sdk_mac_runtime(void) {
     rb_define_singleton_method(module, "runloop_pump", rb_runloop_pump, 1);
     rb_define_singleton_method(module, "conformance_register_handlers", rb_conformance_register, 1);
     rb_define_singleton_method(module, "conformance_release_handlers", rb_conformance_release, 1);
+    rb_define_singleton_method(module, "dlopen_glue", rb_dlopen_glue, 1);
+    rb_define_singleton_method(module, "dlsym_glue", rb_dlsym_glue, 2);
+    rb_define_singleton_method(module, "invoke_glue", rb_invoke_glue, 2);
 }
