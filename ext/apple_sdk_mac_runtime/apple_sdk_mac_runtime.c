@@ -23,6 +23,16 @@ static VALUE rb_callback_invoke_test(VALUE self, VALUE pid, VALUE arg) {
     return Qnil;
 }
 
+static VALUE rb_threading_enqueue(VALUE self, VALUE pid, VALUE arg) {
+    runtime_threading_enqueue(NUM2ULL(pid), NUM2LL(arg));
+    return Qnil;
+}
+
+static VALUE rb_threading_poll(VALUE self, VALUE timeout) {
+    int64_t n = runtime_threading_poll(NUM2DBL(timeout));
+    return LL2NUM(n);
+}
+
 static VALUE rb_ref_retain_test(VALUE self, VALUE oid) {
     uint64_t id = NUM2ULL(oid);
     return UINT2NUM(runtime_ref_retain_test(id));
@@ -91,6 +101,8 @@ void Init_apple_sdk_mac_runtime(void) {
     VALUE module = rb_define_module("AppleSDKMacRuntime");
     rb_define_singleton_method(module, "callback_register_test", rb_callback_register_test, 0);
     rb_define_singleton_method(module, "callback_invoke_test", rb_callback_invoke_test, 2);
+    rb_define_singleton_method(module, "threading_enqueue_from_thread", rb_threading_enqueue, 2);
+    rb_define_singleton_method(module, "threading_poll", rb_threading_poll, 1);
     rb_define_singleton_method(module, "ref_retain_test_object", rb_ref_retain_test, 1);
     rb_define_singleton_method(module, "ref_lookup_test_object_id", rb_ref_lookup_test, 1);
     rb_define_singleton_method(module, "ref_release", rb_ref_release, 1);

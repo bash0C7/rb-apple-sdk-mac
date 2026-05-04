@@ -51,6 +51,16 @@ public func runtime_raise_request(
 }
 
 @c
+public func runtime_threading_enqueue(_ procId: UInt64, _ arg: Int64) {
+    ThreadingBridge.enqueueFromAppleThread(procId: procId, arg: arg)
+}
+
+@c
+public func runtime_threading_poll(_ timeoutSeconds: Double) -> Int64 {
+    return Int64(ThreadingBridge.drain(timeoutSeconds: timeoutSeconds))
+}
+
+@c
 public func runtime_callback_set_dispatcher(
     _ fn: @convention(c) (UInt64, Int64) -> Void
 ) {
