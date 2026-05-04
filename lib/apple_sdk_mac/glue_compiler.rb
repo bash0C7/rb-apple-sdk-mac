@@ -13,9 +13,10 @@ module AppleSDKMac
 
     MAX_LLM_RETRIES = 3
 
-    def initialize(cache:, runtime_dylib_path:, llm_generator: nil, swiftc_invoker: nil)
+    def initialize(cache:, runtime_dylib_path:, runtime_modules_paths: [], llm_generator: nil, swiftc_invoker: nil)
       @cache = cache
       @runtime_dylib_path = runtime_dylib_path
+      @runtime_modules_paths = runtime_modules_paths
       @template = GlueCompiler::TemplateGenerator.new
       @llm = llm_generator
       @gates = GlueCompiler::ValidationGates.new
@@ -48,7 +49,8 @@ module AppleSDKMac
       File.write(src, swift_source)
       ok, err = @swiftc.compile(
         source_path: src, dylib_path: dylib,
-        runtime_dylib_path: @runtime_dylib_path
+        runtime_dylib_path: @runtime_dylib_path,
+        module_search_paths: @runtime_modules_paths
       )
       unless ok
         @cache.record_attempt(framework: framework, symbol: symbol[:name],
@@ -94,7 +96,8 @@ module AppleSDKMac
 
         File.write(src, swift_source)
         ok, err = @swiftc.compile(source_path: src, dylib_path: dylib,
-                                   runtime_dylib_path: @runtime_dylib_path)
+                                   runtime_dylib_path: @runtime_dylib_path,
+                                   module_search_paths: @runtime_modules_paths)
         unless ok
           @cache.record_attempt(framework: framework, symbol: symbol[:name],
                                  generator: "llm", llm_response: swift_source,

@@ -45,6 +45,7 @@ module AppleSDKMac
       @compiler ||= GlueCompiler.new(
         cache: glue_cache,
         runtime_dylib_path: runtime_dylib_path,
+        runtime_modules_paths: runtime_modules_paths,
         llm_generator: GlueCompiler::LLMGenerator.new
       )
     end
@@ -93,6 +94,11 @@ module AppleSDKMac
 
     def runtime_dylib_path
       File.expand_path("../apple_sdk_mac_runtime.bundle", __FILE__)
+    end
+
+    def runtime_modules_paths
+      gem_root = File.expand_path("../../..", __FILE__)
+      [File.join(gem_root, "ext/apple_sdk_mac_runtime/.build/arm64-apple-macosx/release/Modules")].select { |p| File.directory?(p) }
     end
 
     def install_into_box(framework, symbol, sym_meta)

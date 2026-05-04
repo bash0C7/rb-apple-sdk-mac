@@ -10,7 +10,7 @@ module AppleSDKMac
         @sdk_path = sdk_path
       end
 
-      def compile(source_path:, dylib_path:, runtime_dylib_path: nil, link_libs: [])
+      def compile(source_path:, dylib_path:, runtime_dylib_path: nil, link_libs: [], module_search_paths: [])
         sdk = @sdk_path || AppleSDKKnowledge::SDK.path
         args = [
           "-emit-library",
@@ -21,6 +21,10 @@ module AppleSDKMac
           "-enable-library-evolution",
           "-o", dylib_path
         ]
+        module_search_paths.each do |path|
+          args << "-I"
+          args << path
+        end
         link_libs.each do |lib|
           args << "-l#{lib}"
         end
