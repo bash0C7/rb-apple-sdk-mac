@@ -205,6 +205,32 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/rb_raise\(rb_eRuntimeError, "non-nil callback not yet supported"\)/, swift)
   end
 
+  # Phase 6 (callback pillar): MIDINotifyProc routes to CallbackPillar register
+  # instead of rb_raise stub.
+  def test_callback_nilable_midinotifyproc_emits_callback_pillar_register
+    sym = {
+      kind: "function", abi: "c", name: "Foo", signature: "void Foo(MIDINotifyProc)",
+      parameters_json: '[{"name":"cb","type":"MIDINotifyProc _Nullable","kind":"callback_nilable","is_out_param":false,"nullability":"nullable"}]'
+    }
+    swift = @gen.generate(framework: "CoreMIDI", symbol: sym, glue_id: "ab12")
+    refute_nil swift
+    assert_match(/let cb: MIDINotifyProc\?/, swift)
+    assert_match(/if argv\[0\] == Qnil/, swift)
+    assert_match(/cb = nil/, swift)
+    assert_match(/runtime_callback_pillar_register_midi_notify/, swift)
+    assert_match(/runtime_callback_pillar_get_midi_notify_fnptr/, swift)
+    assert_match(/unsafeBitCast/, swift)
+    refute_match(/rb_raise\(rb_eRuntimeError, "non-nil callback not yet supported"\)/, swift)
+  end
+
+  def test_header_includes_runtime_callback_pillar_silgen_names
+    h = AppleSDKMac::GlueCompiler::TemplateGenerator::HEADER
+    assert_match(/@_silgen_name\("runtime_callback_pillar_register_midi_notify"\)/, h)
+    assert_match(/@_silgen_name\("runtime_callback_pillar_get_midi_notify_fnptr"\)/, h)
+    assert_match(/@_silgen_name\("rb_obj_id"\)/, h)
+    assert_match(/@_silgen_name\("rb_hash_aset_proc_registry"\)/, h)
+  end
+
   # Task 10: HEADER extension with rb_hash_*, rb_block_*.
   def test_header_includes_rb_hash_and_rb_block_silgen_names
     h = AppleSDKMac::GlueCompiler::TemplateGenerator::HEADER
