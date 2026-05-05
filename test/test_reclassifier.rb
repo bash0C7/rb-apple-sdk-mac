@@ -143,3 +143,78 @@ class TestReclassifierRun < Test::Unit::TestCase
     assert_equal snapshot1, snapshot2
   end
 end
+
+class TestReclassifierUnsupportedLog < Test::Unit::TestCase
+  def setup
+    @dir = Dir.mktmpdir("reclassify-unsupported-test")
+    @db_path = File.join(@dir, "k.sqlite")
+    store = AppleSDKKnowledge::Store.open(@db_path)
+    fid = store.insert_framework(name: "MiniMIDI", swift_module: "MiniMIDI")
+    store.insert_symbol(
+      framework_id: fid, name: "F_unsup_a", kind: "function", abi: "c",
+      content_hash: "h1",
+      parameters_json: JSON.generate([{ name: "u", type: "void *" }])
+    )
+    store.insert_symbol(
+      framework_id: fid, name: "F_unsup_b", kind: "function", abi: "c",
+      content_hash: "h2",
+      parameters_json: JSON.generate([{ name: "u", type: "void *" }])
+    )
+    store.insert_symbol(
+      framework_id: fid, name: "F_ok", kind: "function", abi: "c",
+      content_hash: "h3",
+      parameters_json: JSON.generate([{ name: "x", type: "int" }])
+    )
+    store.close
+
+    @queue = File.join(@dir, "u.jsonl")
+    AppleSDKKnowledge::Reclassifier.new(
+      store_path: @db_path, log_io: StringIO.new, queue_path: @queue
+    ).run
+    @lines = File.readlines(@queue, chomp: true)
+  end
+
+  def teardown
+    FileUtils.remove_entry(@dir)
+  end
+
+  def test_jsonl_has_one_entry_per_unsupported_param_and_one_summary
+    item_lines = @lines.reject { |l| l.include?('"_summary"') }
+    summary_lines = @lines.select { |l| l.include?('"_summary"') }
+    assert_equal 2, item_lines.length, "expected one jsonl entry per unsupported param"
+    assert_equal 1, summary_lines.length, "expected exactly one _summary line"
+  end
+
+  def test_summary_contains_required_keys
+    summary = JSON.parse(@lines.last)["_summary"]
+    %w[ran_at total_symbols total_params by_kind unsupported_clusters classify_kind_source kind_vocabulary next_action_hint].each do |key|
+      assert summary.key?(key), "summary missing key: #{key}"
+    end
+  end
+
+  def test_summary_clusters_count_matches
+    summary = JSON.parse(@lines.last)["_summary"]
+    cluster = summary["unsupported_clusters"].find { |c| c["qual_type"] == "void *" }
+    assert_not_nil cluster
+    assert_equal 2, cluster["count"]
+  end
+
+  def test_summary_classify_kind_source_points_to_kind_module
+    summary = JSON.parse(@lines.last)["_summary"]
+    assert_match(%r{lib/rb_apple_sdk_knowledge/importer/kind\.rb:\d+},
+                 summary["classify_kind_source"])
+  end
+
+  def test_summary_kind_vocabulary_lists_known_kinds
+    summary = JSON.parse(@lines.last)["_summary"]
+    %w[string int bool float opaque_ref unsupported].each do |k|
+      assert_includes summary["kind_vocabulary"], k
+    end
+  end
+
+  def test_summary_by_kind_sums_to_total_params
+    summary = JSON.parse(@lines.last)["_summary"]
+    sum = summary["by_kind"].values.sum
+    assert_equal summary["total_params"], sum
+  end
+end
