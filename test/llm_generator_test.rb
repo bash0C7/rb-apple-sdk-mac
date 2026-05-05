@@ -76,4 +76,27 @@ class TestLLMGenerator < Test::Unit::TestCase
     refute_nil swift
     assert_match(/glue_deadbeef_asyncFetchTitle/, swift)
   end
+
+  def test_instructions_specify_bare_at_c_attribute_on_own_line
+    instructions = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_includes instructions, "@c\npublic func",
+      "INSTRUCTIONS must show `@c` on its own line above `public func`; " \
+      "regex GATE 5 (`/@c\\s+public\\s+func\\s+(\\w+)/`) requires whitespace-separated tokens."
+  end
+
+  def test_instructions_embed_silgen_name_header_literally
+    instructions = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_includes instructions, '@_silgen_name("rb_str_new_cstr")',
+      "INSTRUCTIONS must embed the @_silgen_name header from TemplateGenerator::HEADER " \
+      "so the LLM does not hallucinate signatures."
+  end
+
+  def test_instructions_have_no_phantom_runtime_api_references
+    instructions = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    refute_match(/Marshal\.(fromRuby|toRuby)/, instructions,
+      "Marshal.fromRubyXXX / Marshal.toRuby do not exist in AppleSDKMacRuntime; " \
+      "instructing the LLM to use them is the root cause of GATE 5 + compile failures.")
+    refute_match(/ErrorBridge/, instructions,
+      "ErrorBridge.swift was deleted in commit b262e18; raise via @_silgen_name rb_raise.")
+  end
 end
