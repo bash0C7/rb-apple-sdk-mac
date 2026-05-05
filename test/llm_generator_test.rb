@@ -113,4 +113,18 @@ class TestLLMGenerator < Test::Unit::TestCase
       "rendered the English prose as literal Swift syntax. This guard prevents " \
       "any future rule wording that would reintroduce the same hyphenated form.")
   end
+
+  def test_instructions_demonstrate_string_input_marshalling_literally
+    instructions = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_match(/var v0 = argv\[0\]/, instructions,
+      "WORKED_EXAMPLE must include the literal `var v0 = argv[0]` binding line. " \
+      "Comment-only mention (`var v_i = argv[i]`) leaves the LLM extrapolating " \
+      "and getting it wrong — root cause of verification id=1 swiftc fail where " \
+      "the model wrote `rb_string_value_cstr(argv[0])` (UInt, not pointer).")
+    assert_match(/String\(cString: rb_string_value_cstr\(&v0\)\)/, instructions,
+      "WORKED_EXAMPLE must show the full string-input chain: bound `var v0` " \
+      "then `&v0` passed to `rb_string_value_cstr` inside `String(cString:)`. " \
+      "Pinning all three pieces together prevents the LLM from substituting " \
+      "any one piece independently (the failure mode in the verification log).")
+  end
 end
