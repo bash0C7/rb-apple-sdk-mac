@@ -184,3 +184,16 @@ Two follow-up issues identified, both out of scope for this spec:
 
 1. **WORKED_EXAMPLE coverage gap.** Section 3's example demonstrates an `int` input + `string` return path (`rb_num2ll(argv[0])` then `rb_str_new_cstr(cstr!)`). It does NOT demonstrate the `string` input path — the `var v_i = argv[i]; let s = String(cString: rb_string_value_cstr(&v_i))` shape from `template_generator.rb:97`. The LLM must extrapolate this for `MIDIClientCreate`'s `name: CFStringRef` parameter and got it wrong in attempt 1. Adding a second worked example covering string-input marshalling would close this gap.
 2. **LLM output consistency.** Attempt 3 ignored the prompt entirely. This is a Foundation Model on-device behavior characteristic, not addressable purely via prompt tuning. Mitigations: (a) raise retry budget from 3 to higher (configurable); (b) add a `regenerate_on_off_format` post-filter that detects markdown-or-prose responses and triggers an immediate retry without consuming the formal retry slot; (c) try a different `model:` parameter on `Session.new`.
+
+### Follow-up consumption (2026-05-05, same day)
+
+Both follow-ups identified above have been consumed by RED+GREEN commits in this branch.
+
+| # | Follow-up | Resolution | Commits |
+|---|---|---|---|
+| 1 | WORKED_EXAMPLE coverage gap | `WORKED_EXAMPLE_STRING_IN_STATUS_OUT` constant added alongside the renamed `WORKED_EXAMPLE_INT_IN_STRING_OUT`. Section 3 of `INSTRUCTIONS` now demonstrates the `var v0 = argv[0]; let title = String(cString: rb_string_value_cstr(&v0))` pattern literally as Swift, eliminating the comment-only description that required the LLM to extrapolate. | `50c51cb` (RED), `ed015fb` (GREEN) |
+| 2 | LLM output non-determinism | Chose mitigation (a). `MAX_LLM_RETRIES = 3` constant replaced with `DEFAULT_MAX_LLM_RETRIES = 6` plus a `max_llm_retries:` kwarg on `GlueCompiler.new`. Retry loop and exhaustion message both reference the per-instance value. At the observed ~1/3 off-format rate, budget=6 yields an expected ~4 well-formed attempts (vs. the prior ~2). Mitigations (b) off-format inner-retry and (c) alternate model remain on the table if (a) proves insufficient. | `c755cd3` (RED), `c12cb74` (GREEN) |
+
+Full test suite passes (`69 tests, 110 assertions, 0 failures, 0 errors, 2 omissions`) after both follow-ups land.
+
+E2E re-verification (cache clear + `coremidi_smoke_test.rb` under `screen -dmS`) is the natural next step to observe whether T10 acceptance now flips. Per spec line 167 ("T10 acceptance flip is expected but not strictly required by this spec"), this is left as an explicit user decision rather than auto-triggered, since it requires Apple Silicon Foundation Model session time.
