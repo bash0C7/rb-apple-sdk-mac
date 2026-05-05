@@ -72,10 +72,13 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
               { name: "o", type: "MIDIClientRef *", kind: "opaque_ref", is_out_param: true }
             ])
     out = gen.generate(framework: "CoreMIDI", symbol: s, glue_id: "abc")
-    assert_match(/var outRef: MIDIClientRef = MIDIClientRef\(\)/, out)
-    assert_match(/let status = MIDIClientCreate\(n, &outRef\)/, out)
+    # Out-param vars are named after the param itself (`o`) instead of the
+    # legacy hardcoded `outRef`, so multi-out-param call sites can have one var
+    # per out-param without name collisions.
+    assert_match(/var o: MIDIClientRef = MIDIClientRef\(\)/, out)
+    assert_match(/let status = MIDIClientCreate\(n, &o\)/, out)
     assert_match(/if status != 0 \{ rb_raise\(rb_eRuntimeError/, out)
-    assert_match(/return rb_ull2inum\(UInt64\(outRef\)\)/, out)
+    assert_match(/return rb_ull2inum\(UInt64\(o\)\)/, out)
   end
 
   def test_emits_status_check_for_status_int_return_without_outparam
