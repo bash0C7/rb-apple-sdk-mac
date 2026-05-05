@@ -9,6 +9,11 @@ class TestRunLoopBridge < Test::Unit::TestCase
   end
 
   def test_pump_respects_timeout
+    # Drain any residual runloop sources left by earlier tests so the timing
+    # assertion isn't tripped by a CFRunLoopRunInMode early-exit when an
+    # unrelated source happens to be pending. CFRunLoopRunInMode with
+    # returnAfterSourceHandled=true exits as soon as one source is handled.
+    8.times { AppleSDKMacRuntime.runloop_pump(0.0) }
     started = Time.now
     AppleSDKMacRuntime.runloop_pump(0.1)
     elapsed = Time.now - started

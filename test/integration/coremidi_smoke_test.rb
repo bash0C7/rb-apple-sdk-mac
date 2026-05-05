@@ -34,8 +34,6 @@ class TestCoreMIDISmoke < Test::Unit::TestCase
     begin
       Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientCreate)
       Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientDispose)
-      Apple.discover(framework: :CoreMIDI, symbol: :MIDISourceCreate)
-      Apple.discover(framework: :CoreMIDI, symbol: :MIDIEndpointDispose)
     rescue AppleSDKMac::Error => e
       omit "discover failed: #{e.message}"
     end
@@ -50,22 +48,13 @@ class TestCoreMIDISmoke < Test::Unit::TestCase
     # the dispatch round-trip end-to-end by pumping a synthetic notification
     # through the same path the trampoline uses (ThreadingBridge enqueue →
     # ruby_callback_dispatcher → user Proc) using the procId the glue pinned
-    # during MIDIClientCreate.
+    # during MIDIClientCreate. We deliberately do NOT call MIDISourceCreate
+    # here: that would register CoreMIDI runloop sources on the default mode
+    # and contaminate test_pump_respects_timeout in TestRunLoopBridge if
+    # tests run in shared-process mode.
     AppleSDKMacRuntime::Test.threading_enqueue_from_thread(block.object_id, 7)
     AppleSDKMacRuntime.threading_poll(0.5)
 
-    # Also exercise an actual MIDI state change so the trampoline gets a
-    # real call from CoreMIDI when the host runloop allows. Notifications
-    # from this path land on top of the synthetic one above.
-    source = Apple::CoreMIDI.MIDISourceCreate(client, "smoke-source")
-    assert_not_nil source
-    deadline = Time.now + 1.0
-    while Time.now < deadline
-      AppleSDKMacRuntime.runloop_pump(0.1)
-      AppleSDKMacRuntime.threading_poll(0.1)
-    end
-
-    Apple::CoreMIDI.MIDIEndpointDispose(source)
     Apple::CoreMIDI.MIDIClientDispose(client)
 
     assert_includes notifs, 7,
