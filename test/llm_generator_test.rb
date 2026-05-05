@@ -114,6 +114,18 @@ class TestLLMGenerator < Test::Unit::TestCase
       "any future rule wording that would reintroduce the same hyphenated form.")
   end
 
+  def test_instructions_rule_9_describes_callback_pillar_register_for_catalog_callbacks
+    instructions = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_match(/runtime_callback_pillar_register_midi_notify/, instructions,
+      "Rule 9 must describe the CallbackPillar register pathway for catalog " \
+      "callbacks (currently MIDINotifyProc). The deterministic template path " \
+      "uses this; the LLM fallback must agree to avoid contradictory glue.")
+    assert_match(/unsafeBitCast/, instructions,
+      "Rule 9 must show the unsafeBitCast step that converts the raw fnptr " \
+      "from runtime_callback_pillar_get_<route>_fnptr to the typed Apple SDK " \
+      "callback type.")
+  end
+
   def test_instructions_demonstrate_string_input_marshalling_literally
     instructions = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
     assert_match(/var v0 = argv\[0\]/, instructions,
