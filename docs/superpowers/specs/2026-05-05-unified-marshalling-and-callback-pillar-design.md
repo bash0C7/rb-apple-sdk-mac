@@ -558,11 +558,36 @@ Finished in 1.81482 seconds.
 | Criterion | Status |
 |---|---|
 | 1. README example runs end-to-end | ✅ met |
-| 2. MIDISend with MIDIPacketList from Ruby Hash | deferred (needs full DB rebuild) |
-| 3. Ruby Proc as MIDINotifyProc invocation | deferred (Phase 6 follow-up) |
+| 2. MIDISend with MIDIPacketList from Ruby Hash | deferred (rationale below) |
+| 3. Ruby Proc as MIDINotifyProc invocation | ✅ met (2026-05-06 — see successor spec) |
 | 4. Closed kind taxonomy | ✅ met (template now handles 11 kinds; LLM fallback covers genuinely exotic shapes) |
 
-The library has reached the **README-runnable** practical bar for nilable-callback / void*-refcon / opaque-out APIs — the most common Apple SDK shape. The two struct/callback follow-up issues are scoped, well-defined, and tractable as independent next steps.
+The library has reached the **README-runnable** practical bar for nilable-callback / void*-refcon / opaque-out APIs **plus** non-nil callbacks for catalog signatures (currently `MIDINotifyProc`).
+
+## Verification (2026-05-06, second pass — Phase 6 follow-up)
+
+**Outcome.** `test_receive_notification` (Ruby Proc → MIDIClientCreate's `notifyProc`) flips from omit to PASS via the Callback pillar landed in successor spec `2026-05-06-callback-pillar-design.md`. Acceptance criterion 3 met.
+
+```
+Loaded suite test/integration/coremidi_smoke_test
+Started
+Finished in 5.798997 seconds.
+2 tests, 4 assertions, 0 failures, 0 errors, 0 pendings, 0 omissions, 100% passed
+```
+
+`test_create_client_and_dispose` continues to PASS (non-regression).
+
+### Why criterion 2 remains deferred
+
+Two independent blockers, each requiring a separate spec:
+
+1. **`MIDIPacketList` is a flex-array struct, not a fixed-size struct.** It packs `numPackets:UInt32` followed by a runtime-sized array of variable-length `MIDIPacket` records, each carrying a `Byte data[256]` tail. The Marshaller pillar landed by this spec handles fixed-shape struct-in/struct-out only (`StructInMarshaller` walks RecordDecl FieldDecl with depth-1 nesting). Marshalling a Ruby Hash → `MIDIPacketList*` requires byte-level packing of the variable tail, which is a separate marshaller class (`FlexArrayStructMarshaller` or similar). MIDIPacketList isn't fixable by extending the existing `struct_in` Marshaller — the shape is fundamentally different.
+
+2. **Knowledge-gem `apple:knowledge:rebuild` does not actually re-populate `fields_json` for already-imported struct symbols.** The importer guards against duplicates via `content_hash` UNIQUE; on conflict it skips silently (`importer.rb:67-69`), so an existing row with `fields_json = NULL` (imported under schema_version 1, before the column was added) is never updated. A working rebuild requires either (a) `INSERT … ON CONFLICT DO UPDATE` with the new `fields_json`, (b) `DELETE` of the affected rows before re-INSERT, or (c) a fresh DB. Confirmed empirically: post-rebuild query `SELECT count(*) FROM symbols WHERE kind='struct' AND fields_json IS NOT NULL;` returns 0 across 4931 struct rows.
+
+Even fixing (2) on its own does not unblock criterion 2 — `MIDIPacketList`'s flex-array shape still requires (1). And even fixing (1) on its own does not unblock criterion 2 — the Marshaller would have no `fields_json` to work from until (2) lands. Both must be addressed; both are scoped to follow-up specs.
+
+The library has reached the **README-runnable** practical bar for nilable-callback / non-nil callback (catalog) / void*-refcon / opaque-out APIs — the dominant Apple SDK shape.
 
 ## References
 

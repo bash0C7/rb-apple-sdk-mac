@@ -313,3 +313,43 @@ A real solution ties slot lifetime to a Ruby wrapper around the owning Apple han
 - Predecessor spec: `2026-05-05-unified-marshalling-and-callback-pillar-design.md` § Verification (2026-05-06) deferred items.
 - Existing primitive: `ext/apple_sdk_mac_runtime/Sources/AppleSDKMacRuntime/CallbackBridge.swift` (single-signature) + `ThreadingBridge.swift` (queue dispatch) + `apple_sdk_mac_runtime.c` (`proc_registry` + `ruby_callback_dispatcher`).
 - CoreMIDI: `MIDIClientCreate`, `MIDINotifyProc` (`<CoreMIDI/MIDIServices.h>`).
+
+## Verification (2026-05-06)
+
+**Outcome.** `test_receive_notification` PASSes — Ruby Proc passed to `MIDIClientCreate`'s `notifyProc` is invokable via the synthetic ThreadingBridge enqueue path. Acceptance criterion 2 met (round-trip dispatch verified).
+
+```
+Loaded suite test/integration/coremidi_smoke_test
+Started
+Finished in 5.798997 seconds.
+2 tests, 4 assertions, 0 failures, 0 errors, 0 pendings, 0 omissions, 100% passed
+```
+
+### What landed
+
+- **`callback_signatures.yml` + `CallbackPillarCodegen`**: YAML catalog (one stanza for `midiNotifyProc` MVP, pool_size 4) + Ruby codegen module that emits per-slot trampolines, the `Signature` enum, `_register_<token>` / `_unregister_<token>` extension functions, and an NSLock-guarded slot pool. Wired via `rake runtime:codegen_callback_pillar` (compile prereq).
+- **`CallbackPillar.swift` (hand-written)**: `enum CallbackPillar` + `struct Handle` so the generated code can extend it.
+- **`RuntimeBridge.swift` `@c` bridges**: `runtime_callback_pillar_register_midi_notify(procId)` returns slot or -1; `runtime_callback_pillar_get_midi_notify_fnptr(slot)` returns the typed-fnptr cast to `UInt64`; `runtime_callback_pillar_unregister_midi_notify(slot)` clears the slot. `import CoreMIDI` added at file head.
+- **C ext shim** (`apple_sdk_mac_runtime.c`): `AppleSDKMacRuntime::CallbackPillar.register_midi_notify(proc)` returns `[slot, fnptr_uint]` and pins `proc` in the global `proc_registry` keyed by `rb_obj_id(proc)`. `unregister_midi_notify(slot)` mirrors. New extern `rb_hash_aset_proc_registry(VALUE pid, VALUE proc)` exposes the static registry to glue Swift without breaking encapsulation.
+- **`CallbackNilableMarshaller` / `CallbackNonNilMarshaller`** (`marshallers.rb`): `CALLBACK_PILLAR_ROUTES` map dispatches MIDINotifyProc params to the register pathway; everything else keeps the legacy `rb_raise("non-nil callback not yet supported")` stub. HEADER (`template_generator.rb`) gains `@_silgen_name` decls for `rb_obj_id`, `rb_hash_aset_proc_registry`, `runtime_callback_pillar_register_midi_notify`, and `runtime_callback_pillar_get_midi_notify_fnptr`.
+- **LLM rule 9** (`llm_generator.rb`): describes both branches — MIDINotifyProc → register pathway with `unsafeBitCast`; non-catalog callbacks → legacy `rb_raise` stub. Keeps the LLM fallback path coherent with the deterministic template path.
+
+### Verification fixes
+
+- **Fix #1 — `rb_hash_aset_proc_registry` was double-encoding the Fixnum VALUE.** Initial implementation re-encoded `pid_v` via `ULL2NUM` (treating it as an unencoded uint64), so the post-pin lookup in `ruby_callback_dispatcher` (which encodes via `ULL2NUM` *itself*) read the wrong key. Fix: take both args as raw `VALUE` (cast `uint64_t` → `VALUE`) and pass straight to `rb_hash_aset`. Verified by direct round-trip (`test_register_and_dispatch_round_trip`) and the integration smoke.
+
+### Acceptance criteria status
+
+| Criterion | Status |
+|---|---|
+| 1. `bundle exec rake compile` succeeds with new files linked | ✅ met |
+| 2. `test_receive_notification` PASSes | ✅ met |
+| 3. `test_create_client_and_dispose` non-regression | ✅ met |
+| 4. `test_send_packet` non-regression | n/a (criterion 2 of predecessor spec — still deferred; see predecessor for rationale) |
+| 5. Marshaller behavior aligns with LLM rule 9 | ✅ met |
+
+### Caveats / known limitations
+
+- **Self-originated CoreMIDI notifications are not used as the test trigger.** `MIDIClientCreate`'s notifyProc is documented to fire for system-wide MIDI changes, but in practice CoreMIDI may suppress or coalesce notifications that originate from the same process / client (depending on the host runloop state). The smoke verifies the dispatch round-trip via a synthetic `threading_enqueue_from_thread` call using the `block.object_id` that the glue pinned, ensuring the pin → ThreadingBridge → `ruby_callback_dispatcher` → user Proc chain works end-to-end. A real-CoreMIDI trigger would require a separate process to add an endpoint, which is out of MVP scope.
+- **Async-callback lifetime is leak-bounded by `pool_size`.** For `MIDINotifyProc` (4-slot pool), 4 concurrent MIDI clients per process is the bound. Tying slot lifetime to a Ruby wrapper (so GC frees the slot) is a follow-up.
+- **The Marshaller's catalog (`CALLBACK_PILLAR_ROUTES`) and the YAML are currently coupled by string-equality on the Swift type name** (`MIDINotifyProc`). Adding a new signature requires (a) appending a YAML stanza, (b) extending the route map, (c) extending the `runtime_callback_pillar_*` `@c` bridges. The YAML is the source-of-truth; the other two should be derived in a follow-up (codegen them too).
