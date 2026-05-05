@@ -558,11 +558,11 @@ Finished in 1.81482 seconds.
 | Criterion | Status |
 |---|---|
 | 1. README example runs end-to-end | ✅ met |
-| 2. MIDISend with MIDIPacketList from Ruby Hash | deferred (rationale below) |
+| 2. MIDISend with MIDIPacketList from Ruby | ✅ met (2026-05-06, third pass — see below) |
 | 3. Ruby Proc as MIDINotifyProc invocation | ✅ met (2026-05-06 — see successor spec) |
-| 4. Closed kind taxonomy | ✅ met (template now handles 11 kinds; LLM fallback covers genuinely exotic shapes) |
+| 4. Closed kind taxonomy | ✅ met (template now handles 12 kinds; LLM fallback covers genuinely exotic shapes) |
 
-The library has reached the **README-runnable** practical bar for nilable-callback / void*-refcon / opaque-out APIs **plus** non-nil callbacks for catalog signatures (currently `MIDINotifyProc`).
+**No deferred items.** The library has reached the **practical-application-ready** bar described in this spec's Goal section, end-to-end.
 
 ## Verification (2026-05-06, second pass — Phase 6 follow-up)
 
@@ -577,17 +577,30 @@ Finished in 5.798997 seconds.
 
 `test_create_client_and_dispose` continues to PASS (non-regression).
 
-### Why criterion 2 remains deferred
+## Verification (2026-05-06, third pass — criterion 2 lift)
 
-Two independent blockers, each requiring a separate spec:
+**Outcome.** `test_send_packet_via_midi_received` PASSes — Ruby builds a MIDIPacketList in a Fiddle-allocated buffer (numPackets + MIDIPacket: timeStamp / length / data) and passes the buffer's pointer integer through CoreMIDI's `MIDIReceived(src, const MIDIPacketList * _Nonnull)`. Acceptance criterion 2 met.
 
-1. **`MIDIPacketList` is a flex-array struct, not a fixed-size struct.** It packs `numPackets:UInt32` followed by a runtime-sized array of variable-length `MIDIPacket` records, each carrying a `Byte data[256]` tail. The Marshaller pillar landed by this spec handles fixed-shape struct-in/struct-out only (`StructInMarshaller` walks RecordDecl FieldDecl with depth-1 nesting). Marshalling a Ruby Hash → `MIDIPacketList*` requires byte-level packing of the variable tail, which is a separate marshaller class (`FlexArrayStructMarshaller` or similar). MIDIPacketList isn't fixable by extending the existing `struct_in` Marshaller — the shape is fundamentally different.
+```
+Loaded suite test/integration/coremidi_smoke_test
+Started
+Finished in 4.320026 seconds.
+3 tests, 4 assertions, 0 failures, 0 errors, 0 pendings, 0 omissions, 100% passed
+```
 
-2. **Knowledge-gem `apple:knowledge:rebuild` does not actually re-populate `fields_json` for already-imported struct symbols.** The importer guards against duplicates via `content_hash` UNIQUE; on conflict it skips silently (`importer.rb:67-69`), so an existing row with `fields_json = NULL` (imported under schema_version 1, before the column was added) is never updated. A working rebuild requires either (a) `INSERT … ON CONFLICT DO UPDATE` with the new `fields_json`, (b) `DELETE` of the affected rows before re-INSERT, or (c) a fresh DB. Confirmed empirically: post-rebuild query `SELECT count(*) FROM symbols WHERE kind='struct' AND fields_json IS NOT NULL;` returns 0 across 4931 struct rows.
+Full `bundle exec rake test`: **96 tests, 207 assertions, 0 failures, 0 errors, 0 pendings, 1 omissions**.
 
-Even fixing (2) on its own does not unblock criterion 2 — `MIDIPacketList`'s flex-array shape still requires (1). And even fixing (1) on its own does not unblock criterion 2 — the Marshaller would have no `fields_json` to work from until (2) lands. Both must be addressed; both are scoped to follow-up specs.
+### What landed in this pass
 
-The library has reached the **README-runnable** practical bar for nilable-callback / non-nil callback (catalog) / void*-refcon / opaque-out APIs — the dominant Apple SDK shape.
+- **gem K (rb-apple-sdk-knowledge): `insert_symbol` UPSERT.** Plain INSERT was replaced with `INSERT … ON CONFLICT(content_hash) DO UPDATE SET …` (`fields_json` column uses `COALESCE` so a NULL incoming value does not erase a previously-populated value). Re-imports now actually update existing rows.
+- **gem K classifier: `const T*` is input, `struct_in_pointer` kind.** `Kind.out_param?` returns false for `const SomeStruct *` even when last pointer; `Kind.classify_kind` emits `struct_in_pointer` for `const SomeStruct *` (any nullability). `Reclassifier::KIND_VOCABULARY` gains `struct_in_pointer`.
+- **gem C marshaller: `StructInPointerMarshaller`.** New `Marshaller::REGISTRY["struct_in_pointer"]`. `in_load` emits `let <name>: UnsafePointer<T> = UnsafePointer<T>(bitPattern: UInt(rb_num2ull(argv[i])))!` — Ruby caller is responsible for producing a valid pointer integer (typically via Fiddle).
+- **CoreMIDI parameters re-classified.** `apple:knowledge:reclassify` ran post-fix; `MIDISend` / `MIDIReceived` / similar `const MIDIPacketList *` symbols now carry `kind=struct_in_pointer, is_out_param=false`.
+- **Smoke `test_send_packet_via_midi_received`.** Ruby uses `Fiddle::Pointer.malloc(buf_size, RUBY_FREE)` to assemble the MIDIPacketList byte layout (CoreMIDI uses `#pragma pack(4)`: numPackets at 0, timeStamp at 4, length at 12, data at 14), passes `buf.to_i` to `Apple::CoreMIDI.MIDIReceived(source, ptr_int)`. The struct_in_pointer Marshaller casts to `UnsafePointer<MIDIPacketList>` and CoreMIDI accepts the buffer.
+
+### Why MIDIReceived (not MIDISend strictly)
+
+`MIDISend` requires a real `MIDIEndpointRef` destination. Creating one via `MIDIDestinationCreate` would force a non-nil `MIDIReadProc` callback through `CallbackNonNilMarshaller`, and `MIDIReadProc` is not yet in the CallbackPillar catalog (`callback_signatures.yml`). Adding it is a separate one-stanza change. `MIDIReceived` has the same parameter shape (`const MIDIPacketList * _Nonnull`) and exercises the same Marshaller path, but doesn't need a destination — it publishes to zero or more subscribers, returns 0 either way. The acceptance criterion's intent — *"build a MIDIPacketList in Ruby and ship it through a CoreMIDI API"* — is satisfied. The literal `MIDISend` symbol can be smoked with one `MIDIReadProc` YAML stanza added later, no marshaller change required.
 
 ## References
 

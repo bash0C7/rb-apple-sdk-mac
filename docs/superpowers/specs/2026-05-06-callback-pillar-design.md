@@ -345,7 +345,7 @@ Finished in 5.798997 seconds.
 | 1. `bundle exec rake compile` succeeds with new files linked | ✅ met |
 | 2. `test_receive_notification` PASSes | ✅ met |
 | 3. `test_create_client_and_dispose` non-regression | ✅ met |
-| 4. `test_send_packet` non-regression | n/a (criterion 2 of predecessor spec — still deferred; see predecessor for rationale) |
+| 4. `test_send_packet_via_midi_received` non-regression | ✅ met (criterion 2 of predecessor spec — landed third pass; see predecessor) |
 | 5. Marshaller behavior aligns with LLM rule 9 | ✅ met |
 
 ### Caveats / known limitations
