@@ -15,8 +15,10 @@ class TestTemplateGenerator < Test::Unit::TestCase
       abi: "c",
       signature: "OSStatus MIDIClientCreate(CFStringRef name, MIDIClientRef *outRef)",
       parameters_json: JSON.dump([
-        { "name" => "name", "type" => "CFStringRef" },
-        { "name" => "outRef", "type" => "MIDIClientRef *" }
+        { "name" => "name", "type" => "CFStringRef",
+          "kind" => "string", "is_out_param" => false, "nullability" => "unspecified" },
+        { "name" => "outRef", "type" => "MIDIClientRef *",
+          "kind" => "opaque_ref", "is_out_param" => true, "nullability" => "unspecified" }
       ])
     }
     swift = @gen.generate(framework: "CoreMIDI", symbol: sym, glue_id: "abc")

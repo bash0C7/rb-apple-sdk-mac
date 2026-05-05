@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 require "json"
+require "set"
+require_relative "marshallers"
 
 module AppleSDKMac
   class GlueCompiler
@@ -32,28 +34,36 @@ module AppleSDKMac
         let Qtrue:  UInt = 20
       SWIFT
 
+      def initialize(knowledge_cache: nil)
+        @kc = knowledge_cache
+      end
+
       def generate(framework:, symbol:, glue_id:)
         return nil unless symbol[:kind] == "function" && symbol[:abi] == "c"
         params = parse_params(symbol[:parameters_json])
-        return nil if params.any? { |p| p[:kind] == "unsupported" }
+        ctx = { framework: framework, knowledge_cache: @kc, struct_visited: Set.new }
+        marshallers = params.map.with_index { |p, i| Marshaller.for(p, i, ctx) }
+        return nil if marshallers.any?(&:nil?)
 
-        in_params  = params.reject { |p| p[:is_out_param] }
-        out_params = params.select { |p| p[:is_out_param] }
-        return nil if out_params.length > 1
+        out_marshallers = marshallers.select { |m| m.param[:is_out_param] }
+        return nil if out_marshallers.length > 1
 
-        out = out_params.first
-        in_loads = in_params.each_with_index.map { |p, i| load_in_param(p, i) }
+        in_loads = marshallers.reject { |m| m.param[:is_out_param] }
+                              .map(&:in_load).compact
 
-        call_args = params.map { |p| p[:is_out_param] ? "&outRef" : p[:name] }.join(", ")
+        call_args = marshallers.map { |m|
+          m.param[:is_out_param] ? m.out_addr : m.call_arg
+        }.join(", ")
 
         body = []
         body.concat(in_loads)
+
+        out = out_marshallers.first
         if out
-          ref_type = strip_pointer(out[:type])
-          body << "var outRef: #{ref_type} = #{ref_type}()"
+          body << out.out_init
           body << "let status = #{symbol[:name]}(#{call_args})"
           body << %(if status != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
-          body << "return #{to_ruby_expr(out, "outRef")}"
+          body << "return #{out.out_to_ruby}"
         else
           ret_kind = return_kind(symbol[:signature])
           body << "let result = #{symbol[:name]}(#{call_args})"
@@ -88,44 +98,6 @@ module AppleSDKMac
         JSON.parse(json, symbolize_names: true)
       end
 
-      def load_in_param(p, i)
-        name = p[:name]
-        case p[:kind]
-        when "string"
-          cast = p[:type].include?("CFString") ? " as CFString" :
-                 p[:type].include?("NSString") ? " as NSString" : ""
-          "var v#{i} = argv[#{i}]; let #{name} = String(cString: rb_string_value_cstr(&v#{i}))#{cast}"
-        when "int"
-          "let #{name}: Int64 = rb_num2ll(argv[#{i}])"
-        when "bool"
-          "let #{name}: Bool = (argv[#{i}] != Qfalse && argv[#{i}] != Qnil)"
-        when "float"
-          "let #{name}: Double = rb_num2dbl(argv[#{i}])"
-        when "opaque_ref"
-          ref_type = strip_pointer(p[:type])
-          if unsigned?(p[:type])
-            "let #{name} = #{ref_type}(rb_num2ull(argv[#{i}]))"
-          else
-            "let #{name} = #{ref_type}(rb_num2ll(argv[#{i}]))"
-          end
-        end
-      end
-
-      def to_ruby_expr(p, swift_var)
-        case p[:kind]
-        when "string"     then "rb_str_new_cstr(#{swift_var})"
-        when "int"        then "rb_ll2inum(Int64(#{swift_var}))"
-        when "bool"       then "(#{swift_var} ? Qtrue : Qfalse)"
-        when "float"      then "rb_float_new(#{swift_var})"
-        when "opaque_ref"
-          if unsigned?(p[:type])
-            "rb_ull2inum(UInt64(#{swift_var}))"
-          else
-            "rb_ll2inum(Int64(#{swift_var}))"
-          end
-        end
-      end
-
       def return_kind(signature)
         sig = signature.to_s.strip
         return "void"   if sig =~ /\A(?:void)\b/
@@ -153,18 +125,6 @@ module AppleSDKMac
         else
           "rb_ll2inum(Int64(#{swift_var}))"
         end
-      end
-
-      def strip_pointer(t)
-        t.sub(/\s*\*.*\z/, "").gsub(/\b_(Nonnull|Nullable)\b/, "").strip
-      end
-
-      def unsigned?(t)
-        return true  if t.match?(/\b(UInt|UInt8|UInt16|UInt32|UInt64|uint(8|16|32|64)_t|unsigned)\b/)
-        return false if t.match?(/\b(SInt|SInt8|SInt16|SInt32|SInt64|int(8|16|32|64)_t|signed)\b/)
-        # Apple SDK convention: *Ref typedefs without explicit signedness marker
-        # are unsigned 32-bit handles (MIDIClientRef, AudioComponentInstance, etc.).
-        t.match?(/\b\w+Ref\b/)
       end
     end
   end

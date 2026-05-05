@@ -21,7 +21,9 @@ class TestGlueCompiler < Test::Unit::TestCase
         name: "MIDIClientDispose",
         kind: "function", abi: "c",
         signature: "OSStatus MIDIClientDispose(MIDIClientRef client)",
-        parameters_json: JSON.dump([{ "name" => "client", "type" => "MIDIClientRef" }])
+        parameters_json: JSON.dump([{ "name" => "client", "type" => "MIDIClientRef",
+                                       "kind" => "opaque_ref", "is_out_param" => false,
+                                       "nullability" => "unspecified" }])
       }
       compiler = AppleSDKMac::GlueCompiler.new(
         cache: cache,
