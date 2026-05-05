@@ -81,4 +81,28 @@ class TestStore < Test::Unit::TestCase
     assert_equal fields, row.first
     store.close
   end
+
+  # An existing row written under an older importer (fields_json = NULL) must
+  # be UPDATED when the same content_hash is re-inserted with a populated
+  # fields_json. Without this, `apple:knowledge:rebuild` is a no-op for any
+  # symbol that already exists — the case actually observed in the wild
+  # where 4931 struct rows have fields_json IS NULL after a full rebuild.
+  def test_insert_symbol_upserts_on_content_hash_conflict
+    store = AppleSDKKnowledge::Store.open(@db_path)
+    fw_id = store.insert_framework(name: "Acme", swift_module: "Acme")
+    # First insert — pre-fix style, no fields.
+    store.insert_symbol(framework_id: fw_id, name: "Foo", kind: "struct", abi: "c",
+                        content_hash: "h_upsert", fields_json: nil,
+                        signature: "struct Foo")
+    # Second insert with same content_hash but updated fields. Expect the
+    # row to be updated, not a ConstraintException.
+    new_fields = JSON.dump([{ name: "x", type: "int", kind: "int" }])
+    store.insert_symbol(framework_id: fw_id, name: "Foo", kind: "struct", abi: "c",
+                        content_hash: "h_upsert", fields_json: new_fields,
+                        signature: "struct Foo")
+    rows = store.db.execute("SELECT fields_json FROM symbols WHERE content_hash = ?", ["h_upsert"])
+    assert_equal 1, rows.length
+    assert_equal new_fields, rows.first.first
+    store.close
+  end
 end
