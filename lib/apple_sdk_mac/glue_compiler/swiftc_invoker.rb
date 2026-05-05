@@ -32,6 +32,9 @@ module AppleSDKMac
           args << "-Xlinker"
           args << runtime_dylib_path
         end
+        # Defer CRuby symbol resolution to dlopen-time; the host process
+        # supplies rb_string_value_cstr / rb_num2ll / rb_raise / Q* etc.
+        args << "-Xlinker" << "-undefined" << "-Xlinker" << "dynamic_lookup"
         args << source_path
 
         out, err, status = Open3.capture3(@swiftc, *args)
