@@ -23,6 +23,16 @@ module AppleSDKKnowledge
           return "callback_non_nil"
         end
 
+        # Apple naming-convention fallback: typedefs ending in Proc/Callback/
+        # Handler/Func/Routine are function pointers. The reclassifier path has
+        # no access to clang's desugared form, so the parens-detection above
+        # never fires; this fallback recovers callback kinds in that case.
+        normalized = qual_type.gsub(/\b_(Nonnull|Nullable)\b/, "").strip
+        if normalized =~ /\b\w+(?:Proc|Callback|CallBack|Handler|Routine)\b/
+          return "callback_nilable" if treat_nilable
+          return "callback_non_nil"
+        end
+
         return "string" if qual_type =~ /\b(CFStringRef|NSString\s*\*|char\s*\*|const\s+char\s*\*)/
         return "bool"   if qual_type =~ /\b(_Bool|Bool|BOOL|bool)\b/
         return "float"  if qual_type =~ /\b(double|float|CGFloat)\b/
