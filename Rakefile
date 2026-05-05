@@ -14,6 +14,20 @@ Rake::TestTask.new(:test) do |t|
   t.test_files = FileList["test/**/*_test.rb"]
 end
 
+namespace :runtime do
+  desc "Regenerate CallbackPillarGenerated.swift from callback_signatures.yml"
+  task :codegen_callback_pillar do
+    $LOAD_PATH.unshift File.expand_path("lib", __dir__)
+    require "apple_sdk_mac/callback_pillar_codegen"
+    yaml = "ext/apple_sdk_mac_runtime/callback_signatures.yml"
+    out  = "ext/apple_sdk_mac_runtime/Sources/AppleSDKMacRuntime/CallbackPillarGenerated.swift"
+    File.write(out, AppleSDKMac::CallbackPillarCodegen.generate(yaml))
+    puts "wrote #{out}"
+  end
+end
+
+task compile: "runtime:codegen_callback_pillar"
+
 desc "Start an IRB console with apple_sdk_mac loaded"
 task console: :compile do
   require "irb"

@@ -1,0 +1,21 @@
+# Catalog of C function-pointer signatures bridged by the CallbackPillar.
+# Each entry produces a fixed pool of @convention(c) trampolines that route
+# through ThreadingBridge to the Ruby-side dispatcher. Adding a new signature
+# is one stanza here + `rake runtime:codegen_callback_pillar` + recompile.
+#
+# Schema:
+#   token            — Swift identifier safe; one per signature shape
+#   c_signature      — informational, the C typedef shape
+#   swift_type       — the public Swift typealias the Apple framework exports
+#   swift_signature  — informational, full @convention(c) form
+#   arg_marshaller   — Swift expression yielding Int64 from the trampoline body
+#   pool_size        — number of pre-allocated slots per signature
+#   frameworks       — Swift import names required to compile the trampoline body
+
+- token: midiNotifyProc
+  c_signature: "void (*)(const MIDINotification *, void *)"
+  swift_type: "MIDINotifyProc"
+  swift_signature: "@convention(c) (UnsafePointer<MIDINotification>, UnsafeMutableRawPointer?) -> Void"
+  arg_marshaller: "Int64(message.pointee.messageID.rawValue)"
+  pool_size: 4
+  frameworks: [CoreMIDI]
