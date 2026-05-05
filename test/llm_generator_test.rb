@@ -80,8 +80,12 @@ class TestLLMGenerator < Test::Unit::TestCase
   def test_instructions_specify_bare_at_c_attribute_on_own_line
     instructions = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
     assert_includes instructions, "@c\npublic func",
-      "INSTRUCTIONS must show `@c` on its own line above `public func`; " \
+      "INSTRUCTIONS must show `@c` on its own line above `public func` somewhere; " \
       "regex GATE 5 (`/@c\\s+public\\s+func\\s+(\\w+)/`) requires whitespace-separated tokens."
+    assert_match(/^[ \t]+@c[ \t]*\n[ \t]+public func/, instructions,
+      "Section 1 Rule 2's indented prose example must independently show " \
+      "`@c` on its own indented line above `public func` — pinning Rule 2 " \
+      "independently of WORKED_EXAMPLE so a Rule 2 regression is caught.")
   end
 
   def test_instructions_embed_silgen_name_header_literally
