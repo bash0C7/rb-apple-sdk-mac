@@ -231,6 +231,26 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/@_silgen_name\("rb_hash_aset_proc_registry"\)/, h)
   end
 
+  # struct_in_pointer kind: Ruby user passes a UInt encoding a pointer
+  # (commonly built via Fiddle); marshaller casts to UnsafePointer<T> at
+  # the C call site. Use case: MIDISend(..., const MIDIPacketList * _Nonnull).
+  def test_struct_in_pointer_emits_unsafepointer_cast
+    sym = {
+      kind: "function", abi: "c", name: "MIDISend",
+      signature: "OSStatus MIDISend(MIDIPortRef, MIDIEndpointRef, const MIDIPacketList *)",
+      parameters_json: '[' \
+        '{"name":"port","type":"MIDIPortRef","kind":"opaque_ref","is_out_param":false,"nullability":"unspecified"},' \
+        '{"name":"dest","type":"MIDIEndpointRef","kind":"opaque_ref","is_out_param":false,"nullability":"unspecified"},' \
+        '{"name":"pktlist","type":"const MIDIPacketList * _Nonnull","kind":"struct_in_pointer","is_out_param":false,"nullability":"nonnull"}' \
+      ']'
+    }
+    swift = @gen.generate(framework: "CoreMIDI", symbol: sym, glue_id: "ab12")
+    refute_nil swift, "struct_in_pointer must produce non-nil glue"
+    assert_match(/let pktlist: UnsafePointer<MIDIPacketList>/, swift)
+    assert_match(/UnsafePointer<MIDIPacketList>\(bitPattern: UInt\(rb_num2ull\(argv\[2\]\)\)\)!/, swift)
+    assert_match(/MIDISend\(port, dest, pktlist\)/, swift)
+  end
+
   # Task 10: HEADER extension with rb_hash_*, rb_block_*.
   def test_header_includes_rb_hash_and_rb_block_silgen_names
     h = AppleSDKMac::GlueCompiler::TemplateGenerator::HEADER
