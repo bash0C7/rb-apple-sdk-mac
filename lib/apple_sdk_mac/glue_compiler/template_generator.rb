@@ -64,13 +64,18 @@ module AppleSDKMac
           m.param[:is_out_param] ? m.out_addr : m.call_arg
         }.join(", ")
 
+        call_expr = "#{symbol[:name]}(#{call_args})"
+        if marshallers.any? { |m| m.is_a?(VariadicMarshaller) }
+          call_expr = "withVaList(__cVarArgs) { __va in\n        return #{call_expr}\n    }"
+        end
+
         body = []
         body.concat(in_loads)
 
         if out_marshallers.length == 1
           out = out_marshallers.first
           body << out.out_init
-          body << "let status = #{symbol[:name]}(#{call_args})"
+          body << "let status = #{call_expr}"
           body << %(if status != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
           post = out.out_post_call
           body << post if post
@@ -78,7 +83,7 @@ module AppleSDKMac
         elsif out_marshallers.length >= 2
           # Multi-out: status check then build a Ruby Hash with one key per out-param.
           out_marshallers.each { |m| body << m.out_init }
-          body << "let status = #{symbol[:name]}(#{call_args})"
+          body << "let status = #{call_expr}"
           body << %(if status != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
           body << "let multi_out_h = rb_hash_new()"
           out_marshallers.each do |m|
@@ -89,7 +94,7 @@ module AppleSDKMac
           body << "return multi_out_h"
         else
           ret_kind = return_kind(symbol[:signature])
-          body << "let result = #{symbol[:name]}(#{call_args})"
+          body << "let result = #{call_expr}"
           if ret_kind == "status_int"
             body << %(if result != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
             body << "return Qnil"

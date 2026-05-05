@@ -331,5 +331,25 @@ module AppleSDKMac
       end
     end
     Marshaller::REGISTRY["struct_out"] = StructOutMarshaller
+
+    class VariadicMarshaller < Marshaller
+      def in_load
+        i = @index
+        # Build a [CVarArg] from the trailing argv entries beyond the fixed count.
+        # `rubyValueToCVarArg` is provided by the runtime ext (CallbackPillar /
+        # Marshal pillar helpers).
+        <<~SWIFT.chomp
+          var __cVarArgs: [CVarArg] = []
+              for __k in #{i}..<Int(argc) {
+                  __cVarArgs.append(rubyValueToCVarArg(argv[__k]))
+              }
+        SWIFT
+      end
+
+      def call_arg
+        "__va"  # bound by withVaList wrapper in template_generator orchestrator
+      end
+    end
+    Marshaller::REGISTRY["variadic_args"] = VariadicMarshaller
   end
 end
