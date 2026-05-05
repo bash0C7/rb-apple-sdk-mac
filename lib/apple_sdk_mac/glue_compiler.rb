@@ -117,7 +117,9 @@ module AppleSDKMac
     end
 
     def compute_glue_id(framework, symbol)
-      Digest::SHA256.hexdigest("#{framework}|#{symbol[:name]}|#{symbol[:signature]}")[0, 16]
+      Digest::SHA256.hexdigest(
+        "#{framework}|#{symbol[:name]}|#{symbol[:signature]}|#{symbol[:parameters_json]}"
+      )[0, 16]
     end
   end
 end
