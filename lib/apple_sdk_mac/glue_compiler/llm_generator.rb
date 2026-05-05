@@ -51,6 +51,52 @@ module AppleSDKMac
         }
       SWIFT
 
+      WORKED_EXAMPLE_STRUCT_IN = <<~SWIFT.freeze
+        // Example C — struct input parameter (e.g. const MIDIPacketList *).
+        // Build the struct field-by-field from a Ruby Hash via rb_hash_aref,
+        // then pass `&<name>_struct` directly (Swift auto-promotes to
+        // UnsafePointer<T> at the C call boundary). HEADER omitted for brevity.
+        import AcmeFW
+        import Foundation
+
+        @c
+        public func glue_b00b1e5_AcmeSendPacket(
+            _ argv: UnsafePointer<UInt>, _ argc: Int32
+        ) -> UInt {
+            let pkt_h = argv[0]
+            var pkt_struct = AcmePacket()
+            pkt_struct.timeStamp = UInt64(rb_num2ull(rb_hash_aref(pkt_h, rb_str_new_cstr("timeStamp"))))
+            pkt_struct.length = UInt16(rb_num2ull(rb_hash_aref(pkt_h, rb_str_new_cstr("length"))))
+            let status = AcmeSendPacket(&pkt_struct)
+            if status != 0 { rb_raise(rb_eRuntimeError, "AcmeSendPacket failed") }
+            return Qnil
+        }
+      SWIFT
+
+      WORKED_EXAMPLE_MULTI_OUT_HASH = <<~SWIFT.freeze
+        // Example D — multi-out-param call returning a Ruby Hash with named keys.
+        //   OSStatus AcmeMakePair(AcmeRef *outA, AcmeRef *outB);
+        // For symbols with ≥2 out-params, declare each `var <name>: <Type> = <Type>()`,
+        // call with `&<name>` per arg, then assemble a hash via rb_hash_new + per-name
+        // rb_hash_aset. HEADER omitted for brevity.
+        import AcmeFW
+        import Foundation
+
+        @c
+        public func glue_facef00d_AcmeMakePair(
+            _ argv: UnsafePointer<UInt>, _ argc: Int32
+        ) -> UInt {
+            var outA: AcmeRef = AcmeRef()
+            var outB: AcmeRef = AcmeRef()
+            let status = AcmeMakePair(&outA, &outB)
+            if status != 0 { rb_raise(rb_eRuntimeError, "AcmeMakePair failed") }
+            let multi_out_h = rb_hash_new()
+            rb_hash_aset(multi_out_h, rb_str_new_cstr("outA"), rb_ull2inum(UInt64(outA)))
+            rb_hash_aset(multi_out_h, rb_str_new_cstr("outB"), rb_ull2inum(UInt64(outB)))
+            return multi_out_h
+        }
+      SWIFT
+
       # Rules 5/6/7 below are positive-only ("use rb_* via @_silgen_name") and do not
       # name the phantom APIs they guard against, because the offline contract tests
       # in test/llm_generator_test.rb assert these strings are absent from INSTRUCTIONS:
@@ -125,14 +171,19 @@ module AppleSDKMac
 
         SECTION 3 — WORKED EXAMPLES
 
-        Two complete examples follow. Use Example A as the structural template;
-        consult Example B when any parameter has kind=string (the bound-var
-        pattern is mandatory and not interchangeable with passing argv[i]
-        directly).
+        Four examples follow. Use Example A as the structural template; consult
+        Example B for kind=string (the bound-var pattern is mandatory and not
+        interchangeable with passing argv[i] directly), Example C for struct_in
+        kinds (CGRect, MIDIPacketList, AudioStreamBasicDescription etc.), and
+        Example D when the call has two or more out-parameters.
 
         #{WORKED_EXAMPLE_INT_IN_STRING_OUT}
 
         #{WORKED_EXAMPLE_STRING_IN_STATUS_OUT}
+
+        #{WORKED_EXAMPLE_STRUCT_IN}
+
+        #{WORKED_EXAMPLE_MULTI_OUT_HASH}
       TXT
 
       def initialize(model: nil, session: nil)
