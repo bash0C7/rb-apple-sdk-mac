@@ -526,6 +526,44 @@ The spec is acceptance-complete when, with no manual prompts during the run:
 - **Variadic callable correctness.** Ruby `Object` → CVarArg coverage is incomplete for some types. Mitigation: `rubyValueToCVarArg` raises with a helpful message on unsupported argument kinds; only printf-class symbols actually exercise this.
 - **Swift function-pointer trampoline ABI on macOS 26.** Hardened-runtime + library validation may reject some `unsafeBitCast` patterns. Mitigation: `@convention(c)` closures are first-class in Swift 6.3 and have stable ABI; the runtime ext is signed with the gem's identity.
 
+## Verification (2026-05-06)
+
+**Outcome class (a) — best case.** T10 (`test_create_client_and_dispose`) flips from omit to PASS. Acceptance criterion 1 met.
+
+```
+Loaded suite test/integration/coremidi_smoke_test
+Started
+Finished in 1.81482 seconds.
+1 tests, 1 assertions, 0 failures, 0 errors, 0 pendings, 0 omissions, 100% passed
+```
+
+`compile_history` is empty (no error_stage rows); `compiled_glue` shows MIDIClientCreate + MIDIClientDispose both `generator='template'`. The README usage example `Apple::CoreMIDI.MIDIClientCreate("MyClient", nil, nil)` runs end-to-end with deterministic template-generated Swift glue, with no LLM call.
+
+### What landed in this spec
+
+- **gem K (rb-apple-sdk-knowledge)**: SCHEMA_VERSION 1→2 with `fields_json` column (idempotent ALTER), HeaderParser walks RecordDecl → FieldDecl, Kind classifier takes `nullability` and emits `void_ptr_nilable` / `callback_(non_)nilable`, callback name-pattern fallback (`*Proc` / `*Callback` / `*Handler` / `*Routine`) for desugared-unavailable reclassifier path, importer pipes fields_json on struct insert.
+- **gem C (rb-apple-sdk-mac)**: KnowledgeCache surfaces fields_json; `template_generator.rb` refactored to Marshaller pattern (StringMarshaller, IntMarshaller, BoolMarshaller, FloatMarshaller, OpaqueRefMarshaller, CallbackNilableMarshaller, CallbackNonNilMarshaller, VoidPtrNilableMarshaller, StructInMarshaller with depth-1 nesting + cycle detection, StructOutMarshaller, VariadicMarshaller); HEADER extended with `rb_hash_*` and `rb_block_*` `@_silgen_name` decls; multi-out-param hash return; LLM prompt INSTRUCTIONS gain struct_in and multi-out worked examples (4 worked examples total); per-param-name out var (replaces hardcoded `outRef`); `INSERT OR REPLACE` for compiled_glue idempotency; NamespaceBuilder skips non-capital framework / type names; `runtime_dylib_path` now points at the proper dylib (was `.bundle` MH_BUNDLE which ld rejects).
+- **Verification fix #4 (Qnil = 4)**: HEADER's `Qnil = 8` was stale for Ruby 4.x; `Fiddle::Qnil` confirms 4. Fixed.
+
+### What's deferred to next-issue follow-ups
+
+1. **Callback pillar full implementation (Phase 6).** Current `callback_nilable` Marshaller emits `if Qnil { cb = nil } else { rb_raise(...) }`. Non-nil callbacks raise at runtime. Full bridging (Ruby Block → C function pointer via signature-pre-generated trampolines or libffi) is a separate spec — natural next issue. Until landed, MIDI input subscribers / completion handlers must use the rb_raise fallback or remain unsupported.
+
+2. **Knowledge DB full rebuild.** `apple:knowledge:rebuild` was started (35K+ frameworks emit clang errors for ObjC headers as expected) but not run to completion in this session. Instead, `apple:knowledge:reclassify` (lightweight, re-classifies existing parameters_json) populated the new kind taxonomy across 10991 symbols / 43311 params without re-parsing headers. struct symbols still have `fields_json IS NULL` because reclassify can't recover field info. For struct_in / struct_out paths to work for symbols beyond the smoke set (e.g. `MIDISend(MIDIPacketList)`), a full rebuild is needed. Acceptance criterion 2 (`MIDISend` smoke) is therefore deferred.
+
+3. **`test_receive_notification`** (non-nil callback Ruby Proc) requires Phase 6 Callback pillar.
+
+### Acceptance summary
+
+| Criterion | Status |
+|---|---|
+| 1. README example runs end-to-end | ✅ met |
+| 2. MIDISend with MIDIPacketList from Ruby Hash | deferred (needs full DB rebuild) |
+| 3. Ruby Proc as MIDINotifyProc invocation | deferred (Phase 6 follow-up) |
+| 4. Closed kind taxonomy | ✅ met (template now handles 11 kinds; LLM fallback covers genuinely exotic shapes) |
+
+The library has reached the **README-runnable** practical bar for nilable-callback / void*-refcon / opaque-out APIs — the most common Apple SDK shape. The two struct/callback follow-up issues are scoped, well-defined, and tractable as independent next steps.
+
 ## References
 
 - Predecessor spec: `2026-05-05-llm-fallback-prompt-alignment-design.md` — prompt-only fix that this design supersedes.

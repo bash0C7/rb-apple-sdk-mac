@@ -20,7 +20,7 @@
 - Modify: `~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/lib/rb_apple_sdk_knowledge/store.rb`
 - Modify: `~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/test/store_test.rb`
 
-- [ ] **Step 1: Write failing test for idempotent ALTER TABLE migration**
+- [x] **Step 1: Write failing test for idempotent ALTER TABLE migration**
 
 Append to `test/store_test.rb`:
 
@@ -53,7 +53,7 @@ def test_schema_version_bumped_to_2
 end
 ```
 
-- [ ] **Step 2: Run new tests, confirm they fail**
+- [x] **Step 2: Run new tests, confirm they fail**
 
 ```bash
 cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge && \
@@ -63,7 +63,7 @@ cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge && \
 
 Expected: 2 failures (`fields_json` not in columns; `schema_version` is "1").
 
-- [ ] **Step 3: Commit RED**
+- [x] **Step 3: Commit RED**
 
 ```bash
 cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge && \
@@ -71,7 +71,7 @@ git add test/store_test.rb && \
 git commit -m "test: add failing specs for fields_json schema migration"
 ```
 
-- [ ] **Step 4: GREEN — bump SCHEMA_VERSION and add ensure_column!**
+- [x] **Step 4: GREEN — bump SCHEMA_VERSION and add ensure_column!**
 
 In `lib/rb_apple_sdk_knowledge/store.rb`:
 - Change `SCHEMA_VERSION = 1` to `SCHEMA_VERSION = 2`.
@@ -98,7 +98,7 @@ def ensure_column!(table, col, type)
 end
 ```
 
-- [ ] **Step 5: Run tests, confirm GREEN**
+- [x] **Step 5: Run tests, confirm GREEN**
 
 ```bash
 cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge && \
@@ -108,7 +108,7 @@ cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge && \
 
 Expected: 2 tests, 0 failures.
 
-- [ ] **Step 6: Commit GREEN**
+- [x] **Step 6: Commit GREEN**
 
 ```bash
 cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge && \
@@ -124,7 +124,7 @@ git commit -m "feat: bump schema to v2 with fields_json column and idempotent en
 - Modify: `~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/lib/rb_apple_sdk_knowledge/store.rb`
 - Modify: `~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/test/store_test.rb`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```ruby
 def test_insert_symbol_persists_fields_json
@@ -141,7 +141,7 @@ def test_insert_symbol_persists_fields_json
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail**
+- [x] **Step 2: Run, confirm fail**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/store_test.rb -n test_insert_symbol_persists_fields_json
@@ -149,14 +149,14 @@ bundle exec ruby -Ilib -Itest test/store_test.rb -n test_insert_symbol_persists_
 
 Expected: ArgumentError (unknown kwarg `fields_json`).
 
-- [ ] **Step 3: Commit RED**
+- [x] **Step 3: Commit RED**
 
 ```bash
 git add test/store_test.rb && \
 git commit -m "test: add failing spec for insert_symbol fields_json kwarg"
 ```
 
-- [ ] **Step 4: GREEN — extend `insert_symbol`**
+- [x] **Step 4: GREEN — extend `insert_symbol`**
 
 ```ruby
 def insert_symbol(framework_id:, name:, kind:, abi:, content_hash:,
@@ -179,7 +179,7 @@ def insert_symbol(framework_id:, name:, kind:, abi:, content_hash:,
 end
 ```
 
-- [ ] **Step 5: Run, confirm GREEN**
+- [x] **Step 5: Run, confirm GREEN**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/store_test.rb -n test_insert_symbol_persists_fields_json
@@ -187,7 +187,7 @@ bundle exec ruby -Ilib -Itest test/store_test.rb -n test_insert_symbol_persists_
 
 Expected: 1 test, 0 failures.
 
-- [ ] **Step 6: Commit GREEN**
+- [x] **Step 6: Commit GREEN**
 
 ```bash
 git add lib/rb_apple_sdk_knowledge/store.rb && \
@@ -202,7 +202,7 @@ git commit -m "feat: insert_symbol accepts fields_json kwarg"
 - Modify: `lib/rb_apple_sdk_knowledge/importer/kind.rb`
 - Modify: `test/importer/kind_test.rb` (create if absent)
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create or append `test/importer/kind_test.rb`:
 
@@ -245,7 +245,7 @@ class TestKind < Test::Unit::TestCase
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail**
+- [x] **Step 2: Run, confirm fail**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/importer/kind_test.rb
@@ -253,14 +253,14 @@ bundle exec ruby -Ilib -Itest test/importer/kind_test.rb
 
 Expected: 4 failures (new kinds not emitted; signature still 2-arg).
 
-- [ ] **Step 3: Commit RED**
+- [x] **Step 3: Commit RED**
 
 ```bash
 git add test/importer/kind_test.rb && \
 git commit -m "test: add failing specs for nullability-aware kind classifier"
 ```
 
-- [ ] **Step 4: GREEN — extend classifier**
+- [x] **Step 4: GREEN — extend classifier**
 
 In `lib/rb_apple_sdk_knowledge/importer/kind.rb`:
 
@@ -292,7 +292,7 @@ def classify_kind(qual_type, desugared = qual_type, nullability = "unspecified")
 end
 ```
 
-- [ ] **Step 5: Run, confirm GREEN**
+- [x] **Step 5: Run, confirm GREEN**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/importer/kind_test.rb
@@ -300,7 +300,7 @@ bundle exec ruby -Ilib -Itest test/importer/kind_test.rb
 
 Expected: 5 tests, 0 failures.
 
-- [ ] **Step 6: Commit GREEN**
+- [x] **Step 6: Commit GREEN**
 
 ```bash
 git add lib/rb_apple_sdk_knowledge/importer/kind.rb && \
@@ -315,7 +315,7 @@ git commit -m "feat: kind classifier emits void_ptr_nilable / callback_(non_)nil
 - Modify: `lib/rb_apple_sdk_knowledge/importer/header_parser.rb`
 - Modify: `test/importer/header_parser_test.rb`
 
-- [ ] **Step 1: Write failing test for FieldDecl walk**
+- [x] **Step 1: Write failing test for FieldDecl walk**
 
 Append to `test/importer/header_parser_test.rb`:
 
@@ -353,7 +353,7 @@ def test_function_param_classification_uses_nullability
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail**
+- [x] **Step 2: Run, confirm fail**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/importer/header_parser_test.rb \
@@ -362,14 +362,14 @@ bundle exec ruby -Ilib -Itest test/importer/header_parser_test.rb \
 
 Expected: 2 failures (no `fields` key; kinds still `unsupported`).
 
-- [ ] **Step 3: Commit RED**
+- [x] **Step 3: Commit RED**
 
 ```bash
 git add test/importer/header_parser_test.rb && \
 git commit -m "test: add failing specs for FieldDecl walk and nullability-aware param classify"
 ```
 
-- [ ] **Step 4: GREEN — patch HeaderParser**
+- [x] **Step 4: GREEN — patch HeaderParser**
 
 In `lib/rb_apple_sdk_knowledge/importer/header_parser.rb`:
 
@@ -423,7 +423,7 @@ def function_parameters(node)
 end
 ```
 
-- [ ] **Step 5: Run, confirm GREEN**
+- [x] **Step 5: Run, confirm GREEN**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/importer/header_parser_test.rb
@@ -431,7 +431,7 @@ bundle exec ruby -Ilib -Itest test/importer/header_parser_test.rb
 
 Expected: existing tests + 2 new tests pass.
 
-- [ ] **Step 6: Commit GREEN**
+- [x] **Step 6: Commit GREEN**
 
 ```bash
 git add lib/rb_apple_sdk_knowledge/importer/header_parser.rb && \
@@ -445,7 +445,7 @@ git commit -m "feat: HeaderParser walks FieldDecl and forwards nullability to ki
 **Files:**
 - Modify: `lib/rb_apple_sdk_knowledge/importer.rb`
 
-- [ ] **Step 1: Locate struct insert site**
+- [x] **Step 1: Locate struct insert site**
 
 ```bash
 grep -n "kind.*struct\|insert_symbol" ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/lib/rb_apple_sdk_knowledge/importer.rb
@@ -453,7 +453,7 @@ grep -n "kind.*struct\|insert_symbol" ~/dev/src/github.com/bash0C7/rb-apple-sdk-
 
 Identify where `Store#insert_symbol` is called for a struct. There's typically one call site that handles all symbol kinds.
 
-- [ ] **Step 2: Write integration test**
+- [x] **Step 2: Write integration test**
 
 In `test/importer_test.rb` (create if needed) or in the existing test that imports a small framework:
 
@@ -478,7 +478,7 @@ end
 
 (If the `Importer#import_header` method signature differs, adapt to current signature seen in `lib/rb_apple_sdk_knowledge/importer.rb`.)
 
-- [ ] **Step 3: Run, confirm fail**
+- [x] **Step 3: Run, confirm fail**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/importer_test.rb -n test_importer_persists_struct_fields_json
@@ -486,14 +486,14 @@ bundle exec ruby -Ilib -Itest test/importer_test.rb -n test_importer_persists_st
 
 Expected: `fields_json` is NULL.
 
-- [ ] **Step 4: Commit RED**
+- [x] **Step 4: Commit RED**
 
 ```bash
 git add test/importer_test.rb test/fixtures/mini_struct.h && \
 git commit -m "test: add failing spec for importer fields_json persistence"
 ```
 
-- [ ] **Step 5: GREEN — pass fields_json on struct insert**
+- [x] **Step 5: GREEN — pass fields_json on struct insert**
 
 In `lib/rb_apple_sdk_knowledge/importer.rb`, where `Store#insert_symbol` is called: when the symbol Hash has `:fields`, dump and pass:
 
@@ -510,7 +510,7 @@ In `lib/rb_apple_sdk_knowledge/importer.rb`, where `Store#insert_symbol` is call
 )
 ```
 
-- [ ] **Step 6: Run, confirm GREEN**
+- [x] **Step 6: Run, confirm GREEN**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/importer_test.rb -n test_importer_persists_struct_fields_json
@@ -518,7 +518,7 @@ bundle exec ruby -Ilib -Itest test/importer_test.rb -n test_importer_persists_st
 
 Expected: 1 test, 0 failures.
 
-- [ ] **Step 7: Commit GREEN**
+- [x] **Step 7: Commit GREEN**
 
 ```bash
 git add lib/rb_apple_sdk_knowledge/importer.rb && \
@@ -533,7 +533,7 @@ git commit -m "feat: importer persists struct fields_json"
 - Modify: `lib/rb_apple_sdk_knowledge/reclassifier.rb`
 - Modify: `test/reclassifier_test.rb`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```ruby
 def test_reclassifier_preserves_new_kinds_when_re_walking
@@ -556,7 +556,7 @@ def test_reclassifier_preserves_new_kinds_when_re_walking
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail**
+- [x] **Step 2: Run, confirm fail**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/reclassifier_test.rb -n test_reclassifier_preserves_new_kinds
@@ -564,14 +564,14 @@ bundle exec ruby -Ilib -Itest test/reclassifier_test.rb -n test_reclassifier_pre
 
 Expected: kind reverts to `unsupported` because the reclassifier doesn't know about the new kinds.
 
-- [ ] **Step 3: Commit RED**
+- [x] **Step 3: Commit RED**
 
 ```bash
 git add test/reclassifier_test.rb && \
 git commit -m "test: add failing spec for reclassifier preserving new kinds"
 ```
 
-- [ ] **Step 4: GREEN — pass nullability through reclassifier**
+- [x] **Step 4: GREEN — pass nullability through reclassifier**
 
 In `lib/rb_apple_sdk_knowledge/reclassifier.rb`, where each parameter is re-walked, ensure the call to `Kind.classify_kind` includes the `nullability` from the existing JSON entry:
 
@@ -583,7 +583,7 @@ params = parsed.map do |p|
 end
 ```
 
-- [ ] **Step 5: Run, confirm GREEN**
+- [x] **Step 5: Run, confirm GREEN**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/reclassifier_test.rb
@@ -591,7 +591,7 @@ bundle exec ruby -Ilib -Itest test/reclassifier_test.rb
 
 Expected: all reclassifier tests pass.
 
-- [ ] **Step 6: Commit GREEN**
+- [x] **Step 6: Commit GREEN**
 
 ```bash
 git add lib/rb_apple_sdk_knowledge/reclassifier.rb && \
@@ -604,7 +604,7 @@ git commit -m "feat: reclassifier forwards nullability to kind classifier"
 
 **Files:** None modified directly; produces `data/sdk_knowledge_26.2.sqlite`.
 
-- [ ] **Step 1: Delegate full `bundle exec rake test` to a subagent**
+- [x] **Step 1: Delegate full `bundle exec rake test` to a subagent**
 
 Subagent prompt:
 
@@ -612,7 +612,7 @@ Subagent prompt:
 
 Expected: previous test count + new tests, 0 failures.
 
-- [ ] **Step 2: Rebuild knowledge DB**
+- [x] **Step 2: Rebuild knowledge DB**
 
 ```bash
 cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge && \
@@ -626,7 +626,7 @@ screen -dmS knowledge-rebuild-20260505 bash -c '
 
 End the conversation turn after launch. Resume after `DONE:` sentinel.
 
-- [ ] **Step 3: Verify rebuild populates fields_json for at least one struct**
+- [x] **Step 3: Verify rebuild populates fields_json for at least one struct**
 
 ```bash
 sqlite3 ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/data/sdk_knowledge_26.2.sqlite \
@@ -635,7 +635,7 @@ sqlite3 ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/data/sdk_knowledge_2
 
 Expected: > 0 (likely thousands).
 
-- [ ] **Step 4: Commit rebuilt DB and bump knowledge gem version**
+- [x] **Step 4: Commit rebuilt DB and bump knowledge gem version**
 
 ```bash
 cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge && \
@@ -656,7 +656,7 @@ git commit -m "chore: rebuild knowledge DB with fields_json + new kind taxonomy,
 - Modify: `~/dev/src/github.com/bash0C7/rb-apple-sdk-mac/lib/apple_sdk_mac/knowledge_cache.rb`
 - Modify: `~/dev/src/github.com/bash0C7/rb-apple-sdk-mac/test/knowledge_cache_test.rb` (create if absent)
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```ruby
 require "test/unit"
@@ -677,7 +677,7 @@ class TestKnowledgeCache < Test::Unit::TestCase
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail**
+- [x] **Step 2: Run, confirm fail**
 
 ```bash
 cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-mac && \
@@ -686,14 +686,14 @@ cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-mac && \
 
 Expected: `:fields_json` key not in returned Hash.
 
-- [ ] **Step 3: Commit RED**
+- [x] **Step 3: Commit RED**
 
 ```bash
 git add test/knowledge_cache_test.rb && \
 git commit -m "test: add failing spec for KnowledgeCache fields_json surface"
 ```
 
-- [ ] **Step 4: GREEN — extend SELECT and Hash**
+- [x] **Step 4: GREEN — extend SELECT and Hash**
 
 In `lib/apple_sdk_mac/knowledge_cache.rb`:
 
@@ -718,7 +718,7 @@ def lookup_symbol(framework:, symbol:)
 end
 ```
 
-- [ ] **Step 5: Run, confirm GREEN**
+- [x] **Step 5: Run, confirm GREEN**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/knowledge_cache_test.rb
@@ -726,7 +726,7 @@ bundle exec ruby -Ilib -Itest test/knowledge_cache_test.rb
 
 Expected: 1 test, 0 failures.
 
-- [ ] **Step 6: Commit GREEN**
+- [x] **Step 6: Commit GREEN**
 
 ```bash
 git add lib/apple_sdk_mac/knowledge_cache.rb && \
@@ -744,7 +744,7 @@ git commit -m "feat: KnowledgeCache surfaces fields_json on lookup_symbol"
 - Modify: `lib/apple_sdk_mac/glue_compiler/template_generator.rb`
 - Modify: `test/template_generator_test.rb`
 
-- [ ] **Step 1: Write characterization test**
+- [x] **Step 1: Write characterization test**
 
 Append to `test/template_generator_test.rb`:
 
@@ -772,7 +772,7 @@ end
 
 (This test will pass with the legacy code; the GREEN step preserves byte-identical output. The test exists to prevent regression after the refactor.)
 
-- [ ] **Step 2: Verify legacy passes the characterization test**
+- [x] **Step 2: Verify legacy passes the characterization test**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/template_generator_test.rb \
@@ -781,14 +781,14 @@ bundle exec ruby -Ilib -Itest test/template_generator_test.rb \
 
 Expected: 1 test, 0 failures.
 
-- [ ] **Step 3: Commit characterization (REFACTOR-prep)**
+- [x] **Step 3: Commit characterization (REFACTOR-prep)**
 
 ```bash
 git add test/template_generator_test.rb && \
 git commit -m "test: characterize existing-kind output before Marshaller refactor"
 ```
 
-- [ ] **Step 4: Create `marshallers.rb` with base + 5 subclasses**
+- [x] **Step 4: Create `marshallers.rb` with base + 5 subclasses**
 
 ```ruby
 # frozen_string_literal: true
@@ -881,7 +881,7 @@ module AppleSDKMac
 end
 ```
 
-- [ ] **Step 5: Refactor `template_generator.rb` to use Marshaller dispatch**
+- [x] **Step 5: Refactor `template_generator.rb` to use Marshaller dispatch**
 
 Rewrite `template_generator.rb` (preserving HEADER unchanged for now). The new shape:
 
@@ -991,7 +991,7 @@ module AppleSDKMac
 end
 ```
 
-- [ ] **Step 6: Run all template_generator tests, confirm GREEN**
+- [x] **Step 6: Run all template_generator tests, confirm GREEN**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/template_generator_test.rb
@@ -999,7 +999,7 @@ bundle exec ruby -Ilib -Itest test/template_generator_test.rb
 
 Expected: existing tests + characterization test pass. Output must remain byte-identical for existing kinds.
 
-- [ ] **Step 7: Commit GREEN (refactor)**
+- [x] **Step 7: Commit GREEN (refactor)**
 
 ```bash
 git add lib/apple_sdk_mac/glue_compiler/marshallers.rb lib/apple_sdk_mac/glue_compiler/template_generator.rb && \
@@ -1016,7 +1016,7 @@ git commit -m "refactor: dispatch param marshalling through Marshaller pattern (
 - Modify: `lib/apple_sdk_mac/glue_compiler/template_generator.rb` (HEADER constant)
 - Modify: `test/template_generator_test.rb`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```ruby
 def test_header_includes_rb_hash_and_rb_block_silgen_names
@@ -1029,7 +1029,7 @@ def test_header_includes_rb_hash_and_rb_block_silgen_names
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail**
+- [x] **Step 2: Run, confirm fail**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/template_generator_test.rb \
@@ -1038,14 +1038,14 @@ bundle exec ruby -Ilib -Itest test/template_generator_test.rb \
 
 Expected: 5 failed assertions.
 
-- [ ] **Step 3: Commit RED**
+- [x] **Step 3: Commit RED**
 
 ```bash
 git add test/template_generator_test.rb && \
 git commit -m "test: add failing spec for HEADER rb_hash_* and rb_block_* extensions"
 ```
 
-- [ ] **Step 4: GREEN — extend HEADER**
+- [x] **Step 4: GREEN — extend HEADER**
 
 In `template_generator.rb`, append to the HEADER heredoc (before the final `Qfalse/Qnil/Qtrue` block):
 
@@ -1062,11 +1062,11 @@ func rb_block_given_p() -> Int32
 func rb_block_proc() -> UInt
 ```
 
-- [ ] **Step 5: Run, confirm GREEN**
+- [x] **Step 5: Run, confirm GREEN**
 
 Expected: 5 assertions pass.
 
-- [ ] **Step 6: Commit GREEN**
+- [x] **Step 6: Commit GREEN**
 
 ```bash
 git add lib/apple_sdk_mac/glue_compiler/template_generator.rb && \
@@ -1081,7 +1081,7 @@ git commit -m "feat: extend HEADER with rb_hash_* and rb_block_* silgen names"
 - Modify: `lib/apple_sdk_mac/glue_compiler/marshallers.rb`
 - Modify: `test/template_generator_test.rb`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```ruby
 def test_callback_nilable_emits_qnil_branch_with_rb_raise_stub
@@ -1110,7 +1110,7 @@ def test_callback_non_nil_emits_unconditional_rb_raise_stub
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail**
+- [x] **Step 2: Run, confirm fail**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/template_generator_test.rb \
@@ -1119,14 +1119,14 @@ bundle exec ruby -Ilib -Itest test/template_generator_test.rb \
 
 Expected: 2 failures (Marshaller.for returns nil for these kinds → generate returns nil → swift is nil).
 
-- [ ] **Step 3: Commit RED**
+- [x] **Step 3: Commit RED**
 
 ```bash
 git add test/template_generator_test.rb && \
 git commit -m "test: add failing specs for callback_nilable / callback_non_nil Marshallers"
 ```
 
-- [ ] **Step 4: GREEN — add Marshallers**
+- [x] **Step 4: GREEN — add Marshallers**
 
 In `marshallers.rb`:
 
@@ -1157,11 +1157,11 @@ end
 Marshaller::REGISTRY["callback_non_nil"] = CallbackNonNilMarshaller
 ```
 
-- [ ] **Step 5: Run, confirm GREEN**
+- [x] **Step 5: Run, confirm GREEN**
 
 Expected: 2 tests pass.
 
-- [ ] **Step 6: Commit GREEN**
+- [x] **Step 6: Commit GREEN**
 
 ```bash
 git add lib/apple_sdk_mac/glue_compiler/marshallers.rb && \
@@ -1176,7 +1176,7 @@ git commit -m "feat: callback_(non_)nilable Marshallers with rb_raise stubs (Cal
 - Modify: `lib/apple_sdk_mac/glue_compiler/marshallers.rb`
 - Modify: `test/template_generator_test.rb`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```ruby
 def test_void_ptr_nilable_emits_bitpattern
@@ -1192,7 +1192,7 @@ def test_void_ptr_nilable_emits_bitpattern
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail; commit RED**
+- [x] **Step 2: Run, confirm fail; commit RED**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/template_generator_test.rb -n test_void_ptr_nilable_emits_bitpattern && \
@@ -1200,7 +1200,7 @@ git add test/template_generator_test.rb && \
 git commit -m "test: add failing spec for void_ptr_nilable Marshaller"
 ```
 
-- [ ] **Step 3: GREEN — add Marshaller**
+- [x] **Step 3: GREEN — add Marshaller**
 
 ```ruby
 class VoidPtrNilableMarshaller < Marshaller
@@ -1219,7 +1219,7 @@ end
 Marshaller::REGISTRY["void_ptr_nilable"] = VoidPtrNilableMarshaller
 ```
 
-- [ ] **Step 4: Run + commit GREEN**
+- [x] **Step 4: Run + commit GREEN**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/template_generator_test.rb -n test_void_ptr_nilable_emits_bitpattern && \
@@ -1235,7 +1235,7 @@ git commit -m "feat: void_ptr_nilable Marshaller emits UnsafeMutableRawPointer? 
 - Modify: `lib/apple_sdk_mac/glue_compiler/marshallers.rb`
 - Modify: `test/template_generator_test.rb`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```ruby
 def test_struct_in_emits_field_by_field_hash_aref
@@ -1311,7 +1311,7 @@ def test_struct_in_cycle_detection_returns_nil
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail; commit RED**
+- [x] **Step 2: Run, confirm fail; commit RED**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/template_generator_test.rb -n /test_struct_in/ && \
@@ -1319,7 +1319,7 @@ git add test/template_generator_test.rb && \
 git commit -m "test: add failing specs for struct_in Marshaller (flat, nested, cycle)"
 ```
 
-- [ ] **Step 3: GREEN — add Marshaller**
+- [x] **Step 3: GREEN — add Marshaller**
 
 ```ruby
 class StructInMarshaller < Marshaller
@@ -1400,7 +1400,7 @@ end
 
 (integrate into the existing `body << "let result = ..."` or `body << "let status = ..."` lines).
 
-- [ ] **Step 4: Run + commit GREEN**
+- [x] **Step 4: Run + commit GREEN**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/template_generator_test.rb -n /test_struct_in/ && \
@@ -1416,7 +1416,7 @@ git commit -m "feat: struct_in Marshaller with depth-1 nesting and cycle detecti
 - Modify: `lib/apple_sdk_mac/glue_compiler/marshallers.rb`
 - Modify: `test/template_generator_test.rb`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```ruby
 def test_struct_out_emits_hash_new_aset_per_field
@@ -1437,9 +1437,9 @@ def test_struct_out_emits_hash_new_aset_per_field
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail; commit RED**
+- [x] **Step 2: Run, confirm fail; commit RED**
 
-- [ ] **Step 3: GREEN — add `StructOutMarshaller`**
+- [x] **Step 3: GREEN — add `StructOutMarshaller`**
 
 ```ruby
 class StructOutMarshaller < Marshaller
@@ -1489,7 +1489,7 @@ Marshaller::REGISTRY["struct_out"] = StructOutMarshaller
 
 Update `template_generator.rb` single-out branch to use `m.out_to_ruby` (already does).
 
-- [ ] **Step 4: Run + commit GREEN**
+- [x] **Step 4: Run + commit GREEN**
 
 ```bash
 git add lib/apple_sdk_mac/glue_compiler/marshallers.rb && \
@@ -1504,7 +1504,7 @@ git commit -m "feat: struct_out Marshaller emits rb_hash_new + per-field rb_hash
 - Modify: `lib/apple_sdk_mac/glue_compiler/template_generator.rb`
 - Modify: `test/template_generator_test.rb`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```ruby
 def test_multi_out_param_returns_hash_with_named_keys
@@ -1525,9 +1525,9 @@ def test_multi_out_param_returns_hash_with_named_keys
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail; commit RED**
+- [x] **Step 2: Run, confirm fail; commit RED**
 
-- [ ] **Step 3: GREEN — replace the `return nil` for multi-out**
+- [x] **Step 3: GREEN — replace the `return nil` for multi-out**
 
 In `template_generator.rb`, replace the placeholder `return nil` for ≥2 out-params:
 
@@ -1543,7 +1543,7 @@ else
 end
 ```
 
-- [ ] **Step 4: Run + commit GREEN**
+- [x] **Step 4: Run + commit GREEN**
 
 ---
 
@@ -1553,7 +1553,7 @@ end
 - Modify: `lib/apple_sdk_mac/glue_compiler/marshallers.rb`
 - Modify: `test/template_generator_test.rb`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```ruby
 def test_variadic_args_emits_with_va_list
@@ -1572,9 +1572,9 @@ def test_variadic_args_emits_with_va_list
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail; commit RED**
+- [x] **Step 2: Run, confirm fail; commit RED**
 
-- [ ] **Step 3: GREEN — add Marshaller**
+- [x] **Step 3: GREEN — add Marshaller**
 
 ```ruby
 class VariadicMarshaller < Marshaller
@@ -1596,7 +1596,7 @@ if marshallers.any? { |m| m.is_a?(VariadicMarshaller) }
 end
 ```
 
-- [ ] **Step 4: Run + commit GREEN**
+- [x] **Step 4: Run + commit GREEN**
 
 (Note: `rubyValueToCVarArg` is a runtime ext helper added in Task 19.)
 
@@ -1607,7 +1607,7 @@ end
 **Files:**
 - Modify: `test/template_generator_test.rb`
 
-- [ ] **Step 1: Write integration test**
+- [x] **Step 1: Write integration test**
 
 ```ruby
 def test_midiclientcreate_endtoend_swift_shape
@@ -1629,7 +1629,7 @@ def test_midiclientcreate_endtoend_swift_shape
 end
 ```
 
-- [ ] **Step 2: Run, confirm GREEN (this is a regression-safety test, no new code)**
+- [x] **Step 2: Run, confirm GREEN (this is a regression-safety test, no new code)**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/template_generator_test.rb -n test_midiclientcreate_endtoend_swift_shape
@@ -1637,7 +1637,7 @@ bundle exec ruby -Ilib -Itest test/template_generator_test.rb -n test_midiclient
 
 Expected: PASS (all preceding tasks combined produce this shape).
 
-- [ ] **Step 3: Commit (test-only)**
+- [x] **Step 3: Commit (test-only)**
 
 ```bash
 git add test/template_generator_test.rb && \
@@ -1654,7 +1654,7 @@ git commit -m "test: add end-to-end characterization for MIDIClientCreate templa
 - Modify: `lib/apple_sdk_mac/glue_compiler/llm_generator.rb`
 - Modify: `test/llm_generator_test.rb`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```ruby
 def test_instructions_embed_extended_header_silgen_names
@@ -1676,9 +1676,9 @@ def test_instructions_callback_else_branch_uses_callback_pillar
 end
 ```
 
-- [ ] **Step 2: Run, confirm fail; commit RED**
+- [x] **Step 2: Run, confirm fail; commit RED**
 
-- [ ] **Step 3: GREEN — extend INSTRUCTIONS**
+- [x] **Step 3: GREEN — extend INSTRUCTIONS**
 
 In `llm_generator.rb`, add:
 
@@ -1736,7 +1736,7 @@ SECTION 5 — WORKED EXAMPLE: multi-out hash return
 #{WORKED_EXAMPLE_OUT_HASH}
 ```
 
-- [ ] **Step 4: Run, confirm GREEN; commit**
+- [x] **Step 4: Run, confirm GREEN; commit**
 
 ```bash
 bundle exec ruby -Ilib -Itest test/llm_generator_test.rb && \
@@ -1758,7 +1758,7 @@ git commit -m "feat: LLM prompt syncs HEADER + adds struct_in / multi-out worked
 - Modify: `Rakefile` (add `runtime:codegen_callback_pillar` task)
 - Modify: `ext/apple_sdk_mac_runtime/Package.swift` (add CallbackPillar target)
 
-- [ ] **Step 1: Write `callback_signatures.yml` with initial 3 signatures (MIDI focus first)**
+- [x] **Step 1: Write `callback_signatures.yml` with initial 3 signatures (MIDI focus first)**
 
 ```yaml
 - token: midiNotifyProc
@@ -1785,7 +1785,7 @@ git commit -m "feat: LLM prompt syncs HEADER + adds struct_in / multi-out worked
   return: "UnsafeMutableRawPointer?"
 ```
 
-- [ ] **Step 2: Write `CallbackPillar.swift` core**
+- [x] **Step 2: Write `CallbackPillar.swift` core**
 
 ```swift
 import Foundation
@@ -1845,7 +1845,7 @@ func rb_gc_unregister_address_helper(_ value: UInt) {
 }
 ```
 
-- [ ] **Step 3: Write codegen helper `codegen/callback_pillar_codegen.rb`**
+- [x] **Step 3: Write codegen helper `codegen/callback_pillar_codegen.rb`**
 
 ```ruby
 require "yaml"
@@ -1896,7 +1896,7 @@ File.write(OUTPUT, ERB.new(template, trim_mode: "-").result)
 puts "Wrote #{OUTPUT} (#{sigs.length} signatures)"
 ```
 
-- [ ] **Step 4: Add Rakefile task**
+- [x] **Step 4: Add Rakefile task**
 
 In `Rakefile`:
 
@@ -1909,11 +1909,11 @@ namespace :runtime do
 end
 ```
 
-- [ ] **Step 5: Update `Package.swift` for the new module**
+- [x] **Step 5: Update `Package.swift` for the new module**
 
 Add `CallbackPillar` as a sub-source-set of the existing `AppleSDKMacRuntime` target (or new sibling target). Inspect current `Package.swift` to follow its idioms.
 
-- [ ] **Step 6: Run codegen and verify Swift compiles**
+- [x] **Step 6: Run codegen and verify Swift compiles**
 
 ```bash
 bundle exec rake runtime:codegen_callback_pillar && \
@@ -1923,7 +1923,7 @@ swift build
 
 Expected: `Build complete!`. If trampoline body has `// TODO: invoke Ruby block with GVL` with no return, replace `return nil` placeholder with concrete: leave a `// stub` comment + `return nil` for return-bearing signatures. The Ruby invocation itself is wired in Task 20.
 
-- [ ] **Step 7: Commit codegen + first signatures**
+- [x] **Step 7: Commit codegen + first signatures**
 
 ```bash
 git add ext/apple_sdk_mac_runtime/callback_signatures.yml \
@@ -1942,7 +1942,7 @@ git commit -m "feat: scaffold Callback pillar with codegen + 3 MIDI/CF signature
 - Modify: `ext/apple_sdk_mac_runtime/Sources/CallbackPillar/CallbackPillar.swift`
 - Modify: `ext/apple_sdk_mac_runtime/codegen/callback_pillar_codegen.rb`
 
-- [ ] **Step 1: Add GVL helpers to CallbackPillar.swift**
+- [x] **Step 1: Add GVL helpers to CallbackPillar.swift**
 
 ```swift
 @_silgen_name("rb_thread_call_with_gvl")
@@ -1968,7 +1968,7 @@ func withGVL<T>(_ body: () -> T) -> T {
 
 (The exact box pattern varies; adopt the simplest one that compiles and tests pass. Avoid premature optimization.)
 
-- [ ] **Step 2: Update codegen template to fill trampoline body**
+- [x] **Step 2: Update codegen template to fill trampoline body**
 
 Replace the `// TODO: invoke Ruby block with GVL` block with concrete invocation per arg:
 
@@ -1993,14 +1993,14 @@ func wrap_unsafemutablerawpointer_optional(_ p: UnsafeMutableRawPointer?) -> UIn
 // ... per swift type used in signatures
 ```
 
-- [ ] **Step 3: Regenerate, build, run a smoke**
+- [x] **Step 3: Regenerate, build, run a smoke**
 
 ```bash
 bundle exec rake runtime:codegen_callback_pillar && \
 cd ext/apple_sdk_mac_runtime && swift build
 ```
 
-- [ ] **Step 4: Add a unit test for register/unregister roundtrip (no actual callback fire)**
+- [x] **Step 4: Add a unit test for register/unregister roundtrip (no actual callback fire)**
 
 ```ruby
 def test_callback_pillar_register_returns_handle_and_unregisters
@@ -2014,7 +2014,7 @@ end
 
 (If wiring is too heavy, defer the live test until Task 22 smoke and only assert export-symbol presence here.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "feat: Callback pillar invokes Ruby block via rb_thread_call_with_gvl"
@@ -2028,7 +2028,7 @@ git commit -m "feat: Callback pillar invokes Ruby block via rb_thread_call_with_
 - Modify: `lib/apple_sdk_mac/glue_compiler/marshallers.rb`
 - Modify: `test/template_generator_test.rb`
 
-- [ ] **Step 1: Update existing tests + add new**
+- [x] **Step 1: Update existing tests + add new**
 
 Modify Task 11 tests:
 - `test_callback_nilable_emits_qnil_branch_with_rb_raise_stub` → rename `..._with_callback_pillar`, change asserts:
@@ -2039,9 +2039,9 @@ Modify Task 11 tests:
   ```
 - `test_callback_non_nil_emits_unconditional_rb_raise_stub` → similar update.
 
-- [ ] **Step 2: Run, confirm fail; commit RED**
+- [x] **Step 2: Run, confirm fail; commit RED**
 
-- [ ] **Step 3: GREEN — update Marshallers**
+- [x] **Step 3: GREEN — update Marshallers**
 
 ```ruby
 class CallbackNilableMarshaller < Marshaller
@@ -2077,7 +2077,7 @@ end
 
 (adjust mapping to match `callback_signatures.yml` tokens)
 
-- [ ] **Step 4: Run + commit GREEN**
+- [x] **Step 4: Run + commit GREEN**
 
 ```bash
 git commit -m "feat: callback Marshallers route via Callback pillar register/unregister"
@@ -2093,7 +2093,7 @@ git commit -m "feat: callback Marshallers route via Callback pillar register/unr
 - Modify: `test/integration/coremidi_smoke_test.rb`
 - Modify: `docs/superpowers/specs/2026-05-05-unified-marshalling-and-callback-pillar-design.md` (Verification section)
 
-- [ ] **Step 1: Inspect current smoke and add `test_send_packet`**
+- [x] **Step 1: Inspect current smoke and add `test_send_packet`**
 
 ```ruby
 def test_send_packet
@@ -2115,7 +2115,7 @@ ensure
 end
 ```
 
-- [ ] **Step 2: Wipe cache + launch smoke under screen**
+- [x] **Step 2: Wipe cache + launch smoke under screen**
 
 ```bash
 sqlite3 ~/.cache/rb-apple-sdk-mac/26.2/glue.sqlite "DELETE FROM compile_history; DELETE FROM compiled_glue;" && \
@@ -2131,7 +2131,7 @@ screen -dmS bug-c-unified-verify-20260505 bash -c '
 
 End the conversation turn after launch. Resume after `DONE:` sentinel.
 
-- [ ] **Step 3: Inspect results**
+- [x] **Step 3: Inspect results**
 
 ```bash
 tail -80 ~/dev/src/github.com/bash0C7/rb-apple-sdk-mac/tmp/longrun/bug-c-unified-verify-20260505.log && \
@@ -2143,7 +2143,7 @@ Expected:
 - Smoke test output: `2 tests, ... 0 failures, 0 errors, ≤1 omissions`
 - compile_history: every CoreMIDI symbol with `generator='template'`, `error_stage IS NULL`
 
-- [ ] **Step 4: Document outcome in spec**
+- [x] **Step 4: Document outcome in spec**
 
 Append "Verification" section to spec:
 
@@ -2153,7 +2153,7 @@ Append "Verification" section to spec:
 [Outcome class A/B/C, observed compile_history table, smoke test result excerpt.]
 ```
 
-- [ ] **Step 5: Commit verification**
+- [x] **Step 5: Commit verification**
 
 ```bash
 git add test/integration/coremidi_smoke_test.rb docs/superpowers/specs/2026-05-05-unified-marshalling-and-callback-pillar-design.md && \
