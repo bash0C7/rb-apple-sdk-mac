@@ -38,6 +38,30 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_nil swift
   end
 
+  # Task 11: callback_nilable / callback_non_nil Marshallers (stub: rb_raise on non-nil branch).
+  def test_callback_nilable_emits_qnil_branch_with_rb_raise_stub
+    sym = {
+      kind: "function", abi: "c", name: "Foo", signature: "void Foo(MyCallback)",
+      parameters_json: '[{"name":"cb","type":"MyCallback _Nullable","kind":"callback_nilable","is_out_param":false,"nullability":"nullable"}]'
+    }
+    swift = @gen.generate(framework: "Acme", symbol: sym, glue_id: "ab12")
+    refute_nil swift
+    assert_match(/let cb: MyCallback\?/, swift)
+    assert_match(/if argv\[0\] == Qnil/, swift)
+    assert_match(/cb = nil/, swift)
+    assert_match(/rb_raise\(rb_eRuntimeError, "non-nil callback not yet supported"\)/, swift)
+  end
+
+  def test_callback_non_nil_emits_unconditional_rb_raise_stub
+    sym = {
+      kind: "function", abi: "c", name: "Foo", signature: "void Foo(MyCallback)",
+      parameters_json: '[{"name":"cb","type":"MyCallback _Nonnull","kind":"callback_non_nil","is_out_param":false,"nullability":"nonnull"}]'
+    }
+    swift = @gen.generate(framework: "Acme", symbol: sym, glue_id: "ab12")
+    refute_nil swift
+    assert_match(/rb_raise\(rb_eRuntimeError, "non-nil callback not yet supported"\)/, swift)
+  end
+
   # Task 10: HEADER extension with rb_hash_*, rb_block_*.
   def test_header_includes_rb_hash_and_rb_block_silgen_names
     h = AppleSDKMac::GlueCompiler::TemplateGenerator::HEADER
