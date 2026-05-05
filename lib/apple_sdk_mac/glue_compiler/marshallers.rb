@@ -35,7 +35,9 @@ module AppleSDKMac
       def self.for(param, index, ctx)
         klass = REGISTRY[param[:kind]]
         return nil unless klass
-        klass.new(param, index, ctx)
+        m = klass.new(param, index, ctx)
+        return nil if m.respond_to?(:broken?) && m.broken?
+        m
       end
     end
 
@@ -164,5 +166,105 @@ module AppleSDKMac
       end
     end
     Marshaller::REGISTRY["void_ptr_nilable"] = VoidPtrNilableMarshaller
+
+    class StructInMarshaller < Marshaller
+      def initialize(param, index, ctx)
+        super
+        @broken = false
+        @lines = build_in_load_lines
+      end
+
+      def broken?; @broken; end
+
+      def in_load
+        @lines
+      end
+
+      def call_arg
+        # Swift auto-promotes `&var` to UnsafePointer<T> / UnsafeMutablePointer<T>
+        # for C function calls — no withUnsafePointer wrapper needed.
+        "&#{@param[:name]}_struct"
+      end
+
+      private
+
+      def build_in_load_lines
+        type = struct_type(@param[:type])
+        return mark_broken if @ctx[:struct_visited].include?(type)
+        return mark_broken unless @ctx[:knowledge_cache]
+        sym = @ctx[:knowledge_cache].lookup_symbol(framework: @ctx[:framework], symbol: type)
+        return mark_broken unless sym && sym[:fields_json]
+        fields = JSON.parse(sym[:fields_json], symbolize_names: true)
+
+        @ctx[:struct_visited] << type
+        name = @param[:name]
+        i = @index
+        lines = ["let #{name}_h = argv[#{i}]", "var #{name}_struct = #{type}()"]
+        fields.each do |f|
+          lines.concat(field_load_lines(f, "#{name}_h", "#{name}_struct.#{f[:name]}"))
+          return mark_broken if @broken
+        end
+        @ctx[:struct_visited].delete(type)
+        lines.join("\n    ")
+      end
+
+      def field_load_lines(field, parent_h, target_path)
+        key = field[:name]
+        case field[:kind]
+        when "int"
+          ["#{target_path} = #{strip_annotations(field[:type])}(rb_num2ll(rb_hash_aref(#{parent_h}, rb_str_new_cstr(\"#{key}\"))))"]
+        when "float"
+          ["#{target_path} = rb_num2dbl(rb_hash_aref(#{parent_h}, rb_str_new_cstr(\"#{key}\")))"]
+        when "bool"
+          ["#{target_path} = (rb_hash_aref(#{parent_h}, rb_str_new_cstr(\"#{key}\")) != Qfalse)"]
+        when "string"
+          tmp = "#{parent_h}_#{key}_v"
+          ["var #{tmp} = rb_hash_aref(#{parent_h}, rb_str_new_cstr(\"#{key}\"))",
+           "#{target_path} = String(cString: rb_string_value_cstr(&#{tmp}))"]
+        when "opaque_ref"
+          ["#{target_path} = #{strip_annotations(field[:type])}(rb_num2ull(rb_hash_aref(#{parent_h}, rb_str_new_cstr(\"#{key}\"))))"]
+        when "struct_in"
+          nested_type = strip_annotations(field[:type])
+          if @ctx[:struct_visited].include?(nested_type)
+            mark_broken
+            return []
+          end
+          sym = @ctx[:knowledge_cache] && @ctx[:knowledge_cache].lookup_symbol(framework: @ctx[:framework], symbol: nested_type)
+          unless sym && sym[:fields_json]
+            mark_broken
+            return []
+          end
+          nested_fields = JSON.parse(sym[:fields_json], symbolize_names: true)
+          @ctx[:struct_visited] << nested_type
+          nested_h = "#{parent_h}_#{key}_h"
+          inner = ["let #{nested_h} = rb_hash_aref(#{parent_h}, rb_str_new_cstr(\"#{key}\"))"]
+          nested_fields.each do |nf|
+            inner.concat(field_load_lines(nf, nested_h, "#{target_path}.#{nf[:name]}"))
+            if @broken
+              return []
+            end
+          end
+          @ctx[:struct_visited].delete(nested_type)
+          inner
+        else
+          mark_broken
+          []
+        end
+      end
+
+      def mark_broken
+        @broken = true
+        nil
+      end
+
+      def struct_type(type_str)
+        type_str.sub(/\s*\*.*\z/, "").gsub(/\b_(Nonnull|Nullable)\b/, "").sub(/\Aconst\s+/, "").strip
+      end
+
+      def strip_annotations(type_str)
+        type_str.gsub(/\b_(Nonnull|Nullable)\b/, "").strip
+      end
+    end
+    Marshaller::REGISTRY["struct_in"] = StructInMarshaller
   end
 end
