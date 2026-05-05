@@ -5,13 +5,9 @@ require_relative "template_generator"
 module AppleSDKMac
   class GlueCompiler
     class LLMGenerator
-      WORKED_EXAMPLE = <<~SWIFT.freeze
-        // Worked example: int input + string return path (rb_num2ll / rb_str_new_cstr).
+      WORKED_EXAMPLE_INT_IN_STRING_OUT = <<~SWIFT.freeze
+        // Example A — int input, string return (rb_num2ll / rb_str_new_cstr).
         //   const char * AcmeCopyTitle(int id);
-        // Note: this example does NOT cover string-input marshalling. For a string
-        // input, use template_generator.rb's pattern: var v_i = argv[i] then
-        // rb_string_value_cstr(&v_i) — argv[i] alone is UInt, not the
-        // UnsafeMutablePointer<UInt> the rb_* function requires.
         // in framework AcmeFW, glue_id deadbeef. This example is fully
         // self-contained: the @_silgen_name header block appears below exactly
         // as it must appear in every generated file. Substitute the framework,
@@ -29,6 +25,29 @@ module AppleSDKMac
             let cstr = AcmeCopyTitle(Int32(id))
             if cstr == nil { rb_raise(rb_eRuntimeError, "AcmeCopyTitle returned NULL") }
             return rb_str_new_cstr(cstr!)
+        }
+      SWIFT
+
+      WORKED_EXAMPLE_STRING_IN_STATUS_OUT = <<~SWIFT.freeze
+        // Example B — string input, status_int return.
+        //   int AcmeRegisterTitle(const char *title);
+        // CRITICAL: rb_string_value_cstr takes UnsafeMutablePointer<UInt>, NOT
+        // UInt. Writing `rb_string_value_cstr(argv[0])` is a swiftc type error.
+        // Bind argv[i] to a `var` first, then pass `&v<i>`. The @_silgen_name
+        // HEADER block is omitted here for brevity; copy it verbatim from
+        // Section 2 into every generated file.
+        import AcmeFW
+        import Foundation
+
+        @c
+        public func glue_cafef00d_AcmeRegisterTitle(
+            _ argv: UnsafePointer<UInt>, _ argc: Int32
+        ) -> UInt {
+            var v0 = argv[0]
+            let title = String(cString: rb_string_value_cstr(&v0))
+            let status = AcmeRegisterTitle(title)
+            if status != 0 { rb_raise(rb_eRuntimeError, "AcmeRegisterTitle failed") }
+            return Qnil
         }
       SWIFT
 
@@ -104,9 +123,16 @@ module AppleSDKMac
 
         #{TemplateGenerator::HEADER}
 
-        SECTION 3 — WORKED EXAMPLE
+        SECTION 3 — WORKED EXAMPLES
 
-        #{WORKED_EXAMPLE}
+        Two complete examples follow. Use Example A as the structural template;
+        consult Example B when any parameter has kind=string (the bound-var
+        pattern is mandatory and not interchangeable with passing argv[i]
+        directly).
+
+        #{WORKED_EXAMPLE_INT_IN_STRING_OUT}
+
+        #{WORKED_EXAMPLE_STRING_IN_STATUS_OUT}
       TXT
 
       def initialize(model: nil, session: nil)
