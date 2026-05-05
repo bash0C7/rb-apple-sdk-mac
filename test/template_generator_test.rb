@@ -38,6 +38,16 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_nil swift
   end
 
+  # Task 10: HEADER extension with rb_hash_*, rb_block_*.
+  def test_header_includes_rb_hash_and_rb_block_silgen_names
+    h = AppleSDKMac::GlueCompiler::TemplateGenerator::HEADER
+    assert_match(/@_silgen_name\("rb_hash_new"\)/, h)
+    assert_match(/@_silgen_name\("rb_hash_aref"\)/, h)
+    assert_match(/@_silgen_name\("rb_hash_aset"\)/, h)
+    assert_match(/@_silgen_name\("rb_block_given_p"\)/, h)
+    assert_match(/@_silgen_name\("rb_block_proc"\)/, h)
+  end
+
   # Task 9 characterization: every existing kind dispatches and produces
   # non-nil Swift containing the kind's signature marshalling expression.
   # This pins behavior before the Marshaller refactor.
