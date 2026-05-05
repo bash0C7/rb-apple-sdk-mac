@@ -141,6 +141,29 @@ static VALUE rb_raise_argument_error_test(VALUE self, VALUE msg) {
     return Qnil;
 }
 
+static VALUE rb_callback_pillar_register_midi_notify(VALUE self, VALUE proc) {
+    VALUE pid = rb_obj_id(proc);
+    rb_hash_aset(proc_registry, pid, proc);
+    int32_t slot = runtime_callback_pillar_register_midi_notify(NUM2ULL(pid));
+    if (slot < 0) {
+        rb_raise(rb_eRuntimeError, "midiNotifyProc slot pool exhausted");
+    }
+    uint64_t fnptr = runtime_callback_pillar_get_midi_notify_fnptr(slot);
+    return rb_ary_new_from_args(2, INT2FIX(slot), ULL2NUM(fnptr));
+}
+
+static VALUE rb_callback_pillar_unregister_midi_notify(VALUE self, VALUE slot) {
+    runtime_callback_pillar_unregister_midi_notify(NUM2INT(slot));
+    return Qnil;
+}
+
+// Exposed to glue Swift via @_silgen_name so CallbackNilableMarshaller can
+// pin the Ruby Block in the global proc_registry without reaching into the
+// C-static directly.
+void rb_hash_aset_proc_registry(uint64_t pid_u, uint64_t proc_v) {
+    rb_hash_aset(proc_registry, ULL2NUM(pid_u), (VALUE)proc_v);
+}
+
 void Init_apple_sdk_mac_runtime(void) {
     proc_registry = rb_hash_new();
     rb_global_variable(&proc_registry);
@@ -170,4 +193,8 @@ void Init_apple_sdk_mac_runtime(void) {
     rb_define_singleton_method(test_module, "arc_release_counter_init", rb_arc_counter_init, 0);
     rb_define_singleton_method(test_module, "arc_release_counter_value", rb_arc_counter_value, 1);
     rb_define_singleton_method(test_module, "async_await_sleep_and_double", rb_async_await_sleep, 1);
+
+    VALUE callback_pillar_module = rb_define_module_under(module, "CallbackPillar");
+    rb_define_singleton_method(callback_pillar_module, "register_midi_notify", rb_callback_pillar_register_midi_notify, 1);
+    rb_define_singleton_method(callback_pillar_module, "unregister_midi_notify", rb_callback_pillar_unregister_midi_notify, 1);
 }
