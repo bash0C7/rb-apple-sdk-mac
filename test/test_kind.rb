@@ -39,6 +39,18 @@ class TestKind < Test::Unit::TestCase
       K.classify_kind("void * _Nullable", "void *", "nullable")
   end
 
+  def test_classifies_callback_typedef_by_name_pattern_when_desugared_unavailable
+    # Reclassifier doesn't preserve desugared; rely on Apple convention:
+    # *Proc / *Callback / *Handler typedefs are function pointers.
+    assert_equal "callback_nilable",
+      K.classify_kind("MIDINotifyProc _Nullable", "MIDINotifyProc _Nullable", "nullable")
+    assert_equal "callback_non_nil",
+      K.classify_kind("CFAllocatorAllocateCallBack _Nonnull",
+                      "CFAllocatorAllocateCallBack _Nonnull", "nonnull")
+    assert_equal "callback_nilable",
+      K.classify_kind("MyHandler _Nullable", "MyHandler _Nullable", "nullable")
+  end
+
   def test_classifies_function_pointer_unspecified_as_callback_nilable
     assert_equal "callback_nilable",
       K.classify_kind("MIDINotifyProc",
