@@ -34,4 +34,22 @@ class TestGlueCompiler < Test::Unit::TestCase
       cache.close
     end
   end
+
+  def test_glue_id_changes_when_parameters_json_changes
+    Dir.mktmpdir do |dir|
+      cache = AppleSDKMac::CompiledGlueCache.open(dir, sdk_version: "26.0")
+      compiler = AppleSDKMac::GlueCompiler.new(
+        cache: cache, runtime_dylib_path: "/dev/null",
+        swiftc_invoker: StubSwiftc.new
+      )
+      sym1 = { name: "F", signature: "void F(int)", parameters_json: '[{"name":"x","kind":"int"}]' }
+      sym2 = { name: "F", signature: "void F(int)", parameters_json: '[{"name":"y","kind":"int"}]' }
+
+      id1 = compiler.send(:compute_glue_id, "X", sym1)
+      id2 = compiler.send(:compute_glue_id, "X", sym2)
+      assert_not_equal id1, id2,
+        "compute_glue_id must include parameters_json so cached glue invalidates when metadata shape changes"
+      cache.close
+    end
+  end
 end
