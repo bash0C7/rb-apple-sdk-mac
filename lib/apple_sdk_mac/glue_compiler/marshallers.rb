@@ -266,5 +266,66 @@ module AppleSDKMac
       end
     end
     Marshaller::REGISTRY["struct_in"] = StructInMarshaller
+
+    class StructOutMarshaller < Marshaller
+      def initialize(param, index, ctx)
+        super
+        @broken = false
+        @fields = load_fields
+      end
+
+      def broken?; @broken; end
+
+      def out_init
+        "var #{@param[:name]}_struct = #{type}()"
+      end
+
+      def out_addr
+        "&#{@param[:name]}_struct"
+      end
+
+      def out_to_ruby
+        return nil if @broken
+        h_var = "#{@param[:name]}_h"
+        lines = ["let #{h_var} = rb_hash_new()"]
+        @fields.each do |f|
+          val_expr = field_to_ruby(f, "#{@param[:name]}_struct.#{f[:name]}")
+          if val_expr.nil?
+            @broken = true
+            return nil
+          end
+          lines << "rb_hash_aset(#{h_var}, rb_str_new_cstr(\"#{f[:name]}\"), #{val_expr})"
+        end
+        lines << h_var
+        lines.join("\n    ")
+      end
+
+      private
+
+      def type
+        @param[:type].sub(/\s*\*.*\z/, "").gsub(/\b_(Nonnull|Nullable)\b/, "").sub(/\Aconst\s+/, "").strip
+      end
+
+      def load_fields
+        return @broken = true unless @ctx[:knowledge_cache]
+        sym = @ctx[:knowledge_cache].lookup_symbol(framework: @ctx[:framework], symbol: type)
+        unless sym && sym[:fields_json]
+          @broken = true
+          return []
+        end
+        JSON.parse(sym[:fields_json], symbolize_names: true)
+      end
+
+      def field_to_ruby(field, swift_path)
+        case field[:kind]
+        when "int"        then "rb_ll2inum(Int64(#{swift_path}))"
+        when "float"      then "rb_float_new(Double(#{swift_path}))"
+        when "bool"       then "(#{swift_path} ? Qtrue : Qfalse)"
+        when "opaque_ref" then "rb_ull2inum(UInt64(#{swift_path}))"
+        else nil
+        end
+      end
+    end
+    Marshaller::REGISTRY["struct_out"] = StructOutMarshaller
   end
 end
