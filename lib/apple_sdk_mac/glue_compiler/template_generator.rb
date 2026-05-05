@@ -4,106 +4,167 @@ require "json"
 module AppleSDKMac
   class GlueCompiler
     class TemplateGenerator
+      HEADER = <<~SWIFT.freeze
+        // CRuby symbols resolved at dlopen via -undefined dynamic_lookup
+        @_silgen_name("rb_string_value_cstr")
+        func rb_string_value_cstr(_ value: UnsafeMutablePointer<UInt>) -> UnsafePointer<CChar>
+        @_silgen_name("rb_str_new_cstr")
+        func rb_str_new_cstr(_ s: UnsafePointer<CChar>) -> UInt
+        @_silgen_name("rb_num2ll")
+        func rb_num2ll(_ v: UInt) -> Int64
+        @_silgen_name("rb_num2ull")
+        func rb_num2ull(_ v: UInt) -> UInt64
+        @_silgen_name("rb_ll2inum")
+        func rb_ll2inum(_ v: Int64) -> UInt
+        @_silgen_name("rb_ull2inum")
+        func rb_ull2inum(_ v: UInt64) -> UInt
+        @_silgen_name("rb_num2dbl")
+        func rb_num2dbl(_ v: UInt) -> Double
+        @_silgen_name("rb_float_new")
+        func rb_float_new(_ d: Double) -> UInt
+        @_silgen_name("rb_raise")
+        func rb_raise(_ klass: UInt, _ fmt: UnsafePointer<CChar>) -> Never
+        @_silgen_name("rb_eRuntimeError")
+        var rb_eRuntimeError: UInt
+
+        let Qfalse: UInt = 0
+        let Qnil:   UInt = 8
+        let Qtrue:  UInt = 20
+      SWIFT
+
       def generate(framework:, symbol:, glue_id:)
-        case [symbol[:kind], symbol[:abi]]
-        when ["function", "c"]
-          generate_c_function(framework, symbol, glue_id)
-        when ["function", "swift"]
-          generate_swift_function(framework, symbol, glue_id)
+        return nil unless symbol[:kind] == "function" && symbol[:abi] == "c"
+        params = parse_params(symbol[:parameters_json])
+        return nil if params.any? { |p| p[:kind] == "unsupported" }
+
+        in_params  = params.reject { |p| p[:is_out_param] }
+        out_params = params.select { |p| p[:is_out_param] }
+        return nil if out_params.length > 1
+
+        out = out_params.first
+        in_loads = in_params.each_with_index.map { |p, i| load_in_param(p, i) }
+
+        call_args = params.map { |p| p[:is_out_param] ? "&outRef" : p[:name] }.join(", ")
+
+        body = []
+        body.concat(in_loads)
+        if out
+          ref_type = strip_pointer(out[:type])
+          body << "var outRef: #{ref_type} = #{ref_type}()"
+          body << "let status = #{symbol[:name]}(#{call_args})"
+          body << %(if status != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
+          body << "return #{to_ruby_expr(out, "outRef")}"
         else
-          nil
+          ret_kind = return_kind(symbol[:signature])
+          body << "let result = #{symbol[:name]}(#{call_args})"
+          if ret_kind == "status_int"
+            body << %(if result != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
+            body << "return Qnil"
+          elsif ret_kind == "void"
+            body << "return Qnil"
+          else
+            body << "return #{to_ruby_expr_by_kind(ret_kind, symbol[:signature], "result")}"
+          end
         end
+
+        <<~SWIFT
+          import #{framework}
+          import Foundation
+
+          #{HEADER}
+          @c
+          public func glue_#{glue_id}_#{symbol[:name]}(
+              _ argv: UnsafePointer<UInt>, _ argc: Int32
+          ) -> UInt {
+              #{body.join("\n    ")}
+          }
+        SWIFT
       end
 
       private
 
-      def generate_c_function(framework, sym, glue_id)
-        params = parse_params(sym[:parameters_json])
-        return nil unless template_compatible?(params)
-
-        param_load = params.each_with_index.map { |p, i| load_param(p, i) }.join("\n    ")
-        call_args = params.reject { |p| out_param?(p) }
-                          .map { |p| p[:name] }.join(", ")
-        out_param = params.find { |p| out_param?(p) }
-
-        <<~SWIFT
-          import #{framework}
-          import AppleSDKMacRuntime
-          import Foundation
-
-          @c
-          public func glue_#{glue_id}_#{sym[:name]}(
-              _ argv: UnsafePointer<UInt>, _ argc: Int32
-          ) -> UInt {
-              #{param_load}
-              #{out_param ? "var outRef = #{strip_pointer(out_param[:type])}()" : ''}
-              let status = #{sym[:name]}(#{call_args}#{out_param ? ', &outRef' : ''})
-              if status != 0 {
-                  ErrorBridge.rb_raise_via_runtime(.runtimeError, "OSStatus \\(status)")
-              }
-              #{out_param ? 'return Marshal.toRuby(RefTable.retain(outRef as AnyObject))' : 'return Marshal.toRuby(Int(status))'}
-          }
-        SWIFT
+      def parse_params(json)
+        return [] if json.nil? || json.empty?
+        JSON.parse(json, symbolize_names: true)
       end
 
-      def generate_swift_function(framework, sym, glue_id)
-        return nil if sym[:signature].include?("async") || sym[:signature].include?("<")
-        params = parse_params(sym[:parameters_json])
-        return nil unless template_compatible?(params)
-
-        param_load = params.each_with_index.map { |p, i| load_param(p, i) }.join("\n    ")
-        call_args = params.map { |p| p[:name] }.join(", ")
-
-        <<~SWIFT
-          import #{framework}
-          import AppleSDKMacRuntime
-          import Foundation
-
-          @c
-          public func glue_#{glue_id}_#{sym[:name]}(
-              _ argv: UnsafePointer<UInt>, _ argc: Int32
-          ) -> UInt {
-              #{param_load}
-              let result = #{sym[:name]}(#{call_args})
-              return Marshal.toRuby(result)
-          }
-        SWIFT
-      end
-
-      def parse_params(json_str)
-        return [] unless json_str
-        JSON.parse(json_str).map do |p|
-          { name: p["name"] || "_arg", type: p["type"] || "Any" }
+      def load_in_param(p, i)
+        name = p[:name]
+        case p[:kind]
+        when "string"
+          cast = p[:type].include?("CFString") ? " as CFString" :
+                 p[:type].include?("NSString") ? " as NSString" : ""
+          "var v#{i} = argv[#{i}]; let #{name} = String(cString: rb_string_value_cstr(&v#{i}))#{cast}"
+        when "int"
+          "let #{name}: Int64 = rb_num2ll(argv[#{i}])"
+        when "bool"
+          "let #{name}: Bool = (argv[#{i}] != Qfalse && argv[#{i}] != Qnil)"
+        when "float"
+          "let #{name}: Double = rb_num2dbl(argv[#{i}])"
+        when "opaque_ref"
+          ref_type = strip_pointer(p[:type])
+          if unsigned?(p[:type])
+            "let #{name} = #{ref_type}(rb_num2ull(argv[#{i}]))"
+          else
+            "let #{name} = #{ref_type}(rb_num2ll(argv[#{i}]))"
+          end
         end
       end
 
-      def template_compatible?(params)
-        return false if params.any? { |p| p[:type].include?("...") }
-        return false if params.any? { |p| p[:type].include?("@escaping") && p[:type].include?("(") }
-        return false if params.any? { |p| p[:type].include?("Generic") || p[:type].match(/<\w/) }
-        true
+      def to_ruby_expr(p, swift_var)
+        case p[:kind]
+        when "string"     then "rb_str_new_cstr(#{swift_var})"
+        when "int"        then "rb_ll2inum(Int64(#{swift_var}))"
+        when "bool"       then "(#{swift_var} ? Qtrue : Qfalse)"
+        when "float"      then "rb_float_new(#{swift_var})"
+        when "opaque_ref"
+          if unsigned?(p[:type])
+            "rb_ull2inum(UInt64(#{swift_var}))"
+          else
+            "rb_ll2inum(Int64(#{swift_var}))"
+          end
+        end
       end
 
-      def out_param?(p)
-        p[:type].include?("*") || p[:type].include?("inout")
+      def return_kind(signature)
+        sig = signature.to_s.strip
+        return "void"   if sig =~ /\A(?:void)\b/
+        return "string" if sig =~ /\A(?:CFStringRef|NSString\s*\*|char\s*\*|const\s+char\s*\*)/
+        return "bool"   if sig =~ /\A(?:_Bool|Bool|BOOL)\b/
+        return "float"  if sig =~ /\A(?:double|float|CGFloat)\b/
+        if sig =~ /\A(?:OSStatus|kern_return_t|int|signed|unsigned|U?Int(?:8|16|32|64)?|SInt(?:8|16|32|64)?|long|short|uint(?:8|16|32|64)_t|int(?:8|16|32|64)_t)\b/
+          return "status_int"
+        end
+        return "opaque_ref" if sig =~ /\A\w+Ref\b/
+        "unsupported"
       end
 
-      def load_param(p, i)
-        case p[:type]
-        when /CFStringRef|String|NSString/
-          %{guard argc > #{i} else { ErrorBridge.rb_raise_via_runtime(.argumentError, "missing arg #{i}"); return 0 }
-              let #{p[:name]} = Marshal.fromRubyString(argv[#{i}]) as CFString}
-        when /Int|Int32|Int64|UInt|UInt32|UInt64/
-          "let #{p[:name]} = Int64(Marshal.fromRubyInt(argv[#{i}]))"
-        when /Bool/
-          "let #{p[:name]} = Marshal.fromRubyBool(argv[#{i}])"
+      def to_ruby_expr_by_kind(kind, signature, swift_var)
+        case kind
+        when "string"     then "rb_str_new_cstr(#{swift_var})"
+        when "bool"       then "(#{swift_var} ? Qtrue : Qfalse)"
+        when "float"      then "rb_float_new(#{swift_var})"
+        when "opaque_ref"
+          if signature.match?(/\A(?:UInt|uint)/)
+            "rb_ull2inum(UInt64(#{swift_var}))"
+          else
+            "rb_ll2inum(Int64(#{swift_var}))"
+          end
         else
-          "let #{p[:name]}: Any = Marshal.fromRubyAny(argv[#{i}])"
+          "rb_ll2inum(Int64(#{swift_var}))"
         end
       end
 
       def strip_pointer(t)
-        t.sub(/\s*\*\s*$/, "").strip
+        t.sub(/\s*\*.*\z/, "").gsub(/\b_(Nonnull|Nullable)\b/, "").strip
+      end
+
+      def unsigned?(t)
+        return true  if t.match?(/\b(UInt|UInt8|UInt16|UInt32|UInt64|uint(8|16|32|64)_t|unsigned)\b/)
+        return false if t.match?(/\b(SInt|SInt8|SInt16|SInt32|SInt64|int(8|16|32|64)_t|signed)\b/)
+        # Apple SDK convention: *Ref typedefs without explicit signedness marker
+        # are unsigned 32-bit handles (MIDIClientRef, AudioComponentInstance, etc.).
+        t.match?(/\b\w+Ref\b/)
       end
     end
   end
