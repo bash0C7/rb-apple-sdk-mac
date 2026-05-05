@@ -4,7 +4,7 @@ require "sqlite_vec"
 
 module AppleSDKKnowledge
   class Store
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;
@@ -38,7 +38,8 @@ module AppleSDKKnowledge
         availability    TEXT,
         deprecated      INTEGER DEFAULT 0,
         requires_main_thread INTEGER DEFAULT 0,
-        content_hash    TEXT NOT NULL UNIQUE
+        content_hash    TEXT NOT NULL UNIQUE,
+        fields_json     TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_symbols_framework_name ON symbols(framework_id, name);
@@ -75,10 +76,17 @@ module AppleSDKKnowledge
 
     def migrate!
       @db.execute_batch(SCHEMA_SQL)
+      ensure_column!("symbols", "fields_json", "TEXT")
       @db.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
         ["schema_version", SCHEMA_VERSION.to_s]
       )
+    end
+
+    def ensure_column!(table, col, type)
+      cols = @db.execute("PRAGMA table_info(#{table})").map { |r| r[1] }
+      return if cols.include?(col)
+      @db.execute("ALTER TABLE #{table} ADD COLUMN #{col} #{type}")
     end
 
     def insert_framework(name:, swift_module:, category: nil, doc_url: nil, min_macos: nil)
@@ -92,18 +100,18 @@ module AppleSDKKnowledge
     def insert_symbol(framework_id:, name:, kind:, abi:, content_hash:,
                        parent_id: nil, signature: nil, documentation: nil,
                        return_type: nil, parameters_json: nil, availability: nil,
-                       deprecated: 0, requires_main_thread: 0)
+                       deprecated: 0, requires_main_thread: 0, fields_json: nil)
       @db.execute(
         <<~SQL,
           INSERT INTO symbols
           (framework_id, name, parent_id, kind, signature, abi, documentation,
            return_type, parameters_json, availability, deprecated,
-           requires_main_thread, content_hash)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           requires_main_thread, content_hash, fields_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         SQL
         [framework_id, name, parent_id, kind, signature, abi, documentation,
          return_type, parameters_json, availability, deprecated,
-         requires_main_thread, content_hash]
+         requires_main_thread, content_hash, fields_json]
       )
       @db.last_insert_row_id
     end
