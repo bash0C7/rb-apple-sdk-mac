@@ -52,4 +52,48 @@ class TestGlueCompiler < Test::Unit::TestCase
       cache.close
     end
   end
+
+  class CountingLLM
+    attr_reader :call_count
+    def initialize
+      @call_count = 0
+    end
+    def generate(framework:, symbol:, glue_id:)
+      @call_count += 1
+      nil
+    end
+    def close; end
+  end
+
+  def test_max_llm_retries_default_compensates_for_foundation_model_non_determinism
+    assert_operator AppleSDKMac::GlueCompiler::DEFAULT_MAX_LLM_RETRIES, :>, 3,
+      "Default LLM retry budget must be > 3. Spec verification (2026-05-05) " \
+      "showed Foundation Model on-device produces ~1/3 off-format responses; " \
+      "a budget of 3 burns the entire allowance before any well-formed retry " \
+      "has a chance to land."
+  end
+
+  def test_max_llm_retries_is_configurable_via_constructor_kwarg
+    Dir.mktmpdir do |dir|
+      cache = AppleSDKMac::CompiledGlueCache.open(dir, sdk_version: "26.0")
+      llm = CountingLLM.new
+      compiler = AppleSDKMac::GlueCompiler.new(
+        cache: cache, runtime_dylib_path: "/dev/null",
+        llm_generator: llm, swiftc_invoker: StubSwiftc.new,
+        max_llm_retries: 7
+      )
+      # abi:"swift" routes to llm_path because template_generator returns nil
+      # for non-c abi (template_generator.rb:36).
+      sym = {
+        name: "asyncFetchTitle", kind: "function", abi: "swift",
+        signature: "func asyncFetchTitle() -> String", parameters_json: "[]"
+      }
+      result = compiler.compile(framework: "AcmeFW", symbol: sym)
+      refute result.success?, "LLM stub returns nil; compile must fail after exhausting retries"
+      assert_equal 7, llm.call_count,
+        "GlueCompiler must invoke LLM exactly max_llm_retries (=7) times " \
+        "before declaring exhaustion. Hard-coded constant would only call 3 times."
+      cache.close
+    end
+  end
 end
