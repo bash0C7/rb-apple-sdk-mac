@@ -113,4 +113,20 @@ class TestHeaderParser < Test::Unit::TestCase
     cb = fn[:parameters].find { |p| p[:name] == "cb" }
     assert_equal "unsupported", cb[:kind]
   end
+
+  def test_detects_out_param_via_last_pointer
+    fn = @symbols.find { |s| s[:name] == "MiniCreate" && s[:kind] == "function" }
+    out = fn[:parameters].find { |p| p[:name] == "outClient" }
+    in_ = fn[:parameters].find { |p| p[:name] == "name" }
+    assert_equal true,  out[:is_out_param]
+    assert_equal false, in_[:is_out_param]
+  end
+
+  def test_detects_out_param_for_make_node
+    fn = @symbols.find { |s| s[:name] == "MiniMakeNode" && s[:kind] == "function" }
+    out = fn[:parameters].find { |p| p[:name] == "outNode" }
+    client = fn[:parameters].find { |p| p[:name] == "client" }
+    assert_equal true,  out[:is_out_param]
+    assert_equal false, client[:is_out_param]
+  end
 end
