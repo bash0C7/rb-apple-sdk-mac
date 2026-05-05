@@ -393,6 +393,26 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["struct_out"] = StructOutMarshaller
 
+    class StructInPointerMarshaller < Marshaller
+      def in_load
+        type = struct_type(@param[:type])
+        name = @param[:name]; i = @index
+        "let #{name}: UnsafePointer<#{type}> = UnsafePointer<#{type}>(bitPattern: UInt(rb_num2ull(argv[#{i}])))!"
+      end
+
+      private
+
+      def struct_type(type_str)
+        # Strip leading const, trailing *, nullability annotations.
+        type_str
+          .sub(/\Aconst\s+/, "")
+          .sub(/\s*\*.*\z/, "")
+          .gsub(/\b_(Nonnull|Nullable)\b/, "")
+          .strip
+      end
+    end
+    Marshaller::REGISTRY["struct_in_pointer"] = StructInPointerMarshaller
+
     class VariadicMarshaller < Marshaller
       def in_load
         i = @index
