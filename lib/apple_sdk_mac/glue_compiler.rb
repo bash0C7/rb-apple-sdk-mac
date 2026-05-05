@@ -11,9 +11,15 @@ module AppleSDKMac
                          :exported_symbol, :error_stage, :error_detail,
                          keyword_init: true)
 
-    MAX_LLM_RETRIES = 3
+    # Raised from 3 to absorb Foundation Model on-device's ~1/3 off-format
+    # response rate (per spec verification 2026-05-05). At budget=3, a single
+    # off-format attempt could exhaust two-thirds of the allowance before any
+    # well-formed retry had a chance to land.
+    DEFAULT_MAX_LLM_RETRIES = 6
 
-    def initialize(cache:, runtime_dylib_path:, runtime_modules_paths: [], llm_generator: nil, swiftc_invoker: nil)
+    def initialize(cache:, runtime_dylib_path:, runtime_modules_paths: [],
+                    llm_generator: nil, swiftc_invoker: nil,
+                    max_llm_retries: DEFAULT_MAX_LLM_RETRIES)
       @cache = cache
       @runtime_dylib_path = runtime_dylib_path
       @runtime_modules_paths = runtime_modules_paths
@@ -21,6 +27,7 @@ module AppleSDKMac
       @llm = llm_generator
       @gates = GlueCompiler::ValidationGates.new
       @swiftc = swiftc_invoker || GlueCompiler::SwiftcInvoker.new
+      @max_llm_retries = max_llm_retries
     end
 
     def compile(framework:, symbol:)
@@ -73,7 +80,7 @@ module AppleSDKMac
       return Result.new(success?: false, error_stage: "no_llm",
                          error_detail: "LLM generator not provided") unless @llm
 
-      MAX_LLM_RETRIES.times do |attempt|
+      @max_llm_retries.times do |attempt|
         swift_source = @llm.generate(framework: framework, symbol: symbol, glue_id: glue_id)
         if swift_source.nil? || swift_source.strip.empty?
           @cache.record_attempt(framework: framework, symbol: symbol[:name],
@@ -113,7 +120,7 @@ module AppleSDKMac
       end
 
       Result.new(success?: false, error_stage: "llm_max_retries",
-                  error_detail: "LLM exhausted #{MAX_LLM_RETRIES} attempts")
+                  error_detail: "LLM exhausted #{@max_llm_retries} attempts")
     end
 
     def compute_glue_id(framework, symbol)
