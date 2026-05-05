@@ -98,5 +98,8 @@ class TestLLMGenerator < Test::Unit::TestCase
       "instructing the LLM to use them is the root cause of GATE 5 + compile failures.")
     refute_match(/ErrorBridge/, instructions,
       "ErrorBridge.swift was deleted in commit b262e18; raise via @_silgen_name rb_raise.")
+    refute_match(/ConformanceBridge/, instructions,
+      "ConformanceBridge.lookup does not exist with the signature the prompt previously implied; " \
+      "the runtime ConformanceBridge has register/release/lookup(handle:) only.")
   end
 end
