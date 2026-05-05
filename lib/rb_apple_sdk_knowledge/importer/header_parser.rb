@@ -68,12 +68,23 @@ module AppleSDKKnowledge
           end
         when "RecordDecl"
           if node["name"]
+            fields = (node["inner"] || []).select { |c| c["kind"] == "FieldDecl" }.map do |fd|
+              qt = fd.dig("type", "qualType") || ""
+              desugared = fd.dig("type", "desugaredQualType") || qt
+              nullability = Kind.nullability_of(qt)
+              {
+                name: fd["name"],
+                type: qt,
+                kind: Kind.classify_kind(qt, desugared, nullability)
+              }
+            end
             symbols << {
               name: node["name"],
               kind: "struct",
               abi: "c",
               parent_name: nil,
-              signature: "struct #{node['name']}"
+              signature: "struct #{node['name']}",
+              fields: fields
             }
           end
         when "TypedefDecl"
@@ -130,12 +141,13 @@ module AppleSDKKnowledge
           qual_type = p.dig("type", "qualType") || ""
           desugared = p.dig("type", "desugaredQualType") || qual_type
           name = p["name"] || "_arg#{i}"
+          nullability = Kind.nullability_of(qual_type)
           {
             name: name,
             type: qual_type,
-            kind: Kind.classify_kind(qual_type, desugared),
+            kind: Kind.classify_kind(qual_type, desugared, nullability),
             is_out_param: Kind.out_param?(qual_type, name, p == last_pointer),
-            nullability: Kind.nullability_of(qual_type)
+            nullability: nullability
           }
         end
       end
