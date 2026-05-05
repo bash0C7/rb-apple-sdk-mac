@@ -2,11 +2,14 @@
 require "json"
 require "fileutils"
 require "sqlite3"
+require "time"
 require_relative "importer/kind"
 
 module AppleSDKKnowledge
   class Reclassifier
     K = AppleSDKKnowledge::Importer::Kind
+
+    KIND_VOCABULARY = %w[string int bool float opaque_ref unsupported].freeze
 
     def self.recompute_parameters(json)
       return nil if json.nil? || json.empty?
@@ -33,11 +36,14 @@ module AppleSDKKnowledge
 
     def run
       backup!
+      @by_kind = Hash.new(0)
+      @clusters = Hash.new { |h, k| h[k] = { count: 0, frameworks: [], example_symbols: [] } }
       File.open(@queue_path, "w") do |queue|
         @queue = queue
         recompute_all!
+        verify!
+        emit_summary!
       end
-      verify!
       log "DONE: total_symbols=#{@total_symbols} total_params=#{@total_params}"
     end
 
@@ -69,7 +75,7 @@ module AppleSDKKnowledge
             [recomputed, symbol_id]
           )
           @total_symbols += 1
-          enqueue_unsupported(framework, sym_name, signature, recomputed)
+          tally_and_enqueue(framework, sym_name, signature, recomputed)
         end
         db.execute("COMMIT")
       rescue => _e
@@ -80,10 +86,11 @@ module AppleSDKKnowledge
       end
     end
 
-    def enqueue_unsupported(framework, sym_name, signature, json)
+    def tally_and_enqueue(framework, sym_name, signature, json)
       params = JSON.parse(json, symbolize_names: true)
       params.each_with_index do |p, i|
         @total_params += 1
+        @by_kind[p[:kind]] += 1
         next unless p[:kind] == "unsupported"
         @queue.puts JSON.generate(
           qual_type: p[:type],
@@ -97,6 +104,10 @@ module AppleSDKKnowledge
             looks_like_function_pointer: p[:type].to_s.include?("(") && p[:type].to_s.include?(")")
           }
         )
+        c = @clusters[p[:type]]
+        c[:count] += 1
+        c[:frameworks] << framework unless c[:frameworks].include?(framework)
+        c[:example_symbols] << sym_name if c[:example_symbols].length < 3
       end
     end
 
@@ -109,6 +120,32 @@ module AppleSDKKnowledge
       end
       db.close
       raise "verification failed: #{bad.length} rows lack :kind" unless bad.empty?
+    end
+
+    def emit_summary!
+      top_clusters = @clusters
+        .sort_by { |_, v| -v[:count] }
+        .first(10)
+        .map { |qt, v| { qual_type: qt, count: v[:count], frameworks: v[:frameworks], example_symbols: v[:example_symbols] } }
+
+      @queue.puts JSON.generate(
+        _summary: {
+          ran_at: Time.now.utc.iso8601,
+          total_symbols: @total_symbols,
+          total_params: @total_params,
+          by_kind: @by_kind,
+          unsupported_clusters: top_clusters,
+          classify_kind_source: classify_kind_source_location,
+          kind_vocabulary: KIND_VOCABULARY,
+          next_action_hint: "extend AppleSDKKnowledge::Importer::Kind.classify_kind to handle the top cluster (or explicitly accept it as unsupported), then re-run rake apple:knowledge:reclassify"
+        }
+      )
+    end
+
+    def classify_kind_source_location
+      method = K.method(:classify_kind)
+      file, line = method.source_location
+      "#{file.sub("#{Dir.pwd}/", "")}:#{line}"
     end
 
     def log(msg)
