@@ -127,4 +127,31 @@ class TestLLMGenerator < Test::Unit::TestCase
       "Pinning all three pieces together prevents the LLM from substituting " \
       "any one piece independently (the failure mode in the verification log).")
   end
+
+  # Task 18: HEADER auto-sync + new worked examples for struct_in and multi-out.
+  def test_instructions_embed_extended_header_silgen_names
+    instructions = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_includes instructions, '@_silgen_name("rb_hash_new")'
+    assert_includes instructions, '@_silgen_name("rb_hash_aref")'
+    assert_includes instructions, '@_silgen_name("rb_hash_aset")'
+  end
+
+  def test_instructions_have_struct_in_worked_example
+    instructions = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_match(/var\s+\w+_struct\s*=\s*\w+\(\)/, instructions,
+      "INSTRUCTIONS must include a struct_in worked example showing " \
+      "`var <name>_struct = <Type>()` so the LLM can follow the field-by-field " \
+      "Hash-aref pattern when handling Apple struct parameters (CGRect, MIDIPacketList, etc.).")
+    assert_match(/rb_hash_aref/, instructions,
+      "struct_in worked example must show rb_hash_aref-based field load.")
+  end
+
+  def test_instructions_have_multi_out_hash_worked_example
+    instructions = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_match(/let\s+\w+_h\s*=\s*rb_hash_new\(\)/, instructions,
+      "INSTRUCTIONS must include a multi-out worked example showing " \
+      "`let <name>_h = rb_hash_new()` so the LLM can build the named-key " \
+      "Ruby Hash return for symbols with ≥2 out-params.")
+    assert_match(/rb_hash_aset/, instructions)
+  end
 end
