@@ -38,6 +38,18 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_nil swift
   end
 
+  # Task 12: void_ptr_nilable Marshaller emits UnsafeMutableRawPointer? bitPattern.
+  def test_void_ptr_nilable_emits_bitpattern
+    sym = {
+      kind: "function", abi: "c", name: "Foo", signature: "void Foo(void *)",
+      parameters_json: '[{"name":"refcon","type":"void * _Nullable","kind":"void_ptr_nilable","is_out_param":false,"nullability":"nullable"}]'
+    }
+    swift = @gen.generate(framework: "Acme", symbol: sym, glue_id: "ab12")
+    refute_nil swift
+    assert_match(/let refcon: UnsafeMutableRawPointer\?/, swift)
+    assert_match(/UnsafeMutableRawPointer\(bitPattern: Int\(rb_num2ll\(argv\[0\]\)\)\)/, swift)
+  end
+
   # Task 11: callback_nilable / callback_non_nil Marshallers (stub: rb_raise on non-nil branch).
   def test_callback_nilable_emits_qnil_branch_with_rb_raise_stub
     sym = {
