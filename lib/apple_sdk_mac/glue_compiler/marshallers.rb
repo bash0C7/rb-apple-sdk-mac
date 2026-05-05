@@ -119,5 +119,35 @@ module AppleSDKMac
       end
     end
     Marshaller::REGISTRY["opaque_ref"] = OpaqueRefMarshaller
+
+    class CallbackNilableMarshaller < Marshaller
+      def in_load
+        type = @param[:type].sub(/\s*_(?:Nullable|Nonnull)\b/, "").strip
+        name = @param[:name]; i = @index
+        <<~SWIFT.chomp
+          let #{name}: #{type}?
+              if argv[#{i}] == Qnil {
+                  #{name} = nil
+              } else {
+                  rb_raise(rb_eRuntimeError, "non-nil callback not yet supported")
+              }
+        SWIFT
+      end
+    end
+    Marshaller::REGISTRY["callback_nilable"] = CallbackNilableMarshaller
+
+    class CallbackNonNilMarshaller < Marshaller
+      def in_load
+        type = @param[:type].sub(/\s*_(?:Nullable|Nonnull)\b/, "").strip
+        name = @param[:name]
+        # rb_raise is `-> Never`, so Swift accepts the let-binding as
+        # definitely-assigned in the only non-terminating branch.
+        <<~SWIFT.chomp
+          let #{name}: #{type}?
+              rb_raise(rb_eRuntimeError, "non-nil callback not yet supported")
+        SWIFT
+      end
+    end
+    Marshaller::REGISTRY["callback_non_nil"] = CallbackNonNilMarshaller
   end
 end
