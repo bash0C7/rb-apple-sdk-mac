@@ -28,6 +28,16 @@ module AppleSDKMac
         func rb_raise(_ klass: UInt, _ fmt: UnsafePointer<CChar>) -> Never
         @_silgen_name("rb_eRuntimeError")
         var rb_eRuntimeError: UInt
+        @_silgen_name("rb_hash_new")
+        func rb_hash_new() -> UInt
+        @_silgen_name("rb_hash_aref")
+        func rb_hash_aref(_ hash: UInt, _ key: UInt) -> UInt
+        @_silgen_name("rb_hash_aset")
+        func rb_hash_aset(_ hash: UInt, _ key: UInt, _ val: UInt) -> UInt
+        @_silgen_name("rb_block_given_p")
+        func rb_block_given_p() -> Int32
+        @_silgen_name("rb_block_proc")
+        func rb_block_proc() -> UInt
 
         let Qfalse: UInt = 0
         let Qnil:   UInt = 8
