@@ -61,4 +61,57 @@ class TestCoreMIDISmoke < Test::Unit::TestCase
       "expected synthetic dispatch via ThreadingBridge → ruby_callback_dispatcher " \
       "→ Ruby Proc round-trip (got #{notifs.inspect})"
   end
+
+  # Acceptance criterion 2 of the unified-marshalling spec: build a
+  # MIDIPacketList in Ruby and ship it through a CoreMIDI API that takes
+  # `const MIDIPacketList * _Nonnull`. MIDIReceived has the same parameter
+  # shape as MIDISend without needing a real subscriber/destination, so
+  # it's the smoke target — same struct_in_pointer Marshaller path.
+  def test_send_packet_via_midi_received
+    require "fiddle"
+    frameworks = begin
+      AppleSDKMac.knowledge_cache.list_frameworks
+    rescue StandardError => e
+      omit "knowledge base not available: #{e.message}"
+    end
+    omit "CoreMIDI not in knowledge base" unless frameworks.include?("CoreMIDI")
+
+    begin
+      Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientCreate)
+      Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientDispose)
+      Apple.discover(framework: :CoreMIDI, symbol: :MIDISourceCreate)
+      Apple.discover(framework: :CoreMIDI, symbol: :MIDIEndpointDispose)
+      Apple.discover(framework: :CoreMIDI, symbol: :MIDIReceived)
+    rescue AppleSDKMac::Error => e
+      omit "discover failed: #{e.message}"
+    end
+
+    client = Apple::CoreMIDI.MIDIClientCreate("rb-apple-sdk-mac send smoke", nil, nil)
+    source = Apple::CoreMIDI.MIDISourceCreate(client, "smoke-virtual-source")
+
+    # MIDIPacketList layout (CoreMIDI uses #pragma pack(4)):
+    #   UInt32 numPackets         offset  0, 4 bytes
+    #   MIDIPacket packet[0]:
+    #     UInt64 timeStamp        offset  4, 8 bytes
+    #     UInt16 length           offset 12, 2 bytes
+    #     Byte   data[length]     offset 14, length bytes
+    bytes = [0x90, 0x40, 0x7F]  # Note On, key 64 (E4), velocity 127
+    buf_size = 4 + 8 + 2 + bytes.length
+    buf = Fiddle::Pointer.malloc(buf_size, Fiddle::RUBY_FREE)
+    buf[0, 4]  = [1].pack("L")               # numPackets = 1
+    buf[4, 8]  = [0].pack("Q")               # timeStamp  = 0 (immediate)
+    buf[12, 2] = [bytes.length].pack("S")    # length     = 3
+    buf[14, bytes.length] = bytes.pack("C*") # data       = [0x90, 0x40, 0x7F]
+
+    # MIDIReceived takes (MIDIEndpointRef src, const MIDIPacketList *pktlist)
+    # and returns OSStatus. Ruby passes the buffer's pointer integer; the
+    # struct_in_pointer Marshaller casts to UnsafePointer<MIDIPacketList>.
+    Apple::CoreMIDI.MIDIReceived(source, buf.to_i)
+
+    Apple::CoreMIDI.MIDIEndpointDispose(source)
+    Apple::CoreMIDI.MIDIClientDispose(client)
+    # If we got here without raising, the full chain (Ruby → Fiddle buffer →
+    # struct_in_pointer Marshaller → CoreMIDI MIDIReceived) succeeded.
+    assert true
+  end
 end
