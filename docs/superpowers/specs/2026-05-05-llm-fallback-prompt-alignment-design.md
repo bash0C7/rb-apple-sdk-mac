@@ -165,3 +165,22 @@ This spec is acceptance-complete when:
 2. After cache clear and smoke re-run, `compile_history` shows the LLM path moves past `error_stage=static_check` for at least one previously-failing symbol.
 
 T10 acceptance flip is **expected but not strictly required by this spec** — it depends on whether the LLM can produce compileable callback handling, which is a downstream LLM-quality issue. If T10 stays omitted with `error_stage=compile`, that result is the input to the next issue (callback marshalling support).
+
+## Verification (2026-05-05)
+
+**Outcome class (b) — middle case** per the plan's three-outcome taxonomy.
+
+After cache rows for `MIDIClientCreate` / `MIDIClientDispose` were deleted and the smoke test was re-run under `screen -dmS bug-c-t10-verify-20260505` (commits `5381ed4` REFACTOR + earlier RED/GREEN/RED-followup active), the three retry attempts produced:
+
+| compile_history.id | error_stage | Observation |
+|---|---|---|
+| 1 (oldest) | `swiftc` | GATE 5 PASS. Header block + bare `@c\npublic func` + callback Qnil-branch all correctly emitted. swiftc error: `cannot convert value of type 'UInt' to expected argument type 'UnsafeMutablePointer<UInt>'` — LLM wrote `rb_string_value_cstr(argv[0])` instead of the required `var v0 = argv[0]; rb_string_value_cstr(&v0)` pattern that `template_generator.rb` uses for string-input parameters. |
+| 2 | `swiftc` | GATE 5 PASS. Header + shape correct. Body went off-rails into hallucinated `unsafeBitCast` / `(void)cString` / `ptr(to: argv)` — invalid Swift parse. |
+| 3 (newest) | `static_check` | GATE 5 FAIL. LLM ignored format entirely and emitted Markdown prose plus a fabricated Swift `midiClientCreate` function unrelated to the requested glue. Demonstrates Foundation Model non-determinism. |
+
+Smoke test omitted with `LLM exhausted 3 attempts`, T10 still omit. **Acceptance criterion 2 is met**: 2 of 3 attempts now move past `error_stage=static_check` for `MIDIClientCreate`, where prior to this spec's commits 0 of 3 did.
+
+Two follow-up issues identified, both out of scope for this spec:
+
+1. **WORKED_EXAMPLE coverage gap.** Section 3's example demonstrates an `int` input + `string` return path (`rb_num2ll(argv[0])` then `rb_str_new_cstr(cstr!)`). It does NOT demonstrate the `string` input path — the `var v_i = argv[i]; let s = String(cString: rb_string_value_cstr(&v_i))` shape from `template_generator.rb:97`. The LLM must extrapolate this for `MIDIClientCreate`'s `name: CFStringRef` parameter and got it wrong in attempt 1. Adding a second worked example covering string-input marshalling would close this gap.
+2. **LLM output consistency.** Attempt 3 ignored the prompt entirely. This is a Foundation Model on-device behavior characteristic, not addressable purely via prompt tuning. Mitigations: (a) raise retry budget from 3 to higher (configurable); (b) add a `regenerate_on_off_format` post-filter that detects markdown-or-prose responses and triggers an immediate retry without consuming the formal retry slot; (c) try a different `model:` parameter on `Session.new`.
