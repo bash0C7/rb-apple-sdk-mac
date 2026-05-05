@@ -49,6 +49,30 @@ class TestSwiftcInvoker < Test::Unit::TestCase
     end
   end
 
+  def test_passes_undefined_dynamic_lookup
+    Dir.mktmpdir do |dir|
+      fake = File.join(dir, "fake-swiftc")
+      log = File.join(dir, "argv.log")
+      File.write(fake, <<~SH)
+        #!/bin/sh
+        printf '%s\\0' "$@" > #{log}
+        exit 0
+      SH
+      File.chmod(0o755, fake)
+      src = File.join(dir, "x.swift"); File.write(src, "")
+      dylib = File.join(dir, "x.dylib")
+
+      AppleSDKMac::GlueCompiler::SwiftcInvoker.new(swiftc: fake).compile(
+        source_path: src, dylib_path: dylib
+      )
+      argv = File.read(log).split("\0")
+      undefined_pair = argv.each_cons(2).any? { |a, b| a == "-Xlinker" && b == "-undefined" }
+      lookup_pair    = argv.each_cons(2).any? { |a, b| a == "-Xlinker" && b == "dynamic_lookup" }
+      assert(undefined_pair && lookup_pair,
+             "expected -Xlinker -undefined -Xlinker dynamic_lookup, got: #{argv.inspect}")
+    end
+  end
+
   def test_reports_compile_errors
     Dir.mktmpdir do |dir|
       src = File.join(dir, "broken.swift")
