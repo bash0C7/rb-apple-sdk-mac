@@ -25,6 +25,31 @@ namespace :apple do
       puts "Done."
     end
 
+    desc "Recompute kind / is_out_param / nullability on existing parameters_json (in place)"
+    task :reclassify do
+      require "rb_apple_sdk_knowledge"
+      require "rb_apple_sdk_knowledge/reclassifier"
+
+      sdk_version = AppleSDKKnowledge::SDK.version
+      store_path = AppleSDKKnowledge.knowledge_path(sdk_version: sdk_version)
+      unless File.exist?(store_path)
+        abort "no knowledge DB at #{store_path}; run apple:knowledge:rebuild first"
+      end
+
+      FileUtils.mkdir_p("tmp/longrun")
+      queue_path = "tmp/longrun/reclassify-unsupported.jsonl"
+
+      puts "store_path: #{store_path}"
+      puts "queue_path: #{queue_path}"
+      puts "WARNING: do not run gem C glue compilation while this is in progress."
+
+      AppleSDKKnowledge::Reclassifier.new(
+        store_path: store_path,
+        log_io: $stdout,
+        queue_path: queue_path
+      ).run
+    end
+
     desc "Print info about the current knowledge base"
     task :info do
       require "rb_apple_sdk_knowledge"
