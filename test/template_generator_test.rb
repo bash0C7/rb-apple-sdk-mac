@@ -38,6 +38,25 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_nil swift
   end
 
+  # Task 15: multi-out-param returns Ruby Hash with named keys.
+  def test_multi_out_param_returns_hash_with_named_keys
+    sym = {
+      kind: "function", abi: "c", name: "TwoOut", signature: "OSStatus TwoOut(MIDIClientRef *, MIDIClientRef *)",
+      parameters_json: '[
+        {"name":"a","type":"MIDIClientRef * _Nonnull","kind":"opaque_ref","is_out_param":true,"nullability":"nonnull"},
+        {"name":"b","type":"MIDIClientRef * _Nonnull","kind":"opaque_ref","is_out_param":true,"nullability":"nonnull"}
+      ]'
+    }
+    swift = AppleSDKMac::GlueCompiler::TemplateGenerator.new.generate(
+      framework: "Acme", symbol: sym, glue_id: "ab12"
+    )
+    refute_nil swift
+    assert_match(/let multi_out_h = rb_hash_new\(\)/, swift)
+    assert_match(/rb_hash_aset\(multi_out_h, rb_str_new_cstr\("a"\)/, swift)
+    assert_match(/rb_hash_aset\(multi_out_h, rb_str_new_cstr\("b"\)/, swift)
+    assert_match(/return multi_out_h/, swift)
+  end
+
   # Task 14: struct_out Marshaller emits rb_hash_new + per-field rb_hash_aset.
   def test_struct_out_emits_hash_new_aset_per_field
     kc = FakeKC.new({

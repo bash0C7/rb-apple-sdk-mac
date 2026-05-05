@@ -56,7 +56,6 @@ module AppleSDKMac
         return nil if marshallers.any?(&:nil?)
 
         out_marshallers = marshallers.select { |m| m.param[:is_out_param] }
-        return nil if out_marshallers.length > 1
 
         in_loads = marshallers.reject { |m| m.param[:is_out_param] }
                               .map(&:in_load).compact
@@ -68,14 +67,26 @@ module AppleSDKMac
         body = []
         body.concat(in_loads)
 
-        out = out_marshallers.first
-        if out
+        if out_marshallers.length == 1
+          out = out_marshallers.first
           body << out.out_init
           body << "let status = #{symbol[:name]}(#{call_args})"
           body << %(if status != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
           post = out.out_post_call
           body << post if post
           body << "return #{out.out_to_ruby}"
+        elsif out_marshallers.length >= 2
+          # Multi-out: status check then build a Ruby Hash with one key per out-param.
+          out_marshallers.each { |m| body << m.out_init }
+          body << "let status = #{symbol[:name]}(#{call_args})"
+          body << %(if status != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
+          body << "let multi_out_h = rb_hash_new()"
+          out_marshallers.each do |m|
+            post = m.out_post_call
+            body << post if post
+            body << "rb_hash_aset(multi_out_h, rb_str_new_cstr(\"#{m.param[:name]}\"), #{m.out_to_ruby})"
+          end
+          body << "return multi_out_h"
         else
           ret_kind = return_kind(symbol[:signature])
           body << "let result = #{symbol[:name]}(#{call_args})"

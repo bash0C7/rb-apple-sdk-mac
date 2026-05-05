@@ -84,26 +84,26 @@ module AppleSDKMac
       end
 
       def call_arg
-        @param[:is_out_param] ? "&outRef" : @param[:name]
+        @param[:is_out_param] ? "&#{@param[:name]}" : @param[:name]
       end
 
       def out_init
         return nil unless @param[:is_out_param]
         ref_type = strip_pointer(@param[:type])
-        "var outRef: #{ref_type} = #{ref_type}()"
+        "var #{@param[:name]}: #{ref_type} = #{ref_type}()"
       end
 
       def out_addr
         return nil unless @param[:is_out_param]
-        "&outRef"
+        "&#{@param[:name]}"
       end
 
       def out_to_ruby
         return nil unless @param[:is_out_param]
         if unsigned?(@param[:type])
-          "rb_ull2inum(UInt64(outRef))"
+          "rb_ull2inum(UInt64(#{@param[:name]}))"
         else
-          "rb_ll2inum(Int64(outRef))"
+          "rb_ll2inum(Int64(#{@param[:name]}))"
         end
       end
 
