@@ -23,11 +23,12 @@ module AppleSDKMac
         @ctx = ctx
       end
 
-      def in_load;     nil end
-      def call_arg;    @param[:name] end
-      def out_init;    nil end
-      def out_addr;    nil end
-      def out_to_ruby; nil end
+      def in_load;      nil end
+      def call_arg;     @param[:name] end
+      def out_init;     nil end
+      def out_addr;     nil end
+      def out_post_call; nil end  # Swift snippet between status check and return
+      def out_to_ruby;  nil end   # final expression for `return ...`
       def call_wrapper(inner); inner end
 
       REGISTRY = {}
@@ -284,7 +285,7 @@ module AppleSDKMac
         "&#{@param[:name]}_struct"
       end
 
-      def out_to_ruby
+      def out_post_call
         return nil if @broken
         h_var = "#{@param[:name]}_h"
         lines = ["let #{h_var} = rb_hash_new()"]
@@ -296,8 +297,11 @@ module AppleSDKMac
           end
           lines << "rb_hash_aset(#{h_var}, rb_str_new_cstr(\"#{f[:name]}\"), #{val_expr})"
         end
-        lines << h_var
         lines.join("\n    ")
+      end
+
+      def out_to_ruby
+        "#{@param[:name]}_h"
       end
 
       private

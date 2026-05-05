@@ -73,6 +73,8 @@ module AppleSDKMac
           body << out.out_init
           body << "let status = #{symbol[:name]}(#{call_args})"
           body << %(if status != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
+          post = out.out_post_call
+          body << post if post
           body << "return #{out.out_to_ruby}"
         else
           ret_kind = return_kind(symbol[:signature])
