@@ -84,6 +84,26 @@ class TestKind < Test::Unit::TestCase
     assert_equal false, K.out_param?("CFStringRef", "name", false)
   end
 
+  # `const T *` is an INPUT pointer (read-only) — never an out-param,
+  # even if it's the last pointer in the signature. Without this guard,
+  # MIDISend(MIDIPortRef, MIDIEndpointRef, const MIDIPacketList * _Nonnull)
+  # tags pktlist as is_out_param=true and the marshaller dispatcher
+  # mis-routes the input as an out-param.
+  def test_out_param_false_for_const_struct_pointer
+    assert_equal false,
+      K.out_param?("const MIDIPacketList * _Nonnull", "pktlist", true)
+  end
+
+  # `const X * _Nonnull` for a struct typedef without _Ref/_Proc/_Callback
+  # suffix is "struct_in_pointer": Ruby user passes UInt (a pointer encoded
+  # as integer), the marshaller casts to UnsafePointer<X> at the call site.
+  def test_classifies_struct_in_pointer_for_const_struct_pointer
+    assert_equal "struct_in_pointer",
+      K.classify_kind("const MIDIPacketList * _Nonnull",
+                      "const MIDIPacketList * _Nonnull",
+                      "nonnull")
+  end
+
   def test_nullability_nonnull
     assert_equal "nonnull", K.nullability_of("CFStringRef _Nonnull")
   end
