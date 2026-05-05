@@ -5,9 +5,24 @@ module AppleSDKKnowledge
     module Kind
       module_function
 
-      def classify_kind(qual_type, desugared = qual_type)
-        # Function-pointer typedefs surface as `void (*)(...)` etc. in desugaredQualType
-        return "unsupported" if desugared.include?("(") && desugared.include?(")")
+      def classify_kind(qual_type, desugared = qual_type, nullability = "unspecified")
+        is_function_pointer = desugared.include?("(") && desugared.include?(")")
+        is_void_ptr = qual_type =~ /\bvoid\s*\*/
+        # Unspecified nullability is treated as nilable (safe default — older
+        # headers without _Nullable annotations still get the nilable
+        # Marshaller, which handles Qnil correctly).
+        treat_nilable = (nullability == "nullable" || nullability == "unspecified")
+
+        if is_void_ptr
+          return "void_ptr_nilable" if treat_nilable
+          return "unsupported"
+        end
+
+        if is_function_pointer
+          return "callback_nilable" if treat_nilable
+          return "callback_non_nil"
+        end
+
         return "string" if qual_type =~ /\b(CFStringRef|NSString\s*\*|char\s*\*|const\s+char\s*\*)/
         return "bool"   if qual_type =~ /\b(_Bool|Bool|BOOL|bool)\b/
         return "float"  if qual_type =~ /\b(double|float|CGFloat)\b/
@@ -18,7 +33,6 @@ module AppleSDKKnowledge
         # Struct pointer typedefs ending in Ref (e.g. MiniClientRef, CGContextRef) —
         # treated as opaque handles regardless of underlying integer-vs-pointer shape.
         return "opaque_ref" if qual_type =~ /\b\w+Ref\b/
-        return "unsupported" if qual_type =~ /\bvoid\s*\*/
         "unsupported"
       end
 
