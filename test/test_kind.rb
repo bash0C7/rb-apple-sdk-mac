@@ -29,13 +29,35 @@ class TestKind < Test::Unit::TestCase
     assert_equal "opaque_ref", K.classify_kind("MIDIClientRef")
   end
 
-  def test_classifies_unsupported_for_void_pointer
-    assert_equal "unsupported", K.classify_kind("void *")
+  def test_classifies_void_pointer_unspecified_as_void_ptr_nilable
+    # Policy: unspecified nullability is treated as nilable (safe default).
+    assert_equal "void_ptr_nilable", K.classify_kind("void *", "void *", "unspecified")
   end
 
-  def test_classifies_unsupported_for_function_pointer_via_desugared
-    assert_equal "unsupported",
-      K.classify_kind("MIDINotifyProc", "void (*)(const MIDINotification *, void *)")
+  def test_classifies_void_pointer_nullable_as_void_ptr_nilable
+    assert_equal "void_ptr_nilable",
+      K.classify_kind("void * _Nullable", "void *", "nullable")
+  end
+
+  def test_classifies_function_pointer_unspecified_as_callback_nilable
+    assert_equal "callback_nilable",
+      K.classify_kind("MIDINotifyProc",
+                      "void (*)(const MIDINotification *, void *)",
+                      "unspecified")
+  end
+
+  def test_classifies_function_pointer_nullable_as_callback_nilable
+    assert_equal "callback_nilable",
+      K.classify_kind("MIDINotifyProc _Nullable",
+                      "void (*)(const MIDINotification *, void *)",
+                      "nullable")
+  end
+
+  def test_classifies_function_pointer_nonnull_as_callback_non_nil
+    assert_equal "callback_non_nil",
+      K.classify_kind("MIDINotifyProc _Nonnull",
+                      "void (*)(const MIDINotification *, void *)",
+                      "nonnull")
   end
 
   def test_out_param_true_for_last_pointer
