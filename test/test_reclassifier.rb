@@ -22,10 +22,20 @@ class TestReclassifierRecompute < Test::Unit::TestCase
     assert_equal true,         parsed[1][:is_out_param]
   end
 
-  def test_recompute_marks_void_pointer_unsupported
+  def test_recompute_marks_unspecified_void_pointer_as_void_ptr_nilable
+    # Policy: unspecified nullability is treated as nilable (safe default).
     raw = JSON.generate([{ name: "userData", type: "void *" }])
     parsed = JSON.parse(R.recompute_parameters(raw), symbolize_names: true)
-    assert_equal "unsupported", parsed[0][:kind]
+    assert_equal "void_ptr_nilable", parsed[0][:kind]
+  end
+
+  def test_recompute_preserves_nullability_when_already_present
+    raw = JSON.generate([{ name: "cb", type: "MyCb _Nonnull", nullability: "nonnull" }])
+    parsed = JSON.parse(R.recompute_parameters(raw), symbolize_names: true)
+    # qual_type contains no parens but type is a typedef; kind dispatch falls to
+    # opaque_ref guard (no Ref) → unsupported. The point of this test is that
+    # nullability='nonnull' is preserved through recompute, not overridden.
+    assert_equal "nonnull", parsed[0][:nullability]
   end
 
   def test_recompute_is_idempotent
@@ -153,12 +163,12 @@ class TestReclassifierUnsupportedLog < Test::Unit::TestCase
     store.insert_symbol(
       framework_id: fid, name: "F_unsup_a", kind: "function", abi: "c",
       content_hash: "h1",
-      parameters_json: JSON.generate([{ name: "u", type: "void *" }])
+      parameters_json: JSON.generate([{ name: "u", type: "struct Bar *" }])
     )
     store.insert_symbol(
       framework_id: fid, name: "F_unsup_b", kind: "function", abi: "c",
       content_hash: "h2",
-      parameters_json: JSON.generate([{ name: "u", type: "void *" }])
+      parameters_json: JSON.generate([{ name: "u", type: "struct Bar *" }])
     )
     store.insert_symbol(
       framework_id: fid, name: "F_ok", kind: "function", abi: "c",
@@ -194,7 +204,7 @@ class TestReclassifierUnsupportedLog < Test::Unit::TestCase
 
   def test_summary_clusters_count_matches
     summary = JSON.parse(@lines.last)["_summary"]
-    cluster = summary["unsupported_clusters"].find { |c| c["qual_type"] == "void *" }
+    cluster = summary["unsupported_clusters"].find { |c| c["qual_type"] == "struct Bar *" }
     assert_not_nil cluster
     assert_equal 2, cluster["count"]
   end
@@ -207,7 +217,8 @@ class TestReclassifierUnsupportedLog < Test::Unit::TestCase
 
   def test_summary_kind_vocabulary_lists_known_kinds
     summary = JSON.parse(@lines.last)["_summary"]
-    %w[string int bool float opaque_ref unsupported].each do |k|
+    %w[string int bool float opaque_ref callback_nilable callback_non_nil
+       void_ptr_nilable struct_in struct_out variadic_args unsupported].each do |k|
       assert_includes summary["kind_vocabulary"], k
     end
   end
