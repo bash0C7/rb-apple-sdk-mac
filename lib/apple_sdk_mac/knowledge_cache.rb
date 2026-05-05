@@ -15,7 +15,8 @@ module AppleSDKMac
     def lookup_symbol(framework:, symbol:)
       row = @db.execute(<<~SQL, [framework, symbol]).first
         SELECT s.id, s.name, s.kind, s.signature, s.abi, s.documentation,
-               s.parameters_json, s.requires_main_thread, s.content_hash
+               s.parameters_json, s.requires_main_thread, s.content_hash,
+               s.fields_json
         FROM symbols s
         JOIN frameworks f ON s.framework_id = f.id
         WHERE f.name = ? AND s.name = ?
@@ -25,7 +26,8 @@ module AppleSDKMac
       {
         id: row[0], name: row[1], kind: row[2], signature: row[3],
         abi: row[4], documentation: row[5], parameters_json: row[6],
-        requires_main_thread: row[7] == 1, content_hash: row[8]
+        requires_main_thread: row[7] == 1, content_hash: row[8],
+        fields_json: row[9]
       }
     end
 
