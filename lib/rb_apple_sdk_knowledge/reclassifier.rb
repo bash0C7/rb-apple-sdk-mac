@@ -12,7 +12,7 @@ module AppleSDKKnowledge
     KIND_VOCABULARY = %w[
       string int bool float opaque_ref
       callback_nilable callback_non_nil void_ptr_nilable
-      struct_in struct_out variadic_args
+      struct_in struct_out struct_in_pointer variadic_args
       unsupported
     ].freeze
 

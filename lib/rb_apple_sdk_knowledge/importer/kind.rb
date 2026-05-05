@@ -43,11 +43,18 @@ module AppleSDKKnowledge
         # Struct pointer typedefs ending in Ref (e.g. MiniClientRef, CGContextRef) —
         # treated as opaque handles regardless of underlying integer-vs-pointer shape.
         return "opaque_ref" if qual_type =~ /\b\w+Ref\b/
+        # `const SomeStruct *` (read-only struct pointer) — Ruby user passes
+        # a UInt encoding a pointer (commonly built via Fiddle); the Marshaller
+        # casts to UnsafePointer<SomeStruct> at the C call site.
+        return "struct_in_pointer" if qual_type =~ /\bconst\s+\w+\s*\*/
         "unsupported"
       end
 
       def out_param?(qual_type, name, is_last_pointer)
         return false unless qual_type.include?("*")
+        # `const T *` is read-only input; never an out-param even when it
+        # happens to be the last pointer in the signature.
+        return false if qual_type =~ /\bconst\s+\w+\s*\*/
         is_last_pointer || name.start_with?("out")
       end
 
