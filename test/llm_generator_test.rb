@@ -102,4 +102,11 @@ class TestLLMGenerator < Test::Unit::TestCase
       "ConformanceBridge.lookup does not exist with the signature the prompt previously implied; " \
       "the runtime ConformanceBridge has register/release/lookup(handle:) only.")
   end
+
+  def test_instructions_do_not_reintroduce_at_c_attributed_prose
+    refute_match(/@c-attributed/, AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS,
+      "The phrase `@c-attributed` was the original GATE 5 trigger: the LLM " \
+      "rendered the English prose as literal Swift syntax. This guard prevents " \
+      "any future rule wording that would reintroduce the same hyphenated form.")
+  end
 end

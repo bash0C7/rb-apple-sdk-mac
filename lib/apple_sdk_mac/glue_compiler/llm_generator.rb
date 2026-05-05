@@ -6,8 +6,12 @@ module AppleSDKMac
   class GlueCompiler
     class LLMGenerator
       WORKED_EXAMPLE = <<~SWIFT.freeze
-        // Worked example for a hypothetical "string"-kind C function:
+        // Worked example: int input + string return path (rb_num2ll / rb_str_new_cstr).
         //   const char * AcmeCopyTitle(int id);
+        // Note: this example does NOT cover string-input marshalling. For a string
+        // input, use template_generator.rb's pattern: var v_i = argv[i] then
+        // rb_string_value_cstr(&v_i) — argv[i] alone is UInt, not the
+        // UnsafeMutablePointer<UInt> the rb_* function requires.
         // in framework AcmeFW, glue_id deadbeef. This example is fully
         // self-contained: the @_silgen_name header block appears below exactly
         // as it must appear in every generated file. Substitute the framework,
@@ -35,6 +39,9 @@ module AppleSDKMac
       #   - Rule 6 guards against Marshal.toRuby (planned helper, never implemented)
       #   - Rule 7 guards against ErrorBridge.rb_raise_via_runtime (deleted in b262e18)
       #            and ConformanceBridge.lookup with the planned (symbol:, args:) signature.
+      # Rule 2's prohibition list avoids the literal string `@c-attributed` (hyphenated form)
+      # because that string was the original GATE 5 trigger; the contract test
+      # test_instructions_do_not_reintroduce_at_c_attributed_prose guards against it.
       # See docs/superpowers/specs/2026-05-05-llm-fallback-prompt-alignment-design.md.
       INSTRUCTIONS = <<~TXT.freeze
         You generate Swift glue code for the rb-apple-sdk-mac runtime bridge.
@@ -48,7 +55,7 @@ module AppleSDKMac
                @c
                public func glue_<glue_id>_<symbol>(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt
 
-           No `@c("name")`, no `@c-attributed`, no other attribute spelling.
+           No `@c("name")`, no hyphenated `@c` forms, no other attribute spelling.
         3. Allowed imports: the target Apple framework, and `Foundation`.
            Nothing else. Do NOT import `AppleSDKMacRuntime`.
         4. Include the @_silgen_name header block (Section 2 below) verbatim,
