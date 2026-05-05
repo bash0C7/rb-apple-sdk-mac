@@ -101,6 +101,11 @@ module AppleSDKKnowledge
                        parent_id: nil, signature: nil, documentation: nil,
                        return_type: nil, parameters_json: nil, availability: nil,
                        deprecated: 0, requires_main_thread: 0, fields_json: nil)
+      # UPSERT on content_hash: a re-import (e.g. apple:knowledge:rebuild
+      # under a newer classifier or schema) must overwrite the existing row
+      # so updated parameters_json / fields_json land. Plain INSERT would
+      # raise ConstraintException, which the importer used to swallow —
+      # leaving stale rows from prior schema versions.
       @db.execute(
         <<~SQL,
           INSERT INTO symbols
@@ -108,12 +113,28 @@ module AppleSDKKnowledge
            return_type, parameters_json, availability, deprecated,
            requires_main_thread, content_hash, fields_json)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(content_hash) DO UPDATE SET
+            framework_id    = excluded.framework_id,
+            name            = excluded.name,
+            parent_id       = excluded.parent_id,
+            kind            = excluded.kind,
+            signature       = excluded.signature,
+            abi             = excluded.abi,
+            documentation   = excluded.documentation,
+            return_type     = excluded.return_type,
+            parameters_json = excluded.parameters_json,
+            availability    = excluded.availability,
+            deprecated      = excluded.deprecated,
+            requires_main_thread = excluded.requires_main_thread,
+            fields_json     = COALESCE(excluded.fields_json, symbols.fields_json)
         SQL
         [framework_id, name, parent_id, kind, signature, abi, documentation,
          return_type, parameters_json, availability, deprecated,
          requires_main_thread, content_hash, fields_json]
       )
-      @db.last_insert_row_id
+      # last_insert_row_id() reports 0 on UPDATE; recover the actual rowid.
+      row = @db.execute("SELECT id FROM symbols WHERE content_hash = ?", [content_hash]).first
+      row && row.first
     end
 
     def rebuild_fts!
