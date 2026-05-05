@@ -8,15 +8,15 @@ module AppleSDKMac
       WORKED_EXAMPLE = <<~SWIFT.freeze
         // Worked example for a hypothetical "string"-kind C function:
         //   const char * AcmeCopyTitle(int id);
-        // in framework AcmeFW, glue_id deadbeef. Substitute the framework,
-        // glue_id, symbol, and the per-parameter marshalling for the
-        // requested signature; copy the @_silgen_name header block (Section 2)
-        // verbatim — it is omitted in this example only to avoid duplication.
+        // in framework AcmeFW, glue_id deadbeef. This example is fully
+        // self-contained: the @_silgen_name header block appears below exactly
+        // as it must appear in every generated file. Substitute the framework,
+        // glue_id, symbol, and per-parameter marshalling for the requested
+        // signature.
         import AcmeFW
         import Foundation
 
-        // ... @_silgen_name header from Section 2 goes here, verbatim ...
-
+        #{TemplateGenerator::HEADER}
         @c
         public func glue_deadbeef_AcmeCopyTitle(
             _ argv: UnsafePointer<UInt>, _ argc: Int32
@@ -28,6 +28,14 @@ module AppleSDKMac
         }
       SWIFT
 
+      # Rules 5/6/7 below are positive-only ("use rb_* via @_silgen_name") and do not
+      # name the phantom APIs they guard against, because the offline contract tests
+      # in test/llm_generator_test.rb assert these strings are absent from INSTRUCTIONS:
+      #   - Rule 5 guards against Marshal.fromRubyXXX (planned helper, never implemented)
+      #   - Rule 6 guards against Marshal.toRuby (planned helper, never implemented)
+      #   - Rule 7 guards against ErrorBridge.rb_raise_via_runtime (deleted in b262e18)
+      #            and ConformanceBridge.lookup with the planned (symbol:, args:) signature.
+      # See docs/superpowers/specs/2026-05-05-llm-fallback-prompt-alignment-design.md.
       INSTRUCTIONS = <<~TXT.freeze
         You generate Swift glue code for the rb-apple-sdk-mac runtime bridge.
 
