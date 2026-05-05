@@ -143,8 +143,26 @@ module AppleSDKMac
         8. The only C call permitted inside the function body is the
            user-requested target symbol. No network, file, process, IPC,
            persistence, or environment-mutation APIs.
-        9. For C function-pointer parameters (callbacks), emit a runtime
-           branch:
+        9. For C function-pointer parameters (callbacks):
+
+           If the callback type is `MIDINotifyProc`, route the Ruby Block
+           through the CallbackPillar register API:
+
+               let cb: MIDINotifyProc?
+               if argv[i] == Qnil {
+                   cb = nil
+               } else {
+                   let cb_pid_v = rb_obj_id(argv[i])
+                   rb_hash_aset_proc_registry(cb_pid_v, argv[i])
+                   let cb_pid_u = rb_num2ull(cb_pid_v)
+                   let cb_slot = runtime_callback_pillar_register_midi_notify(cb_pid_u)
+                   if cb_slot < 0 { rb_raise(rb_eRuntimeError, "callback slot pool exhausted") }
+                   let cb_raw = runtime_callback_pillar_get_midi_notify_fnptr(cb_slot)
+                   cb = unsafeBitCast(UnsafeRawPointer(bitPattern: UInt(cb_raw))!, to: MIDINotifyProc.self)
+               }
+
+           For any other callback type that is not in the catalog, emit
+           the legacy stub:
 
                let cb: <CallbackType>?
                if argv[i] == Qnil {
