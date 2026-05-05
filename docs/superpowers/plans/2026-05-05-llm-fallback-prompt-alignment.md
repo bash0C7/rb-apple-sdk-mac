@@ -17,7 +17,7 @@
 **Files:**
 - Modify: `test/llm_generator_test.rb` (append three test methods to existing `class TestLLMGenerator`)
 
-- [ ] **Step 1: Add the three RED tests**
+- [x] **Step 1: Add the three RED tests**
 
 Append these methods inside `class TestLLMGenerator < Test::Unit::TestCase` in `test/llm_generator_test.rb`, immediately after the existing `test_live_ollama_returns_some_swift`:
 
@@ -46,7 +46,7 @@ Append these methods inside `class TestLLMGenerator < Test::Unit::TestCase` in `
   end
 ```
 
-- [ ] **Step 2: Run only the new tests to verify they fail**
+- [x] **Step 2: Run only the new tests to verify they fail**
 
 Run from the repo root (offline, skips rake compile via direct ruby invocation):
 
@@ -63,7 +63,7 @@ Expected output (3 failures):
 
 Result line should read: `3 tests, X assertions, 3 failures, 0 errors, 0 pendings, 0 omissions`
 
-- [ ] **Step 3: Commit RED**
+- [x] **Step 3: Commit RED**
 
 ```bash
 cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-mac && \
@@ -89,7 +89,7 @@ EOF
 **Files:**
 - Modify: `lib/apple_sdk_mac/glue_compiler/llm_generator.rb` (full file replacement; existing structure preserved except for INSTRUCTIONS body and one new `require_relative` and one new `WORKED_EXAMPLE` constant)
 
-- [ ] **Step 1: Replace the file with the rewritten version**
+- [x] **Step 1: Replace the file with the rewritten version**
 
 Overwrite `lib/apple_sdk_mac/glue_compiler/llm_generator.rb` with:
 
@@ -223,7 +223,7 @@ module AppleSDKMac
 end
 ```
 
-- [ ] **Step 2: Run the three new tests to verify they pass**
+- [x] **Step 2: Run the three new tests to verify they pass**
 
 ```bash
 cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-mac && \
@@ -235,7 +235,7 @@ Expected: `3 tests, 4 assertions, 0 failures, 0 errors, 0 pendings, 0 omissions`
 
 (4 assertions because `test_instructions_have_no_phantom_runtime_api_references` does two `refute_match` calls.)
 
-- [ ] **Step 3: Run the full `llm_generator_test.rb` to confirm pre-existing tests still pass**
+- [x] **Step 3: Run the full `llm_generator_test.rb` to confirm pre-existing tests still pass**
 
 ```bash
 cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-mac && \
@@ -246,7 +246,7 @@ Expected: `7 tests, 8 assertions, 0 failures, 0 errors, 0 pendings, 1 omissions`
 
 (7 = 3 new + 3 existing + 1 live-ollama; 1 omission = `test_live_ollama_returns_some_swift` which omits unless `RB_APPLE_SDK_MAC_LIVE_LLM=1`.)
 
-- [ ] **Step 4: Commit GREEN**
+- [x] **Step 4: Commit GREEN**
 
 ```bash
 cd ~/dev/src/github.com/bash0C7/rb-apple-sdk-mac && \
@@ -277,7 +277,7 @@ EOF
 
 **Files:** None modified.
 
-- [ ] **Step 1: Delegate full `bundle exec rake test` to a general-purpose subagent**
+- [x] **Step 1: Delegate full `bundle exec rake test` to a general-purpose subagent**
 
 Per `feedback_rake_test_subagent` memory rule, the parent agent must dispatch a subagent (not run `rake test` inline) to keep verbose rake-compiler / Test::Unit dot output out of the main conversation context. Subagent prompt template:
 
@@ -290,13 +290,13 @@ Per `feedback_rake_test_subagent` memory rule, the parent agent must dispatch a 
 
 Expected report: `50 tests, ~ assertions, 0 failures, 0 errors, 0 pendings, 1 omissions, success: yes`. (50 = previous 47 + 3 new tests; the omission is `test_live_ollama_returns_some_swift`.)
 
-- [ ] **Step 2: If failures or errors are reported, stop and triage**
+- [x] **Step 2: If failures or errors are reported, stop and triage**
 
 If the subagent reports F+E > 0, do NOT proceed to Task 4. Diagnose with `superpowers:systematic-debugging` Phase 1 against the specific failing tests — common candidates:
 - ERB-style heredoc interpolation surprised by `#{...}` inside HEADER if HEADER is later changed to include literal `#{...}`. Currently HEADER has none, so this is a future risk only.
 - `require_relative "template_generator"` path resolution if file naming changes.
 
-- [ ] **Step 3: No commit at this step.** Verification only; nothing changed.
+- [x] **Step 3: No commit at this step.** Verification only; nothing changed.
 
 ---
 
@@ -306,7 +306,7 @@ If the subagent reports F+E > 0, do NOT proceed to Task 4. Diagnose with `superp
 
 This task verifies the prompt change at runtime by re-exercising the LLM fallback path against the real Foundation Model on Apple Silicon. It is run by hand because (a) the Apple on-device model is not available in CI and (b) it modifies the user's `~/.cache` directory.
 
-- [ ] **Step 1: Delete stale failed-attempt rows from `compile_history`**
+- [x] **Step 1: Delete stale failed-attempt rows from `compile_history`**
 
 ```bash
 sqlite3 ~/.cache/rb-apple-sdk-mac/26.2/glue.sqlite \
@@ -317,7 +317,7 @@ Verify: subsequent `SELECT count(*) FROM compile_history WHERE generator='llm' A
 
 This does NOT delete cached glue dylib files (they keyed by glue_id, not symbol); a fresh attempt will overwrite or skip them.
 
-- [ ] **Step 2: Activate swiftly and launch the smoke test under `screen -dmS`**
+- [x] **Step 2: Activate swiftly and launch the smoke test under `screen -dmS`**
 
 The CoreMIDI smoke test invokes the full LLM-fallback pipeline (LLM call + swiftc compile + dlopen + Apple SDK call). Per `feedback_longrun_screen_pattern` memory rule, jobs that may exceed 2 minutes must run as a detached `screen` session, not inline Bash, not subagent.
 
@@ -334,7 +334,7 @@ screen -dmS bug-c-t10-verify-20260505 bash -c '
 
 End the conversation turn after launch. Resume after `DONE:` sentinel appears.
 
-- [ ] **Step 3: After completion, classify the outcome by inspecting `compile_history`**
+- [x] **Step 3: After completion, classify the outcome by inspecting `compile_history`**
 
 ```bash
 grep "^DONE:" ~/dev/src/github.com/bash0C7/rb-apple-sdk-mac/tmp/longrun/bug-c-t10-verify-20260505.log
@@ -351,7 +351,9 @@ Three valid outcomes:
 - **(b) Middle:** GATE 5 passes (good), but `error_stage='compile'` with swiftc errors. Capture the `error_detail` and the LLM-emitted Swift body (full row blob via `SELECT llm_response FROM compile_history WHERE id=<latest>;`). Open a follow-up issue: "LLM fallback callback marshalling — concrete swiftc errors for `MIDIClientCreate`". This spec is acceptance-complete per its own criteria; T10 stays omitted.
 - **(c) Worst:** GATE 5 still failing (`error_stage='static_check'`). Return to `superpowers:systematic-debugging` Phase 1 with the new evidence; the prompt rewrite did not produce the assumed effect.
 
-- [ ] **Step 4: Document the observed outcome**
+- [x] **Step 4: Document the observed outcome**
+
+  Outcome class **(b) middle case** — recorded in spec under "Verification — post-followup re-run (2026-05-05)". Acceptance met. T10 stays omitted; callback-and-typed-pointer marshalling becomes the next issue (out of scope for this spec).
 
 Whichever of (a)/(b)/(c) was observed, append a short paragraph to the design spec under a new "Verification" section recording: outcome class, date, and a one-line summary of `compile_history` state. This closes the loop between spec and reality. Commit as `docs: record verification outcome for LLM fallback prompt alignment`.
 

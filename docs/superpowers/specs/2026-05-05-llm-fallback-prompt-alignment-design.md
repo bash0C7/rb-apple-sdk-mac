@@ -197,3 +197,35 @@ Both follow-ups identified above have been consumed by RED+GREEN commits in this
 Full test suite passes (`69 tests, 110 assertions, 0 failures, 0 errors, 2 omissions`) after both follow-ups land.
 
 E2E re-verification (cache clear + `coremidi_smoke_test.rb` under `screen -dmS`) is the natural next step to observe whether T10 acceptance now flips. Per spec line 167 ("T10 acceptance flip is expected but not strictly required by this spec"), this is left as an explicit user decision rather than auto-triggered, since it requires Apple Silicon Foundation Model session time.
+
+## Verification — post-followup re-run (2026-05-05)
+
+**Outcome class (b) — middle case** again. Acceptance criterion 2 met; T10 stays omitted.
+
+Cache rows for `MIDIClientCreate` / `MIDIClientDispose` were deleted (12 rows, all generator='llm') and the smoke test re-run under `screen -dmS bug-c-t10-verify-followup-20260505` against the post-followup tree (string-input WORKED_EXAMPLE + `max_llm_retries: 6` default in effect). The 6 attempts produced:
+
+| compile_history.id | error_stage | Observation |
+|---|---|---|
+| 6 (newest) | `static_check` | GATE 5 FAIL (`no @c public func found`). |
+| 5 | `static_check` | GATE 5 FAIL. |
+| 4 | `swiftc` | GATE 5 PASS. Header + bare `@c\npublic func` correct. swiftc fails with four typed-pointer / cast errors at the `MIDIClientCreate(...)` call site: (1) `c_name_ptr` (`UnsafePointer<CChar>`) passed where `CFString` expected — needs `name as CFString` cast; (2) `notifyProc_ptr` typed as `UInt` (raw `argv[1]`) passed where `MIDINotifyProc` expected — LLM skipped the rule-9 `let cb: <CallbackType>?` binding; (3) `notifyRefCon_ptr` typed as `UInt` passed where `UnsafeMutableRawPointer` expected — LLM skipped rule 10; (4) `outClient` typed `UnsafeMutablePointer<UInt>` passed where `UnsafeMutablePointer<MIDIClientRef>` (aka `UInt32`) expected — out-param marshalling not in WORKED_EXAMPLE. |
+| 3 | `static_check` | GATE 5 FAIL. |
+| 2 | `static_check` | GATE 5 FAIL. |
+| 1 (oldest) | `swiftc` | GATE 5 PASS. swiftc fails on (1) deprecated `UnsafeMutablePointer<Void>?` for the callback (rule 9 misinterpretation: LLM expanded `<CallbackType>` to `UnsafeMutablePointer<Void>` instead of the framework type `MIDINotifyProc`); (2) `outClient_ptr.map { UnsafeMutablePointer<Any>.allocate(capacity: 1) }` — out-param closure error. |
+
+Smoke test omitted with `LLM exhausted 6 attempts`, T10 still omit. GATE 5 pass rate this run: 2 / 6 (33%); prior 3-attempt run was 2 / 3 (67%). The absolute number of swiftc-stage attempts (2) is unchanged — the higher retry budget surfaced more `static_check` noise from off-format LLM outputs, not more well-formed bodies. This is consistent with the Foundation Model non-determinism noted in mitigation rationale (b/c remain on the table).
+
+### Acceptance status (this spec)
+
+Met. Per spec line 165–167, acceptance criterion 2 ("LLM path moves past `error_stage=static_check` for at least one previously-failing symbol") is satisfied: ids 1 and 4 reached `swiftc` stage. T10 acceptance flip is explicitly non-required by this spec.
+
+### Next issue — callback-and-typed-pointer marshalling for LLM fallback
+
+The 4 distinct swiftc errors across ids 1 + 4 all sit in the same conceptual area: the LLM cannot fill the gap between Ruby `VALUE` (`UInt`) inputs and Apple-typed-C parameters (`CFString`, `MIDINotifyProc`, `UnsafeMutableRawPointer`, typed out-pointers). Rules 9 / 10 in `INSTRUCTIONS` describe the Qnil-branch shape but do not provide a worked example for any of these kinds, so the LLM extrapolates and fails.
+
+This is **out of scope for this spec** (declared in Non-goals: *"Implementing callback support inside the runtime"* and Out of scope: *"Callback marshalling support inside the runtime / Multi-out-param support"*). Tracked as the natural follow-up for a separate spec/plan cycle. Concrete starting points captured here for that future work:
+
+- WORKED_EXAMPLE_CALLBACK_NIL_ONLY: a hand-written glue function for a synthetic symbol with a function-pointer parameter, demonstrating the `let cb: <CallbackType>? = nil` + `rb_raise` shape literally with the framework-typed callback type substituted.
+- WORKED_EXAMPLE_CFSTRING_IN: explicit `let s = String(cString: rb_string_value_cstr(&v0)); let cf = s as CFString` for `CFString`-parameter symbols.
+- WORKED_EXAMPLE_OUT_PARAM: pattern for typed out-pointer parameters (`var out: MIDIClientRef = 0; ... &out; rb_ull2inum(UInt64(out))`).
+- Alternative architectural direction: add a `kind=callback_nilable` / `kind=cfstring_in` / `kind=out_typed` dispatch in `template_generator.rb` so these symbols never escalate to LLM. Decision deferred to that spec.
