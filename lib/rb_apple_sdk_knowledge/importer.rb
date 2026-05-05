@@ -57,6 +57,7 @@ module AppleSDKKnowledge
               documentation: sym[:documentation],
               return_type: sym[:return_type],
               parameters_json: sym[:parameters] && JSON.generate(sym[:parameters]),
+              fields_json: sym[:fields] && JSON.generate(sym[:fields]),
               content_hash: sym[:content_hash]
             )
             if embedder && embedder.available?
