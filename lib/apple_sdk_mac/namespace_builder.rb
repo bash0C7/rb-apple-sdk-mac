@@ -21,6 +21,7 @@ module AppleSDKMac
     def build!
       @knowledge.list_frameworks.each do |fw|
         framework_module = define_framework_module(fw)
+        next unless framework_module
         symbols = @knowledge.list_framework_symbols(framework: fw)
         symbols.each do |sym|
           install_symbol(framework_module, fw, sym)
@@ -31,6 +32,10 @@ module AppleSDKMac
     private
 
     def define_framework_module(name)
+      # Apple knowledge base contains private/legacy framework names like
+      # `_ARKit_SwiftUI` (leading underscore) that aren't valid Ruby constants.
+      # Skip them; the dispatcher addresses these by string name when needed.
+      return nil unless name =~ /\A[A-Z]/
       if @target.const_defined?(name, false)
         @target.const_get(name)
       else
@@ -60,6 +65,13 @@ module AppleSDKMac
     end
 
     def define_type_constant(mod, framework, type_name)
+      # Ruby constants must start with an uppercase letter. Apple SDK exposes
+      # some C struct tags in snake_case (e.g. ar_anchor_s, swift_interop_t);
+      # skip those rather than raising NameError. Future enhancement could
+      # camelize them, but the dispatcher reaches Apple's typed APIs by symbol
+      # name not by Ruby constant, so the snake_case ones simply have no Ruby
+      # constant proxy.
+      return unless type_name =~ /\A[A-Z]/
       return if mod.const_defined?(type_name, false)
       proxy_class = Class.new do
         define_singleton_method(:framework) { framework }

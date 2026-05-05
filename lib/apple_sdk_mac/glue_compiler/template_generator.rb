@@ -40,7 +40,7 @@ module AppleSDKMac
         func rb_block_proc() -> UInt
 
         let Qfalse: UInt = 0
-        let Qnil:   UInt = 8
+        let Qnil:   UInt = 4
         let Qtrue:  UInt = 20
       SWIFT
 

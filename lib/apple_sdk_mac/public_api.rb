@@ -93,7 +93,16 @@ module AppleSDKMac
     private
 
     def runtime_dylib_path
-      File.expand_path("../apple_sdk_mac_runtime.bundle", __FILE__)
+      # Linker expects MH_DYLIB. The Ruby C extension `.bundle` (MH_BUNDLE) is
+      # loaded by Ruby via require but is not a valid linkage target. Prefer the
+      # Swift package's libAppleSDKMacRuntime.dylib when present (development
+      # checkout); fall back to nil so SwiftcInvoker omits the -Xlinker arg
+      # entirely (glue uses @_silgen_name + -undefined dynamic_lookup, so the
+      # runtime is not strictly required at link time for kinds that don't
+      # reference AppleSDKMacRuntime Swift symbols).
+      gem_root = File.expand_path("../../..", __FILE__)
+      dylib = File.join(gem_root, "ext/apple_sdk_mac_runtime/.build/arm64-apple-macosx/release/libAppleSDKMacRuntime.dylib")
+      File.exist?(dylib) ? dylib : nil
     end
 
     def runtime_modules_paths
