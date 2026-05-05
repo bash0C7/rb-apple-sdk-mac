@@ -38,6 +38,78 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_nil swift
   end
 
+  # Task 13: struct_in Marshaller — flat, nested depth-1, cycle detection.
+  class FakeKC
+    def initialize(map); @map = map; end
+    def lookup_symbol(framework:, symbol:); @map[symbol]; end
+    def close; end
+  end
+
+  def test_struct_in_emits_field_by_field_hash_aref
+    kc = FakeKC.new({
+      "Point" => { name: "Point", fields_json: JSON.dump([
+        { name: "x", type: "Int32", kind: "int" },
+        { name: "y", type: "Int32", kind: "int" }
+      ]) }
+    })
+    sym = {
+      kind: "function", abi: "c", name: "DrawPoint", signature: "void DrawPoint(Point *)",
+      parameters_json: '[{"name":"p","type":"Point * _Nonnull","kind":"struct_in","is_out_param":false,"nullability":"nonnull"}]'
+    }
+    swift = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc).generate(
+      framework: "Acme", symbol: sym, glue_id: "ab12"
+    )
+    refute_nil swift
+    assert_match(/var p_struct = Point\(\)/, swift)
+    assert_match(/p_struct\.x = Int32\(rb_num2ll\(rb_hash_aref\(.*"x".*\)\)\)/, swift)
+    assert_match(/p_struct\.y = Int32\(rb_num2ll\(rb_hash_aref\(.*"y".*\)\)\)/, swift)
+    assert_match(/DrawPoint\(&p_struct\)/, swift)
+  end
+
+  def test_struct_in_handles_nested_depth_1
+    kc = FakeKC.new({
+      "Rect" => { name: "Rect", fields_json: JSON.dump([
+        { name: "origin", type: "Point", kind: "struct_in" },
+        { name: "size",   type: "Size",  kind: "struct_in" }
+      ]) },
+      "Point" => { name: "Point", fields_json: JSON.dump([
+        { name: "x", type: "Int32", kind: "int" },
+        { name: "y", type: "Int32", kind: "int" }
+      ]) },
+      "Size" => { name: "Size", fields_json: JSON.dump([
+        { name: "w", type: "Int32", kind: "int" },
+        { name: "h", type: "Int32", kind: "int" }
+      ]) }
+    })
+    sym = {
+      kind: "function", abi: "c", name: "DrawRect", signature: "void DrawRect(Rect *)",
+      parameters_json: '[{"name":"r","type":"Rect * _Nonnull","kind":"struct_in","is_out_param":false,"nullability":"nonnull"}]'
+    }
+    swift = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc).generate(
+      framework: "Acme", symbol: sym, glue_id: "ab12"
+    )
+    refute_nil swift
+    assert_match(/r_struct\.origin\.x =/, swift)
+    assert_match(/r_struct\.size\.h =/, swift)
+  end
+
+  def test_struct_in_cycle_detection_returns_nil
+    kc = FakeKC.new({
+      "Node" => { name: "Node", fields_json: JSON.dump([
+        { name: "value", type: "Int32", kind: "int" },
+        { name: "next",  type: "Node",  kind: "struct_in" }
+      ]) }
+    })
+    sym = {
+      kind: "function", abi: "c", name: "Visit", signature: "void Visit(Node *)",
+      parameters_json: '[{"name":"n","type":"Node * _Nonnull","kind":"struct_in","is_out_param":false,"nullability":"nonnull"}]'
+    }
+    swift = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc).generate(
+      framework: "Acme", symbol: sym, glue_id: "ab12"
+    )
+    assert_nil swift, "self-referential struct should escape to LLM"
+  end
+
   # Task 12: void_ptr_nilable Marshaller emits UnsafeMutableRawPointer? bitPattern.
   def test_void_ptr_nilable_emits_bitpattern
     sym = {
