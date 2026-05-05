@@ -38,6 +38,29 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_nil swift
   end
 
+  # Task 14: struct_out Marshaller emits rb_hash_new + per-field rb_hash_aset.
+  def test_struct_out_emits_hash_new_aset_per_field
+    kc = FakeKC.new({
+      "Status" => { name: "Status", fields_json: JSON.dump([
+        { name: "ok",   type: "Bool",  kind: "bool" },
+        { name: "code", type: "Int32", kind: "int" }
+      ]) }
+    })
+    sym = {
+      kind: "function", abi: "c", name: "GetStatus", signature: "OSStatus GetStatus(Status *)",
+      parameters_json: '[{"name":"out","type":"Status * _Nonnull","kind":"struct_out","is_out_param":true,"nullability":"nonnull"}]'
+    }
+    swift = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc).generate(
+      framework: "Acme", symbol: sym, glue_id: "ab12"
+    )
+    refute_nil swift
+    assert_match(/var out_struct = Status\(\)/, swift)
+    assert_match(/let status = GetStatus\(&out_struct\)/, swift)
+    assert_match(/rb_hash_aset.*"ok"/, swift)
+    assert_match(/rb_hash_aset.*"code"/, swift)
+    assert_match(/return out_h/, swift)
+  end
+
   # Task 13: struct_in Marshaller — flat, nested depth-1, cycle detection.
   class FakeKC
     def initialize(map); @map = map; end
