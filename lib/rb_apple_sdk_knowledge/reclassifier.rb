@@ -9,7 +9,12 @@ module AppleSDKKnowledge
   class Reclassifier
     K = AppleSDKKnowledge::Importer::Kind
 
-    KIND_VOCABULARY = %w[string int bool float opaque_ref unsupported].freeze
+    KIND_VOCABULARY = %w[
+      string int bool float opaque_ref
+      callback_nilable callback_non_nil void_ptr_nilable
+      struct_in struct_out variadic_args
+      unsupported
+    ].freeze
 
     def self.recompute_parameters(json)
       return nil if json.nil? || json.empty?
@@ -20,10 +25,24 @@ module AppleSDKKnowledge
       params.each_with_index.map do |p, i|
         qual_type = p[:type] || ""
         name = p[:name] || "_arg#{i}"
+        # Preserve existing nullability if the parameters_json was written by
+        # the importer pipeline (which has access to clang's annotated qual_type
+        # and forwards nullability). Otherwise derive from qual_type.
+        nullability = p[:nullability] || K.nullability_of(qual_type)
+        # Run classifier with current information. If it returns "unsupported"
+        # but a specific kind was already set, preserve it — this happens for
+        # function-pointer typedefs whose name alone (without desugared) is
+        # opaque to the classifier.
+        recomputed_kind = K.classify_kind(qual_type, qual_type, nullability)
+        kind = if recomputed_kind == "unsupported" && p[:kind] && p[:kind] != "unsupported"
+                 p[:kind]
+               else
+                 recomputed_kind
+               end
         p.merge(
-          kind: K.classify_kind(qual_type),
+          kind: kind,
           is_out_param: K.out_param?(qual_type, name, p.equal?(last_pointer)),
-          nullability: K.nullability_of(qual_type)
+          nullability: nullability
         )
       end.then { |xs| JSON.generate(xs) }
     end
