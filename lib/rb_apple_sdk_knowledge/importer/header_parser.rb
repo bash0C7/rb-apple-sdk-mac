@@ -127,25 +127,32 @@ module AppleSDKKnowledge
 
         params.each_with_index.map do |p, i|
           qual_type = p.dig("type", "qualType") || ""
+          desugared = p.dig("type", "desugaredQualType") || qual_type
           name = p["name"] || "_arg#{i}"
           {
             name: name,
             type: qual_type,
-            kind: classify_kind(qual_type),
+            kind: classify_kind(qual_type, desugared),
             is_out_param: out_param?(qual_type, name, p == last_pointer),
             nullability: nullability_of(qual_type)
           }
         end
       end
 
-      def classify_kind(qual_type)
+      def classify_kind(qual_type, desugared = qual_type)
+        # Function-pointer typedefs surface as `void (*)(...)` etc. in desugaredQualType
+        return "unsupported" if desugared.include?("(") && desugared.include?(")")
         return "string" if qual_type =~ /\b(CFStringRef|NSString\s*\*|char\s*\*|const\s+char\s*\*)/
-        return "bool"   if qual_type =~ /\b(_Bool|Bool|BOOL)\b/
+        return "bool"   if qual_type =~ /\b(_Bool|Bool|BOOL|bool)\b/
         return "float"  if qual_type =~ /\b(double|float|CGFloat)\b/
         if qual_type =~ /\b(?:U?Int(?:8|16|32|64)?|SInt(?:8|16|32|64)?|long|short|unsigned|signed|uint(?:8|16|32|64)_t|int(?:8|16|32|64)_t|OSStatus|kern_return_t)\b/
           return "opaque_ref" if qual_type =~ /\b\w+Ref\b/
           return "int"
         end
+        # Struct pointer typedefs ending in Ref (e.g. MiniClientRef, CGContextRef) —
+        # treated as opaque handles regardless of underlying integer-vs-pointer shape.
+        return "opaque_ref" if qual_type =~ /\b\w+Ref\b/
+        return "unsupported" if qual_type =~ /\bvoid\s*\*/
         "unsupported"
       end
 
