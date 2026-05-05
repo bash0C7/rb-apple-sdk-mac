@@ -123,10 +123,46 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["opaque_ref"] = OpaqueRefMarshaller
 
+    # Callback type → CallbackPillar route. MVP catalog: MIDINotifyProc only.
+    # Additional signatures are added by listing them in
+    # ext/apple_sdk_mac_runtime/callback_signatures.yml + extending this map.
+    CALLBACK_PILLAR_ROUTES = {
+      "MIDINotifyProc" => :midi_notify
+    }.freeze
+
     class CallbackNilableMarshaller < Marshaller
       def in_load
         type = @param[:type].sub(/\s*_(?:Nullable|Nonnull)\b/, "").strip
         name = @param[:name]; i = @index
+        if (route = CALLBACK_PILLAR_ROUTES[type])
+          register_branch(name, type, i, route)
+        else
+          legacy_branch(name, type, i)
+        end
+      end
+
+      private
+
+      def register_branch(name, type, i, route)
+        fn_register = "runtime_callback_pillar_register_#{route}"
+        fn_get_fnptr = "runtime_callback_pillar_get_#{route}_fnptr"
+        <<~SWIFT.chomp
+          let #{name}: #{type}?
+              if argv[#{i}] == Qnil {
+                  #{name} = nil
+              } else {
+                  let #{name}_pid_v = rb_obj_id(argv[#{i}])
+                  rb_hash_aset_proc_registry(#{name}_pid_v, argv[#{i}])
+                  let #{name}_pid_u = rb_num2ull(#{name}_pid_v)
+                  let #{name}_slot = #{fn_register}(#{name}_pid_u)
+                  if #{name}_slot < 0 { rb_raise(rb_eRuntimeError, "callback slot pool exhausted") }
+                  let #{name}_raw = #{fn_get_fnptr}(#{name}_slot)
+                  #{name} = unsafeBitCast(UnsafeRawPointer(bitPattern: UInt(#{name}_raw))!, to: #{type}.self)
+              }
+        SWIFT
+      end
+
+      def legacy_branch(name, type, i)
         <<~SWIFT.chomp
           let #{name}: #{type}?
               if argv[#{i}] == Qnil {
@@ -142,7 +178,32 @@ module AppleSDKMac
     class CallbackNonNilMarshaller < Marshaller
       def in_load
         type = @param[:type].sub(/\s*_(?:Nullable|Nonnull)\b/, "").strip
-        name = @param[:name]
+        name = @param[:name]; i = @index
+        if (route = CALLBACK_PILLAR_ROUTES[type])
+          register_branch(name, type, i, route)
+        else
+          legacy_branch(name, type)
+        end
+      end
+
+      private
+
+      def register_branch(name, type, i, route)
+        fn_register = "runtime_callback_pillar_register_#{route}"
+        fn_get_fnptr = "runtime_callback_pillar_get_#{route}_fnptr"
+        <<~SWIFT.chomp
+          let #{name}: #{type}?
+              let #{name}_pid_v = rb_obj_id(argv[#{i}])
+              rb_hash_aset_proc_registry(#{name}_pid_v, argv[#{i}])
+              let #{name}_pid_u = rb_num2ull(#{name}_pid_v)
+              let #{name}_slot = #{fn_register}(#{name}_pid_u)
+              if #{name}_slot < 0 { rb_raise(rb_eRuntimeError, "callback slot pool exhausted") }
+              let #{name}_raw = #{fn_get_fnptr}(#{name}_slot)
+              #{name} = unsafeBitCast(UnsafeRawPointer(bitPattern: UInt(#{name}_raw))!, to: #{type}.self)
+        SWIFT
+      end
+
+      def legacy_branch(name, type)
         # rb_raise is `-> Never`, so Swift accepts the let-binding as
         # definitely-assigned in the only non-terminating branch.
         <<~SWIFT.chomp
