@@ -38,6 +38,23 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_nil swift
   end
 
+  # Task 16: variadic_args Marshaller emits withVaList wrapper.
+  def test_variadic_args_emits_with_va_list
+    sym = {
+      kind: "function", abi: "c", name: "MyLog", signature: "void MyLog(const char *, ...)",
+      parameters_json: '[
+        {"name":"fmt","type":"const char *","kind":"string","is_out_param":false,"nullability":"unspecified"},
+        {"name":"vargs","type":"...","kind":"variadic_args","is_out_param":false,"nullability":"unspecified"}
+      ]'
+    }
+    swift = AppleSDKMac::GlueCompiler::TemplateGenerator.new.generate(
+      framework: "Acme", symbol: sym, glue_id: "ab12"
+    )
+    refute_nil swift
+    assert_match(/withVaList\(/, swift)
+    assert_match(/rubyValueToCVarArg/, swift)
+  end
+
   # Task 15: multi-out-param returns Ruby Hash with named keys.
   def test_multi_out_param_returns_hash_with_named_keys
     sym = {
