@@ -149,5 +149,20 @@ module AppleSDKMac
       end
     end
     Marshaller::REGISTRY["callback_non_nil"] = CallbackNonNilMarshaller
+
+    class VoidPtrNilableMarshaller < Marshaller
+      def in_load
+        name = @param[:name]; i = @index
+        <<~SWIFT.chomp
+          let #{name}: UnsafeMutableRawPointer?
+              if argv[#{i}] == Qnil {
+                  #{name} = nil
+              } else {
+                  #{name} = UnsafeMutableRawPointer(bitPattern: Int(rb_num2ll(argv[#{i}])))
+              }
+        SWIFT
+      end
+    end
+    Marshaller::REGISTRY["void_ptr_nilable"] = VoidPtrNilableMarshaller
   end
 end
