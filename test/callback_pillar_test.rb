@@ -26,4 +26,17 @@ class TestCallbackPillar < Test::Unit::TestCase
     slot_reused, _ = AppleSDKMacRuntime::CallbackPillar.register_midi_notify(->(x) {})
     assert_equal slot, slot_reused
   end
+
+  # End-to-end dispatch path that the MIDINotifyProc trampoline takes:
+  # register a Ruby Proc → invoke via callback_invoke (which is what
+  # the trampoline body's ThreadingBridge.enqueue ultimately drives) →
+  # observe the Proc was called.
+  def test_register_and_dispatch_round_trip
+    received = []
+    proc = ->(x) { received << x }
+    slot, _ = AppleSDKMacRuntime::CallbackPillar.register_midi_notify(proc)
+    refute_nil slot
+    AppleSDKMacRuntime::Test.callback_invoke(proc.object_id, 42)
+    assert_equal [42], received
+  end
 end

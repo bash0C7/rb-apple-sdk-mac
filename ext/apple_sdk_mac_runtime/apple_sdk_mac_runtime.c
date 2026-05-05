@@ -159,9 +159,10 @@ static VALUE rb_callback_pillar_unregister_midi_notify(VALUE self, VALUE slot) {
 
 // Exposed to glue Swift via @_silgen_name so CallbackNilableMarshaller can
 // pin the Ruby Block in the global proc_registry without reaching into the
-// C-static directly.
-void rb_hash_aset_proc_registry(uint64_t pid_u, uint64_t proc_v) {
-    rb_hash_aset(proc_registry, ULL2NUM(pid_u), (VALUE)proc_v);
+// C-static directly. Both args are raw VALUE (Ruby Fixnum VALUE / Ruby Proc
+// VALUE) — already encoded; do NOT re-encode via ULL2NUM.
+void rb_hash_aset_proc_registry(uint64_t pid_v, uint64_t proc_v) {
+    rb_hash_aset(proc_registry, (VALUE)pid_v, (VALUE)proc_v);
 }
 
 void Init_apple_sdk_mac_runtime(void) {
