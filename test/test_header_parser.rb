@@ -102,16 +102,17 @@ class TestHeaderParser < Test::Unit::TestCase
     assert_equal "opaque_ref", client[:kind]
   end
 
-  def test_classifies_void_pointer_as_unsupported
+  def test_classifies_void_pointer_unspecified_as_void_ptr_nilable
+    # Policy: unspecified nullability is treated as nilable (safe default).
     fn = @symbols.find { |s| s[:name] == "MiniWithCallback" && s[:kind] == "function" }
     user_data = fn[:parameters].find { |p| p[:name] == "userData" }
-    assert_equal "unsupported", user_data[:kind]
+    assert_equal "void_ptr_nilable", user_data[:kind]
   end
 
-  def test_classifies_callback_typedef_as_unsupported
+  def test_classifies_callback_typedef_unspecified_as_callback_nilable
     fn = @symbols.find { |s| s[:name] == "MiniWithCallback" && s[:kind] == "function" }
     cb = fn[:parameters].find { |p| p[:name] == "cb" }
-    assert_equal "unsupported", cb[:kind]
+    assert_equal "callback_nilable", cb[:kind]
   end
 
   def test_detects_out_param_via_last_pointer
@@ -128,5 +129,43 @@ class TestHeaderParser < Test::Unit::TestCase
     client = fn[:parameters].find { |p| p[:name] == "client" }
     assert_equal true,  out[:is_out_param]
     assert_equal false, client[:is_out_param]
+  end
+
+  # Task 4: RecordDecl walks FieldDecl inner; emits :fields with name/type/kind.
+  def test_recorddecl_emits_fields_with_kinds
+    require "tempfile"
+    Tempfile.create(["mini_struct", ".h"]) do |f|
+      f.write(<<~C)
+        struct Pt {
+          int x;
+          int y;
+        };
+      C
+      f.flush
+      syms = AppleSDKKnowledge::Importer::HeaderParser.new.parse_file(f.path)
+      pt = syms.find { |s| s[:name] == "Pt" && s[:kind] == "struct" }
+      assert_not_nil pt
+      assert_not_nil pt[:fields], "RecordDecl should expose :fields array"
+      assert_equal 2, pt[:fields].length
+      assert_equal "x", pt[:fields][0][:name]
+      assert_equal "int", pt[:fields][0][:kind]
+      assert_equal "y", pt[:fields][1][:name]
+    end
+  end
+
+  # Task 4: function_parameters forwards nullability annotation to classify_kind.
+  def test_nonnull_callback_annotation_yields_callback_non_nil
+    require "tempfile"
+    Tempfile.create(["mini_nonnull", ".h"]) do |f|
+      f.write(<<~C)
+        typedef void (*MyCb)(int);
+        void Foo(MyCb _Nonnull cb);
+      C
+      f.flush
+      syms = AppleSDKKnowledge::Importer::HeaderParser.new.parse_file(f.path)
+      foo = syms.find { |s| s[:name] == "Foo" && s[:kind] == "function" }
+      cb_param = foo[:parameters].find { |p| p[:name] == "cb" }
+      assert_equal "callback_non_nil", cb_param[:kind]
+    end
   end
 end
