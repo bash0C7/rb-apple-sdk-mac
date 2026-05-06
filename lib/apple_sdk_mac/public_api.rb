@@ -146,12 +146,17 @@ module AppleSDKMac
           return_kind: opts[:return_kind]
         )
       when opts.key?(:swift_func)
+        # T47 — swift_func は klass: で `Klass.func` static method 化、または
+        # async: true で `try await ... + DispatchSemaphore` skeleton 化。
+        canonical_name = opts[:klass] ? "#{opts[:klass]}.#{opts[:swift_func]}" : opts[:swift_func].to_s
         rec = base.merge(
-          name: opts[:swift_func].to_s, kind: "swift_func",
+          name: canonical_name, kind: "swift_func",
           swift_func: opts[:swift_func].to_s,
           params: opts[:params], return_kind: opts[:return_kind]
         )
+        rec[:swift_class] = opts[:klass].to_s if opts[:klass]
         rec[:type_args] = opts[:type_args] if opts.key?(:type_args)
+        rec[:async] = opts[:async] if opts.key?(:async)
         rec
       else
         raise AppleSDKMac::DiscoveryError,

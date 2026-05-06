@@ -81,6 +81,8 @@ module AppleSDKMac
           return emit_swift_init(framework: framework, symbol: symbol, glue_id: glue_id)
         when "swift_property"
           return emit_swift_property(framework: framework, symbol: symbol, glue_id: glue_id)
+        when "swift_func"
+          return emit_swift_func(framework: framework, symbol: symbol, glue_id: glue_id)
         end
         return nil unless symbol[:kind] == "function" && symbol[:abi] == "c"
         params = parse_params(symbol[:parameters_json])
@@ -301,6 +303,86 @@ module AppleSDKMac
               #{body.join("\n    ")}
           }
         SWIFT
+      end
+
+      # T47 — Swift function emit (spec §3.4.5)。同期 / async 両対応。
+      # symbol[:async] = true の場合は spec §3.6 の DispatchSemaphore + Task
+      # skeleton (E1 worked example) を emit。ValidationGates.async_shape を
+      # 通過する。symbol[:swift_class] があれば static method form
+      # (`Klass.func(args)`)、なければ top-level (`func(args)`)。
+      def emit_swift_func(framework:, symbol:, glue_id:)
+        klass = symbol[:swift_class].to_s
+        func = symbol[:swift_func].to_s
+        params = symbol[:params] || []
+        return_kind = (symbol[:return_kind] || :void).to_sym
+        type_args = symbol[:type_args]
+        is_async = symbol[:async] == true
+        swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
+        exported = "glue_#{glue_id}_#{swift_id}"
+
+        in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i) }
+        args_str = params.each_index.map { |i| "arg#{i}" }.join(", ")
+        type_args_str = type_args ? "<#{Array(type_args).join(', ')}>" : ""
+        callee = klass.empty? ? "#{func}#{type_args_str}" : "#{klass}.#{func}#{type_args_str}"
+        plain_call = "#{callee}(#{args_str})"
+
+        body =
+          if is_async
+            swift_t = swift_type_for_return(return_kind)
+            [
+              *in_loads,
+              "let sema = DispatchSemaphore(value: 0)",
+              "var result: #{swift_t}?",
+              "var captured: Error?",
+              "Task {",
+              "    do { result = try await #{plain_call} }",
+              "    catch { captured = error }",
+              "    sema.signal()",
+              "}",
+              "sema.wait()",
+              %(if let e = captured { rb_raise(rb_eRuntimeError, "\\(e)") }),
+              *swift_async_return_lines(return_kind, "result!")
+            ]
+          else
+            in_loads + ["let raw = #{plain_call}"] + swift_init_return_lines(return_kind, "raw")
+          end
+
+        <<~SWIFT
+          import #{framework}
+          import Foundation
+
+          #{HEADER}
+          @c
+          public func #{exported}(
+              _ argv: UnsafePointer<UInt>, _ argc: Int32
+          ) -> UInt {
+              #{body.join("\n    ")}
+          }
+        SWIFT
+      end
+
+      # async result の Swift 型 (var result: T? の T)。
+      def swift_type_for_return(return_kind)
+        case return_kind.to_sym
+        when :int   then "Int64"
+        when :bool  then "Bool"
+        when :float then "Double"
+        when :opaque_ref, :cftype_ref then "AnyObject"
+        when :void  then "Void"
+        else "AnyObject"
+        end
+      end
+
+      # async path 後の Ruby 値返し (result! はすでに非 nil 保証されている前提
+      # — captured nil + result nil は async が成功扱いで result 未設定なので
+      # rb_raise 後に届く Qnil ではなく ぐる Type panic として nil 化する)。
+      def swift_async_return_lines(return_kind, var)
+        case return_kind.to_sym
+        when :void
+          ["return Qnil"]
+        else
+          swift_init_return_lines(return_kind, var)
+        end
       end
 
       # T46 — Swift property emit (spec §3.4.4 base shape)。
