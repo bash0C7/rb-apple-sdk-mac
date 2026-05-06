@@ -79,6 +79,8 @@ module AppleSDKMac
           return emit_objc_instance_method(framework: framework, symbol: symbol, glue_id: glue_id)
         when "swift_init"
           return emit_swift_init(framework: framework, symbol: symbol, glue_id: glue_id)
+        when "swift_property"
+          return emit_swift_property(framework: framework, symbol: symbol, glue_id: glue_id)
         end
         return nil unless symbol[:kind] == "function" && symbol[:abi] == "c"
         params = parse_params(symbol[:parameters_json])
@@ -286,6 +288,33 @@ module AppleSDKMac
           "guard let v = #{call_expr} else { return Qnil }",
           *swift_init_return_lines(return_kind, "v")
         ]
+
+        <<~SWIFT
+          import #{framework}
+          import Foundation
+
+          #{HEADER}
+          @c
+          public func #{exported}(
+              _ argv: UnsafePointer<UInt>, _ argc: Int32
+          ) -> UInt {
+              #{body.join("\n    ")}
+          }
+        SWIFT
+      end
+
+      # T46 — Swift property emit (spec §3.4.4 base shape)。
+      # static / class-level property access (`Klass.property`)。NSURLSession.shared,
+      # ProcessInfo.processInfo etc. instance property は将来対応 (receiver-form)。
+      # 戻り値は return_kind に従って marshal。
+      def emit_swift_property(framework:, symbol:, glue_id:)
+        klass = symbol[:swift_class].to_s
+        prop = symbol[:swift_property].to_s
+        return_kind = (symbol[:return_kind] || :opaque_ref).to_sym
+        swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
+        exported = "glue_#{glue_id}_#{swift_id}"
+
+        body = ["let raw = #{klass}.#{prop}"] + swift_init_return_lines(return_kind, "raw")
 
         <<~SWIFT
           import #{framework}
