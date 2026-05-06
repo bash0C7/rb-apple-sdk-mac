@@ -115,4 +115,59 @@ class TestKind < Test::Unit::TestCase
   def test_nullability_unspecified
     assert_equal "unspecified", K.nullability_of("CFStringRef")
   end
+
+  # CF/CG/CV/CT/CM/CL pointer-typed Refs (CFArrayRef, CGContextRef, CVPixelBufferRef
+  # etc.) are NOT integer handles — they're pointer typedefs. The Marshaller
+  # must cast via OpaquePointer(bitPattern:) rather than `T(rb_num2ull(...))`.
+  # Distinguish them from MIDIClientRef-class integer Refs at classify time.
+  def test_classifies_cftype_ref_for_cf_array_ref
+    assert_equal "cftype_ref", K.classify_kind("CFArrayRef")
+  end
+
+  def test_classifies_cftype_ref_for_cf_dictionary_ref
+    assert_equal "cftype_ref", K.classify_kind("CFDictionaryRef")
+  end
+
+  def test_classifies_cftype_ref_for_generic_cftype_ref
+    assert_equal "cftype_ref", K.classify_kind("CFTypeRef")
+  end
+
+  def test_classifies_cftype_ref_for_cg_context_ref
+    assert_equal "cftype_ref", K.classify_kind("CGContextRef")
+  end
+
+  def test_classifies_cftype_ref_for_cv_pixel_buffer_ref
+    assert_equal "cftype_ref", K.classify_kind("CVPixelBufferRef")
+  end
+
+  def test_classifies_cftype_ref_with_nullability
+    assert_equal "cftype_ref",
+      K.classify_kind("CFArrayRef _Nullable", "CFArrayRef _Nullable", "nullable")
+  end
+
+  # Regression: CFStringRef is special-cased as "string" (toll-free ↔ Ruby String).
+  # Must continue to classify as "string", not "cftype_ref".
+  def test_cfstring_ref_still_classifies_as_string
+    assert_equal "string", K.classify_kind("CFStringRef")
+  end
+
+  # Regression: integer-typed Refs (MIDIClientRef = UInt32, AudioComponentInstance
+  # etc.) keep "opaque_ref". The cftype_ref check must not steal them.
+  def test_midi_client_ref_still_classifies_as_opaque_ref
+    assert_equal "opaque_ref", K.classify_kind("MIDIClientRef")
+  end
+
+  # Float typedef expansion (Phase 7 blocker 2): CFAbsoluteTime / CFTimeInterval
+  # / NSTimeInterval are all `double` underneath. Must classify as "float", not "int".
+  def test_classifies_float_for_cf_absolute_time
+    assert_equal "float", K.classify_kind("CFAbsoluteTime")
+  end
+
+  def test_classifies_float_for_cf_time_interval
+    assert_equal "float", K.classify_kind("CFTimeInterval")
+  end
+
+  def test_classifies_float_for_ns_time_interval
+    assert_equal "float", K.classify_kind("NSTimeInterval")
+  end
 end
