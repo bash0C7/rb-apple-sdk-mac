@@ -281,6 +281,10 @@ module AppleSDKMac
       # の Swift glue に。failable init の nil branch を Qnil で握りつぶす。
       def emit_swift_init(framework:, symbol:, glue_id:)
         klass = symbol[:swift_class].to_s
+        # T52c — Swift 6 で Foundation ObjC class の NS-prefix が落ちる
+        # (NSOperationQueue → OperationQueue, NSBlockOperation → BlockOperation
+        # 等)。emit 側で strip して bridged Swift class name を使う。
+        swift_klass = swift_bridged_class_name(klass)
         initializer = symbol[:swift_initializer].to_s
         params = symbol[:params] || []
         return_kind = (symbol[:return_kind] || :opaque_ref).to_sym
@@ -291,16 +295,22 @@ module AppleSDKMac
         in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i) }
         call_expr =
           if labels.empty?
-            "#{klass}()"
+            "#{swift_klass}()"
           else
             args = params.each_index.map { |i| "arg#{i}" }
-            "#{klass}(" + labels.zip(args).map { |l, a| "#{l}: #{a}" }.join(", ") + ")"
+            "#{swift_klass}(" + labels.zip(args).map { |l, a| "#{l}: #{a}" }.join(", ") + ")"
           end
 
-        body = in_loads + [
-          "guard let v = #{call_expr} else { return Qnil }",
-          *swift_init_return_lines(return_kind, "v")
-        ]
+        # T52c — no-arg init は Apple SDK convention で non-failable と仮定し
+        # `let v = ...` を emit。引数つき init は failable のままで `guard let`
+        # → Qnil branch を維持 (NSURL.URLWithString: などの failable bridge 用)。
+        init_binding =
+          if labels.empty?
+            "let v = #{call_expr}"
+          else
+            "guard let v = #{call_expr} else { return Qnil }"
+          end
+        body = in_loads + [init_binding, *swift_init_return_lines(return_kind, "v")]
 
         <<~SWIFT
           import #{framework}
@@ -429,6 +439,16 @@ module AppleSDKMac
         m = initializer.match(/\Ainit\((.*)\)\z/)
         return [] unless m
         m[1].split(":", -1).reject(&:empty?)
+      end
+
+      # T52c — Swift 6 ObjC class bridge: NS-prefix 落とし。
+      # NSOperationQueue → OperationQueue / NSBlockOperation → BlockOperation /
+      # NSURL → URL 等。Apple Foundation の標準 bridge rule。
+      # 例外 (NSError, NSObject 等) は v1.0 範囲外、必要時に skip リストを
+      # 追加する。`NS<lowercase>` (NSObject ではなく ns_object_t 系) は
+      # 大文字で始まる NS<UpperCase> パターンのみ strip。
+      def swift_bridged_class_name(klass)
+        klass.to_s.sub(/\ANS([A-Z])/, '\1')
       end
 
       # swift_init の return marshaling。opaque_ref を passRetained して
