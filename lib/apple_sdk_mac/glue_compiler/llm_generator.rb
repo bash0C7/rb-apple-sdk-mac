@@ -435,21 +435,86 @@ module AppleSDKMac
         # The model: parameter is preserved on this constructor for forward
         # compatibility but is currently ignored at the underlying session.
         _ = model
-        @session = session || AppleFoundationModel::Session.new(instructions: INSTRUCTIONS)
+        # Phase 7 — kind-family-scoped sessions. The Foundation Models LM
+        # has a 4096-token context window; the full INSTRUCTIONS bundle
+        # (all 11 worked examples + prose) hits ~6.3k tokens and trips
+        # exceededContextWindowSize at the very first respond(). We
+        # build a smaller per-family instructions string at first call
+        # and cache the session by family. Tests that read the
+        # INSTRUCTIONS constant continue to see the canonical bundle.
+        @explicit_session = session
+        @session_cache = {}
       end
 
       def generate(framework:, symbol:, glue_id:)
+        sess = session_for(symbol[:kind])
         prompt = build_prompt(framework, symbol, glue_id)
-        response = @session.respond(to: prompt)
+        response = sess.respond(to: prompt)
         return nil if response.nil? || response.strip.empty?
         response.gsub(/\A```swift\n/, "").gsub(/\n```\z/, "").strip
       end
 
       def close
-        @session.close
+        @explicit_session&.close
+        @session_cache.each_value(&:close)
+        @session_cache.clear
       end
 
       private
+
+      def session_for(kind)
+        return @explicit_session if @explicit_session
+        family = kind_family(kind)
+        @session_cache[family] ||= AppleFoundationModel::Session.new(
+          instructions: instructions_for(family)
+        )
+      end
+
+      def kind_family(kind)
+        case kind.to_s
+        when "objc_method_class", "objc_method_instance" then :objc
+        when "swift_func", "swift_init", "swift_property" then :swift
+        else :c
+        end
+      end
+
+      # Build a kind-family-scoped instructions string by stripping the
+      # full INSTRUCTIONS bundle of unrelated worked examples. The hard
+      # requirements / prose stay verbatim; only the appended example
+      # bodies are filtered. Order matters because some tests assert
+      # specific snippets exist in INSTRUCTIONS — those tests read the
+      # constant directly, not the per-family render.
+      # Foundation Models LM has a 4096-token context window. Even one
+      # worked example per family + the hard-requirements prose runs ~3.5k
+      # tokens, so each family gets the SINGLE most-representative example
+      # rather than every variation. The unused examples are pruned out
+      # of INSTRUCTIONS for that family's session.
+      #   :c     — STRING_IN_STATUS_OUT carries the bound `var v0 = argv[0]`
+      #            string-input idiom + status-OSStatus return pattern.
+      #   :swift — ASYNC_E1 anchors the DispatchSemaphore + Task skeleton;
+      #            E2-E4 are variations on the same shape.
+      #   :objc  — OBJC_F2 (pure class method) covers the Swift-bridged
+      #            class-name + Unmanaged.passRetained pattern. F1 (alloc/
+      #            init) and G (completion block) are deferred to per-call
+      #            instruction injection if their shapes ever surface.
+      FAMILY_KEEP = {
+        c:     [WORKED_EXAMPLE_STRING_IN_STATUS_OUT],
+        swift: [WORKED_EXAMPLE_ASYNC_E1],
+        objc:  [WORKED_EXAMPLE_OBJC_F2]
+      }.freeze
+      ALL_KNOWN_EXAMPLES = [
+        WORKED_EXAMPLE_INT_IN_STRING_OUT, WORKED_EXAMPLE_STRING_IN_STATUS_OUT,
+        WORKED_EXAMPLE_STRUCT_IN, WORKED_EXAMPLE_MULTI_OUT_HASH,
+        WORKED_EXAMPLE_ASYNC_E1, WORKED_EXAMPLE_ASYNC_E2,
+        WORKED_EXAMPLE_ASYNC_E3, WORKED_EXAMPLE_ASYNC_E4,
+        WORKED_EXAMPLE_OBJC_F1, WORKED_EXAMPLE_OBJC_F2, WORKED_EXAMPLE_OBJC_G
+      ].freeze
+      def instructions_for(family)
+        keep = FAMILY_KEEP.fetch(family) { FAMILY_KEEP[:c] }
+        text = INSTRUCTIONS.dup
+        (ALL_KNOWN_EXAMPLES - keep).each { |ex| text = text.sub(ex, "") }
+        text.gsub(/\n{3,}/, "\n\n")
+      end
 
       def build_prompt(framework, sym, glue_id)
         <<~PROMPT
