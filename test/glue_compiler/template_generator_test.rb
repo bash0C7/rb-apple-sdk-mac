@@ -126,4 +126,22 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_not_match(/Marshal\.toRuby/, out)
     assert_not_match(/ErrorBridge\.rb_raise_via_runtime/, out)
   end
+
+  # T54a — Ruby Array → Swift [<OpaqueType>] marshaller. T52 (NSOperationQueue
+  # addOperations:waitUntilFinished:) と T54 (VNImageRequestHandler
+  # performRequests:error:) の共通依存。Apple framework instance method の
+  # NSArray-of-opaque-ref パラメータを事前宣言なしで通す。
+  def test_emits_array_of_opaque_ref_kind_uses_nsmutablearray_loop
+    s = sym(name: "F",
+            signature: "void F(NSArray<VNRequest *> *_Nonnull requests)",
+            parameters: [{ name: "requests", type: "VNRequest",
+                           kind: "array_of_opaque_ref", is_out_param: false }])
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54a: array_of_opaque_ref kind must be supported"
+    assert_match(/NSMutableArray/, out, "T54a: must build NSMutableArray")
+    assert_match(/RARRAY_LEN|rb_ary_entry/, out,
+                 "T54a: must iterate Ruby Array via RARRAY_LEN/rb_ary_entry")
+    assert_match(/as!\s*\[VNRequest\]|as\s+\[VNRequest\]/, out,
+                 "T54a: must cast NSMutableArray to Swift [VNRequest]")
+  end
 end
