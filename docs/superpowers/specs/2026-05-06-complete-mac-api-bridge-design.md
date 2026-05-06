@@ -545,3 +545,12 @@ back to spec review:
 
 End of spec. Implementation begins at T0; T0 commit is already
 in-flight in the working tree.
+
+---
+
+## Supersede notice (2026-05-06)
+
+§ 3.2 "polymorphic single entry" 章は、後続 spec
+[`2026-05-06-polymorphic-discover-end-to-end.md`](2026-05-06-polymorphic-discover-end-to-end.md)
+に supersede された。本 spec の他章（§1, §2, §4, §5, §6, §9）は引き
+続き有効。実装は後続 spec の § 5 TDD 順序 (T40-T58) に従う。
