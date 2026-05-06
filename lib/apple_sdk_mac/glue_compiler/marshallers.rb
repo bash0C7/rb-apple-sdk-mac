@@ -246,7 +246,7 @@ module AppleSDKMac
         fn_get_fnptr = "runtime_callback_pillar_get_#{@route}_fnptr"
         <<~SWIFT.chomp
           let #{name}_pid_v = rb_obj_id(argv[#{i}])
-              let #{name}_reg = rb_gv_get("$__apple_sdk_mac_proc_registry")
+              let #{name}_reg = runtime_proc_registry_get()
               rb_hash_aset(#{name}_reg, #{name}_pid_v, argv[#{i}])
               let #{name}_pid_u = rb_num2ull(#{name}_pid_v)
               let #{name}_slot = #{fn_register}(#{name}_pid_u)
@@ -257,6 +257,109 @@ module AppleSDKMac
       end
     end
     Marshaller::REGISTRY["callback_non_nil"] = CallbackNonNilMarshaller
+
+    # Phase 7 T2a: noescape completion block. `void (^)(NSError *)`-style.
+    # @convention(block) literal lives on the Swift stack for the duration of
+    # the call; the Ruby Proc is pinned in runtime_proc_registry by object_id
+    # so a Ruby GC during the Apple-side execution can't reclaim it. Fired via
+    # ThreadingBridge.enqueueFromAppleThread (single Int64 arg dispatch — for
+    # NSError? completions, nil → 0, non-nil → -1; richer dispatch is added
+    # alongside the persistent path in T2b/T9).
+    class BlockNilableMarshaller < Marshaller
+      def in_load
+        name = @param[:name]
+        i = @index
+        args, ret = parse_block_type(@param[:type])
+        arg_decl = args.each_with_index.map { |t, k| "_a#{k}: #{t}" }.join(", ")
+        dispatch_arg = block_dispatch_arg(args)
+        block_param_types = args.join(", ")
+        <<~SWIFT.chomp
+          let #{name}: (@convention(block) (#{block_param_types}) -> #{ret})?
+              if argv[#{i}] == Qnil {
+                  #{name} = nil
+              } else {
+                  let #{name}_pid_v = rb_obj_id(argv[#{i}])
+                  rb_hash_aset(runtime_proc_registry_get(), #{name}_pid_v, argv[#{i}])
+                  let #{name}_pid_u = rb_num2ull(#{name}_pid_v)
+                  #{name} = { (#{arg_decl}) in
+                      ThreadingBridge.enqueueFromAppleThread(procId: #{name}_pid_u, arg: #{dispatch_arg})
+                  }
+              }
+        SWIFT
+      end
+
+      private
+
+      def parse_block_type(type)
+        m = type.match(/\A(?<ret>\w+)\s*\(\s*\^\s*\)\s*\((?<args>[^)]*)\)/) or
+          raise "BlockNilableMarshaller: unparseable block type #{type.inspect}"
+        ret = m[:ret] == "void" ? "Void" : m[:ret]
+        args_str = m[:args].to_s.strip
+        args = if args_str.empty? || args_str == "void"
+                 []
+               else
+                 args_str.split(",").map { |a| objc_arg_to_swift(a.strip) }
+               end
+        [args, ret]
+      end
+
+      def objc_arg_to_swift(t)
+        base = t.gsub(/\s*\*\s*\z/, "").gsub(/\b_(Nonnull|Nullable)\b/, "").strip
+        "#{base}?"
+      end
+
+      def block_dispatch_arg(args)
+        return "0" if args.empty?
+        if args.first.start_with?("NSError")
+          "_a0 == nil ? 0 : -1"
+        else
+          # Multi-arg or non-Error: dispatcher only carries one Int64. Pass 0
+          # as a heartbeat; downstream multi-arg dispatch is layered on top
+          # via the persistent-block path in T2b (BoxedBlockHandle).
+          "0"
+        end
+      end
+    end
+    Marshaller::REGISTRY["block_nilable"] = BlockNilableMarshaller
+
+    # Phase 7 T2b: escaping completion block. Block outlives the call, so the
+    # @convention(block) thunk lives in the persistent slot table (managed by
+    # CallbackPillar's runtime_callback_register_block_persistent). The user
+    # gets back a BoxedBlockHandle whose Ruby Box deinit calls
+    # runtime_callback_release_auto_block — so escape blocks released by Ruby
+    # GC unregister cleanly. Manual lifetime callers can use
+    # Apple.unregister_block(handle) explicitly.
+    class BlockPersistentMarshaller < Marshaller
+      def in_load
+        name = @param[:name]
+        i = @index
+        <<~SWIFT.chomp
+          let #{name}_handle: BoxedBlockHandle?
+              if argv[#{i}] == Qnil {
+                  #{name}_handle = nil
+              } else {
+                  let #{name}_pid_v = rb_obj_id(argv[#{i}])
+                  rb_hash_aset(runtime_proc_registry_get(), #{name}_pid_v, argv[#{i}])
+                  let #{name}_pid_u = rb_num2ull(#{name}_pid_v)
+                  let #{name}_slot_id = runtime_callback_register_block_persistent(#{name}_pid_u)
+                  #{name}_handle = BoxedBlockHandle(slotId: #{name}_slot_id)
+              }
+        SWIFT
+      end
+
+      # The Apple API takes the @convention(block) thunk, not the BoxedBlockHandle.
+      # The thunk is stored in the slot table; the persistent path resolves it
+      # at call site via runtime_callback_get_block_persistent_thunk(slotId).
+      # For T2b we expose the handle in `_handle` and let the call_arg fetch.
+      def call_arg
+        # The Apple-side block parameter receives the persistent thunk pointer
+        # if non-nil, else nil. CallbackPillar exposes thunk-by-slot-id via
+        # runtime_callback_get_block_persistent_thunk; if the param is nil,
+        # pass nil.
+        "#{@param[:name]}_handle.map { runtime_callback_get_block_persistent_thunk($0.slotId) }"
+      end
+    end
+    Marshaller::REGISTRY["block_persistent"] = BlockPersistentMarshaller
 
     class VoidPtrNilableMarshaller < Marshaller
       def in_load

@@ -298,4 +298,57 @@ class TestTemplateGenerator < Test::Unit::TestCase
         "kind=#{fx[:kind]} expected pattern #{fx[:expect]}"
     end
   end
+
+  # Phase 7 T2a: BlockNilableMarshaller — noescape completion blocks.
+  # __attribute__((noescape)) lifetime; the @convention(block) literal lives
+  # on the Swift stack for the duration of the call. The Ruby Proc is pinned
+  # in the runtime proc registry by object_id so it survives the call without
+  # being GC'd, and fired via ThreadingBridge.enqueueFromAppleThread.
+  def test_block_nilable_marshaller_emits_stack_local_convention_block
+    sym = {
+      name: "exampleWithCompletion",
+      kind: "function",
+      abi: "c",
+      signature: "void exampleWithCompletion(void (^completion)(NSError *))",
+      parameters_json: JSON.dump([
+        { "name" => "completion", "type" => "void (^)(NSError *)",
+          "kind" => "block_nilable", "is_out_param" => false,
+          "nullability" => "nullable" }
+      ])
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "blkn")
+    refute_nil swift, "block_nilable should produce template glue"
+    assert_match(/let completion: \(@convention\(block\)/, swift)
+    assert_match(/runtime_proc_registry_get\(\)/, swift)
+    assert_match(/ThreadingBridge\.enqueueFromAppleThread/, swift)
+    refute_match(/runtime_callback_register_block_persistent/, swift,
+      "block_nilable must NOT use the persistent slot table")
+    assert_match(/if argv\[0\] == Qnil/, swift)
+    assert_match(/completion = nil/, swift)
+  end
+
+  # Phase 7 T2b: BlockPersistentMarshaller — escaping completion blocks.
+  # No __attribute__((noescape)); the block must outlive the call. We register
+  # a slot on the persistent slot table via runtime_callback_register_block_persistent
+  # and wrap the slot id in a BoxedBlockHandle. The Box's deinit unregisters
+  # the slot (auto lifetime), so escaping blocks released by Ruby GC don't leak.
+  def test_block_persistent_marshaller_emits_register_call_and_box_handle
+    sym = {
+      name: "downloadWithCompletion",
+      kind: "function",
+      abi: "c",
+      signature: "void downloadWithCompletion(void (^completion)(NSData *, NSURLResponse *, NSError *))",
+      parameters_json: JSON.dump([
+        { "name" => "completion", "type" => "void (^)(NSData *, NSURLResponse *, NSError *)",
+          "kind" => "block_persistent", "is_out_param" => false,
+          "nullability" => "nullable" }
+      ])
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "blkp")
+    refute_nil swift, "block_persistent should produce template glue"
+    assert_match(/runtime_callback_register_block_persistent\(/, swift)
+    assert_match(/BoxedBlockHandle\(slotId:/, swift)
+    assert_match(/runtime_proc_registry_get\(\)/, swift)
+    assert_match(/if argv\[0\] == Qnil/, swift)
+  end
 end
