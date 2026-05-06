@@ -146,13 +146,19 @@ module AppleSDKMac
           end
         end
 
+        # T40 — function name uses sanitized swift_identifier so canonical
+        # names containing `.` / `:` / `(` / `)` (objc/swift kinds) emit valid
+        # Swift. C-symbol names contain only [A-Za-z0-9_] so the gsub is a
+        # no-op for the existing template path; the call here is forward-
+        # compatible with kind-dispatched emitters in T42-T48.
+        swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
         <<~SWIFT
           import #{framework}
           import Foundation
 
           #{HEADER}
           @c
-          public func glue_#{glue_id}_#{symbol[:name]}(
+          public func glue_#{glue_id}_#{swift_id}(
               _ argv: UnsafePointer<UInt>, _ argc: Int32
           ) -> UInt {
               #{body.join("\n    ")}

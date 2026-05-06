@@ -74,33 +74,34 @@ module AppleSDKMac
     # KB-stored record when available so the README canonical snippet's
     # behavior is unchanged.
     def discover(framework:, **opts)
-      symbol_name = _discover_symbol_name(opts)
       sym_meta = _synthesize_symbol_record(framework: framework, **opts)
+      canonical = sym_meta[:name]
 
       # For C symbols where the DB has the record, use the DB version —
       # it carries parameters_json + abi + signature that the synthesized
       # record can't guess. Synthesized record is the fallback only.
       if opts.key?(:symbol)
         db_meta = knowledge_cache.lookup_symbol(
-          framework: framework.to_s, symbol: symbol_name.to_s
+          framework: framework.to_s, symbol: canonical
         )
         sym_meta = db_meta if db_meta
       else
         # Non-C shapes: register synthesized record into transient tier so
-        # downstream lookups (Dispatcher, NamespaceBuilder) see it.
+        # downstream lookups (Dispatcher, NamespaceBuilder) see it. Key MUST
+        # be sym_meta[:name] (canonical) per spec §3.2 Name 体系.
         knowledge_cache.register_transient(
-          framework: framework.to_s, symbol: symbol_name.to_s, record: sym_meta
+          framework: framework.to_s, symbol: canonical, record: sym_meta
         )
       end
 
-      raise AppleSDKMac::DiscoveryError, "symbol not in knowledge base: #{framework}::#{symbol_name}" unless sym_meta
+      raise AppleSDKMac::DiscoveryError, "symbol not in knowledge base: #{framework}::#{canonical}" unless sym_meta
 
       result = compiler.compile(framework: framework.to_s, symbol: sym_meta)
       unless result.success?
         raise AppleSDKMac::CompileError,
               "discover failed at #{result.error_stage}: #{result.error_detail}"
       end
-      install_into_box(framework, symbol_name, sym_meta)
+      install_into_box(framework, canonical, sym_meta)
       true
     end
 
@@ -116,14 +117,14 @@ module AppleSDKMac
         base.merge(name: opts[:symbol].to_s, kind: "function", abi: "c")
       when opts.key?(:class_method)
         base.merge(
-          name: "#{opts[:klass]}.#{opts[:class_method]}",
+          name: "#{opts[:klass]}.#{_canonical_method_name(opts[:class_method])}",
           kind: "objc_method_class",
           objc_class: opts[:klass].to_s, selector: opts[:class_method].to_s,
           params: opts[:params], return_kind: opts[:return_kind]
         )
       when opts.key?(:selector)
         base.merge(
-          name: "#{opts[:klass]}##{opts[:selector]}",
+          name: "#{opts[:klass]}.#{_canonical_method_name(opts[:selector])}",
           kind: "objc_method_instance",
           objc_class: opts[:klass].to_s, selector: opts[:selector].to_s,
           params: opts[:params], return_kind: opts[:return_kind]
@@ -158,17 +159,50 @@ module AppleSDKMac
       end
     end
 
-    # Pick the user-visible symbol name from the keyword shape used.
-    # Returned name flows into Apple::<Framework>.<name>(...) dispatch.
-    def _discover_symbol_name(opts)
-      return opts[:symbol]            if opts.key?(:symbol)
-      return opts[:class_method]      if opts.key?(:class_method)
-      return opts[:selector]          if opts.key?(:selector)
-      return opts[:swift_initializer] if opts.key?(:swift_initializer)
-      return opts[:swift_property]    if opts.key?(:swift_property)
-      return opts[:swift_func]        if opts.key?(:swift_func)
-      raise AppleSDKMac::DiscoveryError,
-        "Apple.discover requires one of: symbol, selector, class_method, swift_func, swift_initializer, swift_property"
+    # T40 — selector → Swift-form method name converter (spec §3.4.1 +
+    # Apple ObjC→Swift API bridging convention).
+    # - single-segment (`stringWithUTF8String:`) → `stringWithUTF8String`
+    # - multi-segment init (`initWithCGImage:options:`) → `init(cgImage:options:)`
+    #   "With" prefix stripped、第1ラベルは lowerCamelCase 化（Apple bridging rule）
+    # - multi-segment non-init (`requestWithURL:cachePolicy:`) →
+    #   `requestWithURL(cachePolicy:)` 形式（rare、init 以外で必要時の fallback）
+    def _canonical_method_name(selector)
+      s = selector.to_s
+      parts = s.split(":", -1).reject(&:empty?)
+      return s if parts.empty?
+      return parts[0] if parts.size == 1
+      if parts[0].start_with?("init")
+        # Strip "init" then optional "With" / "From" / "By" prefix, then
+        # lowerCamelCase the remaining first label per Apple's bridging rule.
+        head = parts[0].sub(/\Ainit/, "").sub(/\A(With|From|By|Using|For)/, "")
+        head = _lower_first_camel(head)
+        labels = head.empty? ? parts[1..] : ([head] + parts[1..])
+        "init(" + labels.map { |l| "#{l}:" }.join + ")"
+      else
+        first = parts[0]
+        rest = parts[1..]
+        "#{first}(" + rest.map { |l| "#{l}:" }.join + ")"
+      end
+    end
+
+    # Apple ObjC→Swift bridging の acronym handling。
+    # `CGImage` → `cgImage`, `URL` → `url`, `HTTPHeader` → `httpHeader`,
+    # `Image` → `image`. 先頭 uppercase 連続の acronym 部分のみ lowercase 化、
+    # 後続単語の先頭大文字は維持。
+    def _lower_first_camel(s)
+      return "" if s.empty?
+      upper = s.match(/\A[A-Z]+/)
+      return s[0].downcase + (s[1..] || "") unless upper
+      run = upper[0]
+      if run.length == s.length
+        s.downcase
+      elsif run.length == 1
+        s[0].downcase + s[1..]
+      else
+        # multi-letter acronym followed by uppercase-starting word: the last
+        # uppercase of the run starts the next word.
+        run[0..-2].downcase + run[-1] + s[run.length..]
+      end
     end
 
     # Eagerly populate Apple::<Framework> modules and their type constants from

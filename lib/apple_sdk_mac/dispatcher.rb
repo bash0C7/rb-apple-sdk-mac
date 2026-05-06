@@ -16,9 +16,14 @@ module AppleSDKMac
       sym_meta = @knowledge.lookup_symbol(framework: framework, symbol: symbol)
       raise Error, "unknown symbol #{framework}::#{symbol}" unless sym_meta
 
-      cache_hit = @cache.lookup(framework: framework, symbol: symbol)
+      # T40 — cache.lookup must use canonical_name (sym_meta[:name]) not the
+      # user-facing symbol arg. CompiledGlueCache stores rows keyed by
+      # canonical_name (= synth record :name); user-facing call routing may
+      # arrive with an alias, single-segment shorthand, or DB-side name diff.
+      canonical = sym_meta[:name]
+      cache_hit = @cache.lookup(framework: framework, symbol: canonical)
       if cache_hit.nil?
-        raise Error, "no glue cached for #{framework}::#{symbol}; call Apple.discover first"
+        raise Error, "no glue cached for #{framework}::#{canonical}; call Apple.discover first"
       end
 
       fn_ptr = @loader.load(

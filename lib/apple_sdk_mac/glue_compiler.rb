@@ -35,7 +35,12 @@ module AppleSDKMac
       base = File.join(@cache.base_dir, @cache.sdk_version)
       src = File.join(base, "sources", "#{glue_id}.swift")
       dylib = File.join(base, "lib", "#{glue_id}.dylib")
-      exported = "glue_#{glue_id}_#{symbol[:name]}"
+      # T40 — exported_symbol must be a Swift identifier. canonical_name
+      # contains `.` / `:` / `(` / `)` which are valid as a primary key but
+      # invalid as a Swift function name. Mechanically derive swift_identifier
+      # via gsub of non-[A-Za-z0-9_] (spec §3.2 Name 体系).
+      swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
+      exported = "glue_#{glue_id}_#{swift_id}"
 
       swift_source = @template.generate(framework: framework, symbol: symbol, glue_id: glue_id)
 
@@ -44,7 +49,7 @@ module AppleSDKMac
       end
 
       gate_result = @gates.validate(swift_source, framework: framework,
-                                                  glue_id: glue_id, symbol: symbol[:name])
+                                                  glue_id: glue_id, symbol: swift_id)
       unless gate_result.pass?
         @cache.record_attempt(framework: framework, symbol: symbol[:name],
                                generator: "template",
@@ -80,6 +85,11 @@ module AppleSDKMac
       return Result.new(success?: false, error_stage: "no_llm",
                          error_detail: "LLM generator not provided") unless @llm
 
+      # T40 — same swift_id sanitization as the template path so GATE 5
+      # (`@c public func glue_<id>_<symbol>`) accepts the LLM's output for
+      # canonical-name shapes like "NSString.stringWithUTF8String".
+      swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
+
       @max_llm_retries.times do |attempt|
         swift_source = begin
           @llm.generate(framework: framework, symbol: symbol, glue_id: glue_id)
@@ -103,7 +113,7 @@ module AppleSDKMac
         end
 
         gate_result = @gates.validate(swift_source, framework: framework,
-                                                    glue_id: glue_id, symbol: symbol[:name])
+                                                    glue_id: glue_id, symbol: swift_id)
         unless gate_result.pass?
           @cache.record_attempt(framework: framework, symbol: symbol[:name],
                                  generator: "llm",
