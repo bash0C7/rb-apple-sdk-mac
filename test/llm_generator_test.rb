@@ -166,4 +166,54 @@ class TestLLMGenerator < Test::Unit::TestCase
       "Ruby Hash return for symbols with ≥2 out-params.")
     assert_match(/rb_hash_aset/, instructions)
   end
+
+  # Phase 7 T3a — async Worked Examples E1-E4. These constrain the LLM to a
+  # single fixed async-shape so ValidationGates can mechanically verify each
+  # generated glue file (DispatchSemaphore + Task { do { try await ... } catch
+  # { captured = error } sema.signal() } sema.wait() + post-wait raise).
+  def test_instructions_contain_e1_single_await_pattern
+    ins = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_match(/Example E1/, ins,
+      "Worked Example E1 (single await) must anchor the async-shape pattern.")
+    assert_match(/DispatchSemaphore\(value:\s*0\)/, ins)
+    assert_match(/sema\.wait\(\)/, ins)
+    assert_match(/try\s+await/, ins)
+  end
+
+  def test_instructions_contain_e2_taskgroup_pattern
+    ins = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_match(/Example E2/, ins, "Worked Example E2 (TaskGroup) required.")
+    assert_match(/withThrowingTaskGroup/, ins)
+  end
+
+  def test_instructions_contain_e3_async_let_pattern
+    ins = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_match(/Example E3/, ins, "Worked Example E3 (async let) required.")
+    assert_match(/async\s+let/, ins)
+  end
+
+  def test_instructions_contain_e4_main_actor_pattern
+    ins = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_match(/Example E4/, ins, "Worked Example E4 (@MainActor.run) required.")
+    assert_match(/await\s+MainActor\.run/, ins)
+  end
+
+  # Phase 7 T3b — ObjC Worked Examples F1, F2, G. ObjC method dispatch via
+  # Swift's bridged class names; no manual objc_msgSend.
+  def test_instructions_contain_f1_alloc_init
+    ins = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_match(/Example F1/, ins, "Worked Example F1 (alloc/init) required.")
+    assert_match(/Unmanaged\.passRetained/, ins)
+  end
+
+  def test_instructions_contain_f2_class_method
+    ins = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_match(/Example F2/, ins, "Worked Example F2 (class method) required.")
+    assert_match(/stringWithUTF8String/, ins)
+  end
+
+  def test_instructions_contain_g_objc_with_completion_block
+    ins = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
+    assert_match(/Example G/, ins, "Worked Example G (ObjC + completion block) required.")
+  end
 end

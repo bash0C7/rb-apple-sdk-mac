@@ -73,6 +73,204 @@ module AppleSDKMac
         }
       SWIFT
 
+      # Phase 7 T3a — async Worked Examples E1-E4. The fixed shape (DispatchSemaphore
+      # + Task { do { try await ... } catch { captured = error } sema.signal() } +
+      # sema.wait() + post-wait raise) is enforced by ValidationGates.async_shape.
+      # The LLM only fills <body> and <T>; the skeleton is non-negotiable.
+      WORKED_EXAMPLE_ASYNC_E1 = <<~SWIFT.freeze
+        // Example E1 — single Swift await. For `func foo() async throws -> T`,
+        // ALWAYS emit this exact skeleton. The DispatchSemaphore + post-wait
+        // raise pattern lets us synchronously block the calling Ruby thread
+        // (which expects synchronous C-call semantics) while the Swift Task
+        // runs on the cooperative thread pool.
+        import AcmeFW
+        import Foundation
+
+        @c
+        public func glue_aaaaaaaa_AcmeAsyncDouble(
+            _ argv: UnsafePointer<UInt>, _ argc: Int32
+        ) -> UInt {
+            let x: Int64 = rb_num2ll(argv[0])
+            let sema = DispatchSemaphore(value: 0)
+            var result: Int64 = 0
+            var captured: Error?
+            Task {
+                do { result = try await AcmeAsyncDouble(Int(x)) }
+                catch { captured = error }
+                sema.signal()
+            }
+            sema.wait()
+            if let e = captured { rb_raise(rb_eRuntimeError, "\\(e)") }
+            return rb_ll2inum(result)
+        }
+      SWIFT
+
+      WORKED_EXAMPLE_ASYNC_E2 = <<~SWIFT.freeze
+        // Example E2 — TaskGroup parallel fan-out. Use withThrowingTaskGroup
+        // when the call shape is "fire N concurrent async ops, collect all
+        // results". The outer skeleton (sema/Task/do/catch/signal/wait) is
+        // identical to E1 — only the <body> changes.
+        import AcmeFW
+        import Foundation
+
+        @c
+        public func glue_bbbbbbbb_AcmeFanOut(
+            _ argv: UnsafePointer<UInt>, _ argc: Int32
+        ) -> UInt {
+            let sema = DispatchSemaphore(value: 0)
+            var results: [Int64] = []
+            var captured: Error?
+            Task {
+                do {
+                    results = try await withThrowingTaskGroup(of: Int64.self) { group in
+                        for k in 0..<3 {
+                            group.addTask { try await AcmeFetch(k) }
+                        }
+                        var acc: [Int64] = []
+                        for try await v in group { acc.append(v) }
+                        return acc
+                    }
+                } catch { captured = error }
+                sema.signal()
+            }
+            sema.wait()
+            if let e = captured { rb_raise(rb_eRuntimeError, "\\(e)") }
+            // Marshal Array<Int64> via runtime Marshal pillar helper.
+            // For brevity, the array-marshalling helper is omitted from this
+            // example — refer to the runtime Marshal pillar when constructing
+            // multi-element returns.
+            return Qnil
+        }
+      SWIFT
+
+      WORKED_EXAMPLE_ASYNC_E3 = <<~SWIFT.freeze
+        // Example E3 — async let for fixed-arity parallelism. Cleaner than
+        // TaskGroup when the count is known and types are heterogeneous.
+        import AcmeFW
+        import Foundation
+
+        @c
+        public func glue_cccccccc_AcmePairFetch(
+            _ argv: UnsafePointer<UInt>, _ argc: Int32
+        ) -> UInt {
+            let sema = DispatchSemaphore(value: 0)
+            var captured: Error?
+            var x: Int64 = 0
+            var y: Int64 = 0
+            Task {
+                do {
+                    async let a = AcmeFetchA()
+                    async let b = AcmeFetchB()
+                    let pair = try await (a, b)
+                    x = pair.0; y = pair.1
+                } catch { captured = error }
+                sema.signal()
+            }
+            sema.wait()
+            if let e = captured { rb_raise(rb_eRuntimeError, "\\(e)") }
+            let h = rb_hash_new()
+            rb_hash_aset(h, rb_str_new_cstr("x"), rb_ll2inum(x))
+            rb_hash_aset(h, rb_str_new_cstr("y"), rb_ll2inum(y))
+            return h
+        }
+      SWIFT
+
+      WORKED_EXAMPLE_ASYNC_E4 = <<~SWIFT.freeze
+        // Example E4 — @MainActor-isolated work. Use await MainActor.run
+        // when the API requires main-thread execution (common for AppKit /
+        // UIKit). Outer skeleton unchanged from E1.
+        import AcmeFW
+        import Foundation
+
+        @c
+        public func glue_dddddddd_AcmeMainActorWork(
+            _ argv: UnsafePointer<UInt>, _ argc: Int32
+        ) -> UInt {
+            let sema = DispatchSemaphore(value: 0)
+            var result: Int64 = 0
+            var captured: Error?
+            Task {
+                do { result = try await MainActor.run { AcmeMainActorOnlyWork() } }
+                catch { captured = error }
+                sema.signal()
+            }
+            sema.wait()
+            if let e = captured { rb_raise(rb_eRuntimeError, "\\(e)") }
+            return rb_ll2inum(result)
+        }
+      SWIFT
+
+      # Phase 7 T3b — ObjC Worked Examples F1, F2, G. Use Swift's bridged
+      # class names (NSString, VNImageRequestHandler, etc.) — no manual
+      # objc_msgSend. Returned ObjC instances are bridged to Swift AnyObject;
+      # use Unmanaged.passRetained(...).toOpaque() to encode the pointer
+      # bit-pattern as a Ruby Integer, and the consumer uses unsafeBitCast
+      # back to the class for subsequent method calls.
+      WORKED_EXAMPLE_OBJC_F1 = <<~SWIFT.freeze
+        // Example F1 — ObjC alloc/init chain. The Swift initializer call
+        // is what produces the +1-retained instance; passRetained encodes
+        // its raw pointer for round-trip through Ruby.
+        import Vision
+        import Foundation
+
+        @c
+        public func glue_f1f1f1f1_VNImageRequestHandler_initWithCGImage_options(
+            _ argv: UnsafePointer<UInt>, _ argc: Int32
+        ) -> UInt {
+            let cg_raw = UInt(rb_num2ull(argv[0]))
+            let img = unsafeBitCast(OpaquePointer(bitPattern: cg_raw)!, to: CGImage.self)
+            let handler = VNImageRequestHandler(cgImage: img, options: [:])
+            let raw = Unmanaged.passRetained(handler).toOpaque()
+            return rb_ull2inum(UInt64(UInt(bitPattern: raw)))
+        }
+      SWIFT
+
+      WORKED_EXAMPLE_OBJC_F2 = <<~SWIFT.freeze
+        // Example F2 — pure ObjC class method (e.g. +stringWithUTF8String:).
+        // No instance to alloc/init; the class method itself produces the
+        // +1-retained NSString.
+        import Foundation
+
+        @c
+        public func glue_f2f2f2f2_NSString_stringWithUTF8String(
+            _ argv: UnsafePointer<UInt>, _ argc: Int32
+        ) -> UInt {
+            var v0 = argv[0]
+            let cstr = rb_string_value_cstr(&v0)
+            guard let s = NSString(utf8String: cstr) else { return Qnil }
+            let raw = Unmanaged.passRetained(s).toOpaque()
+            return rb_ull2inum(UInt64(UInt(bitPattern: raw)))
+        }
+      SWIFT
+
+      WORKED_EXAMPLE_OBJC_G = <<~SWIFT.freeze
+        // Example G — ObjC method that takes a noescape completion block.
+        // The block is `block_nilable` per the AST; the marshaller emits a
+        // stack-local @convention(block) literal pinned to runtime_proc_registry.
+        // Errors thrown from `try` paths convert to NSError on the bridge.
+        import Vision
+        import Foundation
+
+        @c
+        public func glue_gggggggg_VNImageRequestHandler_performRequests(
+            _ argv: UnsafePointer<UInt>, _ argc: Int32
+        ) -> UInt {
+            let h_raw = UInt(rb_num2ull(argv[0]))
+            let handler = unsafeBitCast(OpaquePointer(bitPattern: h_raw)!,
+                                        to: VNImageRequestHandler.self)
+            let r_raw = UInt(rb_num2ull(argv[1]))
+            let request = unsafeBitCast(OpaquePointer(bitPattern: r_raw)!,
+                                        to: VNRequest.self)
+            do {
+                try handler.perform([request])
+                return Qnil
+            } catch let e as NSError {
+                rb_raise(rb_eRuntimeError, "\\(e.localizedDescription)")
+            }
+            return Qnil
+        }
+      SWIFT
+
       WORKED_EXAMPLE_MULTI_OUT_HASH = <<~SWIFT.freeze
         // Example D — multi-out-param call returning a Ruby Hash with named keys.
         //   OSStatus AcmeMakePair(AcmeRef *outA, AcmeRef *outB);
@@ -190,11 +388,24 @@ module AppleSDKMac
 
         SECTION 3 — WORKED EXAMPLES
 
-        Four examples follow. Use Example A as the structural template; consult
-        Example B for kind=string (the bound-var pattern is mandatory and not
-        interchangeable with passing argv[i] directly), Example C for struct_in
-        kinds (CGRect, MIDIPacketList, AudioStreamBasicDescription etc.), and
-        Example D when the call has two or more out-parameters.
+        Eleven examples follow.
+
+        Use Example A as the structural template; consult Example B for
+        kind=string (the bound-var pattern is mandatory and not interchangeable
+        with passing argv[i] directly), Example C for struct_in kinds (CGRect,
+        MIDIPacketList, AudioStreamBasicDescription etc.), and Example D when
+        the call has two or more out-parameters.
+
+        Examples E1-E4 cover Swift structured concurrency. E1 = single await,
+        E2 = TaskGroup parallel fan-out, E3 = async let for fixed-arity, E4 =
+        @MainActor.run for main-thread-isolated APIs. The DispatchSemaphore +
+        do/catch + sema.wait + post-wait raise skeleton is non-negotiable —
+        ValidationGates rejects any await-bearing glue that does not match.
+
+        Examples F1, F2, G cover ObjC method dispatch. F1 = alloc/init chain,
+        F2 = pure class method, G = ObjC method that takes a noescape
+        completion block. Use Swift's bridged class names — no manual
+        objc_msgSend.
 
         #{WORKED_EXAMPLE_INT_IN_STRING_OUT}
 
@@ -203,6 +414,20 @@ module AppleSDKMac
         #{WORKED_EXAMPLE_STRUCT_IN}
 
         #{WORKED_EXAMPLE_MULTI_OUT_HASH}
+
+        #{WORKED_EXAMPLE_ASYNC_E1}
+
+        #{WORKED_EXAMPLE_ASYNC_E2}
+
+        #{WORKED_EXAMPLE_ASYNC_E3}
+
+        #{WORKED_EXAMPLE_ASYNC_E4}
+
+        #{WORKED_EXAMPLE_OBJC_F1}
+
+        #{WORKED_EXAMPLE_OBJC_F2}
+
+        #{WORKED_EXAMPLE_OBJC_G}
       TXT
 
       def initialize(model: nil, session: nil)
