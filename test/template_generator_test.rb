@@ -684,6 +684,30 @@ class TestTemplateGenerator < Test::Unit::TestCase
       "T48: persistent slot register も @_silgen_name 経由")
   end
 
+  # T49 — CFTypeRefMarshaller in_load は runtime_arc_unbox_cftype 経由で
+  # autoarc box pointer を unwrap する。spec §3.9 round-trip 完成の前提。
+  # box でない raw CF pointer を渡されたケースは unbox が 0 を返すので
+  # raw input にフォールバックする (CFTypeRefMarshaller の実装契約)。
+  def test_cftype_ref_marshaller_unboxes_via_runtime_arc_unbox_cftype
+    sym = {
+      kind: "function", abi: "c",
+      name: "CFStringGetLength",
+      signature: "CFIndex CFStringGetLength(CFStringRef theString)",
+      parameters_json: '[{"name":"theString","type":"CFStringRef","kind":"cftype_ref","is_out_param":false,"nullability":"unspecified"}]'
+    }
+    swift = @gen.generate(framework: "CoreFoundation", symbol: sym, glue_id: "cfgl1")
+    refute_nil swift
+    assert_match(/runtime_arc_unbox_cftype/, swift,
+      "T49: cftype_ref param 経由の入力は runtime_arc_unbox_cftype で unwrap")
+  end
+
+  # T49 — HEADER に runtime_arc_unbox_cftype の @_silgen_name 宣言が必要。
+  def test_header_includes_runtime_arc_unbox_cftype_silgen_name
+    h = AppleSDKMac::GlueCompiler::TemplateGenerator::HEADER
+    assert_match(/@_silgen_name\("runtime_arc_unbox_cftype"\)/, h,
+      "T49: glue から runtime_arc_unbox_cftype を呼べるよう HEADER で declare")
+  end
+
   # Phase 7 T4: CF Create-rule auto-ARC. A symbol whose knowledge record has
   # cf_create_rule=true gets its CF-typed return value automatically wrapped
   # via the runtime ARC pillar's runtime_arc_box_cftype entry point. The
