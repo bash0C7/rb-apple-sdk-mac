@@ -4,6 +4,11 @@ require "fileutils"
 
 module AppleSDKMac
   class CompiledGlueCache
+    # Phase 7 T15 — bumped any time the template HEADER, marshaller emit, or
+    # validation gate set changes in a way that invalidates pre-bump Swift
+    # sources. v1.0 lifts this to "1.0" (was implicitly v0 / unset).
+    CACHE_SCHEMA_VERSION = "1.0"
+
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS compiled_glue (
@@ -47,17 +52,23 @@ module AppleSDKMac
         required_methods     TEXT NOT NULL,
         generated_at         INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS schema_meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
     SQL
 
-    attr_reader :db, :base_dir, :sdk_version
+    attr_reader :db, :base_dir, :sdk_version, :schema_version
 
-    def self.open(base_dir, sdk_version:)
-      new(base_dir, sdk_version: sdk_version).tap(&:migrate!)
+    def self.open(base_dir, sdk_version:, schema_version: CACHE_SCHEMA_VERSION)
+      new(base_dir, sdk_version: sdk_version, schema_version: schema_version).tap(&:migrate!)
     end
 
-    def initialize(base_dir, sdk_version:)
+    def initialize(base_dir, sdk_version:, schema_version: CACHE_SCHEMA_VERSION)
       @base_dir = base_dir
       @sdk_version = sdk_version
+      @schema_version = schema_version
       FileUtils.mkdir_p(File.join(@base_dir, sdk_version, "lib"))
       FileUtils.mkdir_p(File.join(@base_dir, sdk_version, "sources"))
       @db = SQLite3::Database.new(File.join(@base_dir, sdk_version, "glue.sqlite"))
@@ -65,6 +76,23 @@ module AppleSDKMac
 
     def migrate!
       @db.execute_batch(SCHEMA_SQL)
+      stored = @db.execute("SELECT value FROM schema_meta WHERE key='schema_version'").first
+      stored_v = stored && stored[0]
+      if stored_v && stored_v != @schema_version
+        # Phase 7 T15 — schema_version bump invalidates pre-bump rows. Wipe
+        # compiled glue + history so the next discover recompiles fresh
+        # against the current template HEADER / marshaller emit shape.
+        @db.execute("DELETE FROM compiled_glue")
+        @db.execute("DELETE FROM compile_history")
+      end
+      @db.execute(
+        "INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)",
+        ["schema_version", @schema_version]
+      )
+      @db.execute(
+        "INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)",
+        ["sdk_version", @sdk_version]
+      )
     end
 
     def lookup(framework:, symbol:)
