@@ -1,192 +1,290 @@
-# Complete macOS API Bridge — Phase 7 Design
+# Complete macOS API Bridge — Phase 7 Design (revised)
 
 Date: 2026-05-06
-Status: draft → awaiting user approval
+Status: brainstorming approved → awaiting written-spec review
 
-## Why
+## 1. Goal
 
-The README opens with "Call any public Apple framework API from Ruby with no
-pre-declarations." Today the bridge handles a useful subset of synchronous C
-APIs. Five concrete blockers prevent that promise from being literally true.
-This phase closes them with the smallest plausible internal change.
+Make the README's first sentence — "Call any public Apple framework API from
+Ruby with no pre-declarations" — *literally true*, demonstrated by three
+examples that run end-to-end:
 
-## Non-goals (Phase 8 territory)
+1. `examples/coremidi_receive.rb` — a CoreMIDI input listener that delivers
+   packet-arrival callbacks to a Ruby Proc.
+2. `examples/vision_ocr.rb` — a Vision OCR pass over a fixture image,
+   returning recognized text to Ruby.
+3. `examples/async_demo.rb` — a Swift `async` function called from Ruby and
+   awaited synchronously, returning a value via the LLM-fallback glue path.
 
-- ObjC selector dispatch (NSWindow / UIViewController patterns)
-- Swift structured concurrency (async let, TaskGroup, AsyncSequence)
-- ARC bridging for "create-rule" CFTypeRef returns (caller still calls CFRelease manually)
+Phase 7 is one spec, one implementation push. No carry-over.
 
-## Internal Structure
+## 2. Scope and Non-goals
 
-The flat `kind → Marshaller` taxonomy is correct. The work is to fill in
-catalog entries and tighten classifier regex. No new abstraction is introduced.
-A new entry costs:
+### In scope
 
-- one row in `lib/rb_apple_sdk_knowledge/importer/kind.rb` regex tree
-- one Marshaller subclass in `lib/apple_sdk_mac/glue_compiler/marshallers.rb`
-- (if heading into the runtime side) one signature catalog row in YAML
+1. **Synchronous C function full path.** `cftype_ref`, float typedef, integer
+   typedef desugared check, callback codegen generalization with MIDIReadProc.
+   (Already landed across commits 88bfccb / fd4cb9c / 112f7c4 / 46b230b /
+   ff02d19 / c6e0006.)
+2. **proc_registry under Ruby::Box.** Move ownership of the Ruby Hash that
+   pairs Ruby Proc object_id ↔ Proc into the Swift runtime dylib so glue
+   Swift and the C extension reach the same hash regardless of RTLD_LOCAL
+   boundaries and Box wrapping.
+3. **Block parameter (synchronous completion handler).** Inline
+   `@convention(block)` synthesis at glue time. No new Pillar.
+4. **ObjC class init + selector dispatch.** Routed through the existing
+   LLM-fallback path with new Worked Examples. Swift's automatic ObjC
+   bridging carries the ABI; the bridge layer adds nothing.
+5. **examples/coremidi_receive.rb** rewritten to the Phase 7 surface and
+   verified to run.
+6. **examples/vision_ocr.rb** rewritten to perform real OCR on a fixture
+   image and verified to return recognized text.
+7. **examples/async_demo.rb** introduced; calls a Swift async function via
+   LLM-generated glue and prints the result.
+8. **Verification:** full test suite green; all three examples exit 0.
 
-## Blocker 1 — `cftype_ref` (CF pointer-typed handles)
+### Phase 8+ (intentionally out)
 
-**Symptom**: `CFStringRef`, `CFArrayRef`, `CFDictionaryRef`, `CFTypeRef`,
-`CGColorSpaceRef`, `CGContextRef` etc. are pointer-shape typedefs, but the
-classifier currently funnels them into `opaque_ref`, which the
-`OpaqueRefMarshaller` materializes via `T(rb_num2ull(...))` (integer
-constructor). swiftc rejects: "Cannot invoke initializer for type
-'CFStringRef' with an argument list of type '(UInt64)'".
+- Block escaping/persistent lifetimes (BlockPillar pool). Phase 7 covers
+  only completion handlers that fire and return inside the C call.
+- Swift structured concurrency (`TaskGroup`, `async let`).
+- ObjC `+ classMethod` runtime introspection. Where a class method matters
+  in Phase 7 (e.g. `+alloc`), Swift bridging accesses it directly inside
+  LLM-generated glue.
+- ARC auto-bridging for "create rule" CFTypeRef returns. Caller still
+  invokes CFRelease manually.
+- YAML refactor of the kind catalog. The current 3-touchpoint pattern
+  (classifier, Marshaller, return_kind) is small enough to leave alone.
 
-**Fix**:
+## 3. Architecture
 
-1. Classifier — add `cftype_ref` ahead of `opaque_ref`:
-   ```ruby
-   return "cftype_ref" if qual_type =~ /\b(?:CF|CG|CV|CT|CM|CL)\w+Ref\b/
-   ```
-   (Catches CF, Core Graphics, Core Video, Core Text, Core Media, Core Location
-   pointer Refs. Audio/MIDI integer Refs keep their `opaque_ref` route.)
+The dispatch chain stays as it is. Phase 7 adds nodes, not layers.
 
-2. New Marshaller `CFTypeRefMarshaller`:
-   - `in_load`: `let <name> = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[i])))!` then `unsafeBitCast` to the actual `CFXXXRef` Swift type.
-   - `out_init` / `out_addr` for out-params: `var <name>: CFXXXRef? = nil` + `&<name>`.
-   - `out_to_ruby`: encodes the pointer via `rb_ull2inum(UInt64(unsafeBitCast(<name>!, to: UInt.self)))`.
-
-3. Knowledge gem reclassifier KIND_VOCABULARY gains `"cftype_ref"`.
-
-## Blocker 2 — Float typedef regex
-
-**Symptom**: `CFAbsoluteTime`, `CFTimeInterval`, `NSTimeInterval`, `CGFloat`
-are all `double` underneath but the classifier sees an unknown typedef and
-classifies as `int`, losing precision.
-
-**Fix**: Extend classifier float branch:
-```ruby
-return "float" if qual_type =~ /\b(double|float|CGFloat|CFAbsoluteTime|CFTimeInterval|NSTimeInterval|TimeInterval)\b/
 ```
-No new Marshaller. Reclassifier KIND_VOCABULARY already includes `"float"`.
+KnowledgeCache.lookup_symbol
+    │
+    ├─ Structured path — TemplateGenerator
+    │     kinds: string · int · bool · float · opaque_ref · cftype_ref ·
+    │            callback_nilable · callback_non_nil · void_ptr_nilable ·
+    │            struct_in · struct_out · struct_in_pointer · variadic_args ·
+    │            block_nilable[NEW]
+    │     All params kind-known → deterministic Swift glue.
+    │
+    └─ Free path — LLMGenerator
+          ↳ Triggered when TemplateGenerator returns nil (any unsupported
+            kind, e.g. ObjC method symbols routed via Apple.discover_objc).
+          ↳ INSTRUCTIONS Worked Examples constrain the LLM.
+          ↳ ValidationGates + swiftc reject malformed output; retry up to
+            DEFAULT_MAX_LLM_RETRIES.
+          ↳ Cache shared with TemplateGenerator path.
+```
 
-## Blocker 3 — Block parameters
+### 3.1 Files touched
 
-**Symptom**: Apple's modern API style is `^void (NSError *_Nullable error)`.
-clang AST presents these as `BlockPointer`. The classifier funnels them into
-`unsupported` because (a) `is_function_pointer` (paren detection) doesn't
-trigger on the Block typedef encoding, and (b) Block ABI ≠ C function pointer
-ABI (Block has a header struct in front of the invoke pointer).
+| File | Change |
+|---|---|
+| `ext/.../RuntimeBridge.swift` | Add `appleProcRegistry: UInt`, `runtime_proc_registry_init`, `runtime_proc_registry_get`. (Work in flight.) |
+| `ext/.../apple_sdk_mac_runtime.c` | Drop `rb_define_variable("$__apple_sdk_mac_proc_registry")`; macro `proc_registry` → `runtime_proc_registry_get()`; `Init_apple_sdk_mac_runtime` calls `runtime_proc_registry_init()`. (In flight.) |
+| `ext/.../Package.swift` | Add `-Xlinker -undefined -Xlinker dynamic_lookup` so `rb_hash_new` / `rb_global_variable` referenced via `@_silgen_name` resolve at process dlopen. (In flight.) |
+| `ext/.../AppleSDKMacRuntime-Swift.h` | Regenerated by `swift build`; copied into `ext/apple_sdk_mac_runtime/` so the C extconf compile sees the new declarations. (In flight.) |
+| `lib/apple_sdk_mac/glue_compiler/marshallers.rb` | New `BlockNilableMarshaller` (kind=`block_nilable`). Existing callback `register_branch` switches `rb_gv_get(...)` → `runtime_proc_registry_get()`. (In flight.) |
+| `lib/apple_sdk_mac/glue_compiler/template_generator.rb` | HEADER drops `rb_gv_get`, adds `runtime_proc_registry_get` `@_silgen_name`. (In flight.) |
+| `lib/apple_sdk_mac/glue_compiler/llm_generator.rb` | INSTRUCTIONS gains Worked Example E (Swift async + DispatchSemaphore), F (ObjC `+alloc` / `-init`), G (ObjC method that takes a completion Block). |
+| `lib/apple_sdk_mac/public_api.rb` | New `AppleSDKMac.discover_objc(framework:, klass:, selector:, params:, return_kind:)` — registers a synthetic symbol record (kind=`objc_method`) in a transient lookup so the compiler pipeline can route it via the LLM path. |
+| `lib/apple_sdk_mac.rb` | `Apple.discover_objc` thin proxy. |
+| `lib/rb_apple_sdk_knowledge/importer/kind.rb` | Detect Block at AST level (desugared contains `(^)`) → `block_nilable` (treat-nilable default) or `block_non_nil`. |
+| `lib/rb_apple_sdk_knowledge/reclassifier.rb` | KIND_VOCABULARY gains `block_nilable`, `block_non_nil`. |
+| `examples/coremidi_receive.rb` | Rewrite to use explicit `proc { |count| … }` for `MIDIReadProc`; demonstrate connect + drain via `Apple.event_loop`. |
+| `examples/vision_ocr.rb` | Rewrite to perform real Vision OCR on a fixture image; print recognized strings. |
+| `examples/async_demo.rb` | NEW — calls a Swift async function via LLM glue and prints the awaited result. |
+| `test/fixtures/ocr_sample.png` | NEW — small synthesized text image for vision_ocr smoke. Generate via `sips` or `convert` with a known string ("hello macOS" or similar) at implementation time; commit the PNG (≤ 30 KB) to the repo. |
+| `test/integration/examples_smoke_test.rb` | NEW (already drafted, untracked) — runs each example and asserts exit / output shape. |
 
-**Fix**: Mirror the Callback Pillar architecture:
+No new lib/ classes, no new runtime Pillar files, no new C-extension TUs.
 
-1. New file `ext/apple_sdk_mac_runtime/block_signatures.yml`:
-   ```yaml
-   - name: error_handler          # void (^)(NSError *_Nullable)
-     swift_type: "@convention(block) (NSError?) -> Void"
-     pool_size: 4
-     ruby_arity: 1                # NSError*  → Ruby NSError wrapper
-   - name: image_request_handler  # void (^)(VNRequest *, NSError *)
-     swift_type: "@convention(block) (VNRequest, NSError?) -> Void"
-     pool_size: 4
-     ruby_arity: 2
-   ```
+### 3.2 Block synchronous-only synthesis
 
-2. New `lib/apple_sdk_mac/block_pillar_codegen.rb` — emits per-slot Block
-   trampolines into `BlockPillarGenerated.swift` (closure literals retained
-   in a slot pool, mirrored on the Callback Pillar `NSLock` pattern).
+`BlockNilableMarshaller#in_load` emits glue Swift like:
 
-3. Two Marshallers: `BlockNilableMarshaller`, `BlockNonNilMarshaller`. Their
-   `in_load` follows the same register-via-`$__apple_sdk_mac_proc_registry`
-   pathway as `CallbackNilableMarshaller`.
+```swift
+let cb_block: (@convention(block) (NSError?) -> Void)?
+if argv[i] == Qnil {
+    cb_block = nil
+} else {
+    let cb_pid_v = rb_obj_id(argv[i])
+    rb_hash_aset(runtime_proc_registry_get(), cb_pid_v, argv[i])
+    let cb_pid_u = rb_num2ull(cb_pid_v)
+    cb_block = { (err: NSError?) in
+        ThreadingBridge.enqueueFromAppleThread(procId: cb_pid_u, arg: err == nil ? 0 : -1)
+    }
+}
+```
 
-4. Classifier (`kind.rb`): detect Block at AST level by adding a
-   `is_block_pointer` flag to `header_parser.rb` (clang's `BlockPointerType`
-   node — already represented in the AST, just not surfaced).
+The Block's storage is a Swift local variable. It survives for the duration
+of the C call. Synchronous completion handlers (e.g. those passed to
+`-[VNImageRequestHandler performRequests:error:]` results, or to dispatch
+APIs that fire-and-complete inside the call) are exactly that case — they
+fire and return before the call ends. Escaping blocks (lifetime ≥ enclosing
+call) need a slot pool and are deferred to Phase 8.
 
-5. Knowledge gem reclassifier KIND_VOCABULARY gains `"block_nilable"`,
-   `"block_non_nil"`.
+The Block's signature shape comes from the YAML catalog the same way the
+callback pillar consumes `callback_signatures.yml`. A new
+`block_signatures.yml` is **not** introduced for Phase 7 — the only Block
+shape we marshal is the NSError completion handler. If a second shape
+appears, that new shape is added per-Marshaller-subclass first; the
+catalog file itself is Phase 8.
 
-## Blocker 4 — examples revival
+### 3.3 ObjC method dispatch via the LLM path
 
-**Symptom**: `examples/coremidi_receive.rb` and `examples/vision_ocr.rb`
-crash on first call.
+There are two Block code paths and they don't overlap:
 
-**Fix**: After Blockers 1–3 are green, both examples should run without
-example-side changes. If they don't, the smallest delta is added to:
-- adapt example to the API surface that exists
-- file ticket against missing types if any new ones surface
+- **Structured path** — A C function whose params include a Block typedef
+  (clang AST detects `(^)`). The classifier tags `block_nilable`; the
+  `BlockNilableMarshaller` (T2) emits inline `@convention(block)` glue.
+  Used by APIs like `dispatch_async(queue, block)`.
+- **LLM path** — An ObjC method that happens to take a Block. The LLM
+  generates the whole glue body, including the `@convention(block)`
+  literal, anchored by Worked Example G.
 
-Both examples become integration tests under
-`test/integration/examples_smoke_test.rb` so regressions are caught.
+`Apple.discover_objc(framework:, klass:, selector:, params:, return_kind:)`
+constructs a symbol record like:
 
-## Blocker 5 — Swift-only LLM fallback proof
+```ruby
+{
+  name: "VNImageRequestHandler#initWithCGImage_options",
+  kind: "objc_method",
+  abi: "objc",
+  framework: "Vision",
+  signature: "instancetype -[VNImageRequestHandler initWithCGImage:options:]",
+  parameters_json: "[...]",     # user-declared param shapes
+  klass: "VNImageRequestHandler",
+  selector: "initWithCGImage:options:"
+}
+```
 
-**Symptom**: APIs that exist only as Swift symbols (no `.h` declaration) — e.g.
-`async throws` functions — currently never get exercised end-to-end. The LLM
-fallback path is plumbed but never proved out.
+`params` use the same kind taxonomy as C-function params (`string`, `int`,
+`cftype_ref`, `block_nilable`, etc.). Even though the LLM ignores
+Marshaller routing for `objc_method` symbols, the kind is informational
+metadata for the LLM prompt — the prompt includes it so the LLM knows
+the user expects, say, `argv[1]` to be a Block.
 
-**Fix**:
+`TemplateGenerator.generate` short-circuits `unless symbol[:kind] == "function" && symbol[:abi] == "c"`, so the record falls through to `LLMGenerator`.
+The LLM, anchored by Worked Examples F and G in INSTRUCTIONS, emits Swift
+that uses Swift's automatic ObjC class bridging:
 
-1. Pick one stable Swift-only API. Candidate: a method on `URLSession` or a
-   `Foundation` async helper. Concretely: `URLSession.shared.data(from:URL)`
-   is `async throws -> (Data, URLResponse)`.
+```swift
+import Vision
+@c
+public func glue_<id>_VNImageRequestHandler_initWithCGImage_options(
+    _ argv: UnsafePointer<UInt>, _ argc: Int32
+) -> UInt {
+    let img = unsafeBitCast(OpaquePointer(bitPattern: UInt(rb_num2ull(argv[0])))!,
+                             to: CGImage.self)
+    let opts: [VNImageOption: Any]? = nil   // argv[1]==Qnil for Phase 7
+    let handler = VNImageRequestHandler(cgImage: img, options: opts ?? [:])
+    let raw = Unmanaged.passRetained(handler).toOpaque()
+    return rb_ull2inum(UInt64(UInt(bitPattern: raw)))
+}
+```
 
-2. Add **Worked Example E** to `LLMGenerator::INSTRUCTIONS`:
-   ```swift
-   // Example E — Swift-only async throws, called from Ruby Fiber.
-   //   func fetchData(_ url: URL) async throws -> Int  // (e.g. byte count)
-   // Bridge runs the async call inside a Task with a semaphore wait so the
-   // glue C ABI returns synchronously to Ruby.
-   ```
-   Pattern: `DispatchSemaphore` + `Task { ... ; sema.signal() }` + try/catch
-   to `rb_raise`.
+The user calls CFRelease (or releases the `Unmanaged`) when done. Phase 7
+documents this in the example. Phase 8 will auto-bridge ARC.
 
-3. Add `test/integration/swift_only_async_test.rb` — RED first, then turn
-   green when the LLM fallback emits compileable Swift.
+### 3.4 The Swift async glue (Worked Example E)
 
-If after 6 LLM attempts the symbol can't be made deterministic, downgrade
-criterion 5 to "documented limitation" rather than block the phase.
+The example targets `runtime_async_test_sleep_and_double(_ ms: Int64)` — a
+Swift async function already exposed by Pillar 6. The LLM generates glue
+that wraps the await inside a Task with a DispatchSemaphore so the C ABI
+returns synchronously to Ruby:
 
-## Acceptance Criteria
+```swift
+@c
+public func glue_<id>_async_double(
+    _ argv: UnsafePointer<UInt>, _ argc: Int32
+) -> UInt {
+    let ms = rb_num2ll(argv[0])
+    let sema = DispatchSemaphore(value: 0)
+    var result: Int64 = 0
+    Task {
+        result = await runtime_async_test_sleep_and_double(ms)
+        sema.signal()
+    }
+    sema.wait()
+    return rb_ll2inum(result)
+}
+```
 
-1. `Apple::CoreFoundation.CFStringCreateWithCString(nil, "hi", 0x08000100)` returns Integer that `Apple::CoreFoundation.CFRelease` accepts
-2. `Apple::CoreFoundation.CFAbsoluteTimeGetCurrent()` returns Float (Ruby class match)
-3. `examples/coremidi_receive.rb` runs for 5s, exits 0
-4. `examples/vision_ocr.rb` recognizes a fixture image's text (or prints "no text" if Vision sees none)
-5. One Swift-only async API works through LLM fallback (or limitation documented)
-6. All pre-existing tests pass
+If, after `DEFAULT_MAX_LLM_RETRIES = 6` attempts, the LLM cannot produce a
+compileable variant, a hand-written glue is dropped into the cache as a
+fallback. The hand-written Swift becomes part of `examples/async_demo.rb`'s
+ship plan — implementation can copy it verbatim.
 
-## TDD Decomposition (independent commits)
+## 4. TDD decomposition (independent commits, strict order)
 
-T1 cftype_ref:
-- RED: `test_cftype_ref_marshaller_emits_pointer_cast`
-- GREEN: classifier + Marshaller
-- Knowledge reclassifier vocabulary + integration smoke
+| # | Task | RED | GREEN |
+|---|---|---|---|
+| **T0** | proc_registry to Swift dylib (in-flight) | `test_receive_notification` is currently red on this branch — pin it as the RED. | Land RuntimeBridge / C-ext / Package.swift / marshallers.rb / template_generator.rb together; verify all of `test_receive_notification`, `threading_bridge_test`, `callback_pillar_test`, `test_send_packet_via_midi_received`. |
+| **T1** | Block AST detection in classifier | `test_kind.rb` — `Block (^)` desugared → `block_nilable`. | Knowledge gem `kind.rb` adds `(^)` branch; `KIND_VOCABULARY` extended. |
+| **T2** | `BlockNilableMarshaller` | `template_generator_test.rb` — kind=`block_nilable` produces `@convention(block)` glue. | Marshaller class added; registered in `Marshaller::REGISTRY`. |
+| **T3** | INSTRUCTIONS Worked Examples E/F/G | `llm_generator_test.rb` — INSTRUCTIONS contains Example E semaphore pattern, Example F alloc/init, Example G ObjC + Block. Banned-string list still respected. | `llm_generator.rb` updated. |
+| **T4** | examples/coremidi_receive.rb | `examples_smoke_test.rb` — runs example for ~5s, asserts exit 0 and "client=" output. | Example rewritten; depends on T0 (proc_registry) and T2 only if MIDIReadProc registration uses the inline-block path — it doesn't, MIDIReadProc is a C function pointer routed via callback pillar (already done). |
+| **T5** | examples/vision_ocr.rb + fixture image | `examples_smoke_test.rb` — runs example, asserts non-empty result array. | Example rewritten; uses `Apple.discover_objc` for VNImageRequestHandler init, performRequests, VNRecognizeTextRequest with completionHandler Block. |
+| **T6** | examples/async_demo.rb | `examples_smoke_test.rb` — runs example, asserts numeric output (e.g. "result=84"). | Example added; uses `Apple.discover` for the runtime async function (signature includes `async`, kind not in standard catalog → falls to LLM with Example E). |
 
-T2 float typedef regex:
-- RED: classifier test for `CFAbsoluteTime` → "float"
-- GREEN: regex line
+Each row produces 2-3 commits (RED, GREEN, optional REFACTOR). Total
+expected: 16-20 commits, ~600 lines of code + ~400 lines of tests.
 
-T3 Block parameters:
-- RED: classifier test for `void (^)(NSError *)` → "block_nilable"
-- RED: BlockNilableMarshaller emits register-pathway Swift
-- RED: codegen produces `BlockPillarGenerated.swift`
-- GREEN: full chain
+## 5. Acceptance criteria
 
-T4 examples revival:
-- RED: integration test running each example end-to-end
-- GREEN: any required deltas
+```bash
+RUBY_BOX=1 bundle exec rake test                                 # 0 failures, 0 errors
+RUBY_BOX=1 bundle exec ruby examples/coremidi_receive.rb         # 5s run, exit 0
+RUBY_BOX=1 bundle exec ruby examples/vision_ocr.rb               # exit 0, prints recognized text
+RUBY_BOX=1 bundle exec ruby examples/async_demo.rb               # exit 0, prints expected numeric
+git status                                                       # clean
+```
 
-T5 Swift-only fallback:
-- RED: integration test invoking a Swift async API
-- GREEN: worked Example E + retries land
+The spec's Verification section is updated with the run output and the
+phrase "持ち越し: 0".
 
-## Risks
+## 6. Risks and mitigations
 
-- **Block ABI**: macOS Block layout is well-documented (Block_layout struct), but `@convention(block)` from Swift wraps that automatically. Risk is low; failure mode is a swiftc compile error caught by ValidationGates → test fails loudly.
-- **Vision example**: VNImageRequestHandler requires a CGImage; loading a PNG into CGImage from Ruby goes through CGImageSourceRef + CGImageSourceCreateImageAtIndex, both CF pointer Refs. Phase-7 work unblocks them, but the example may surface fresh classification gaps. Plan: file a follow-up if a *new* kind surfaces; do not expand scope mid-phase.
-- **LLM fallback**: see Blocker 5 mitigation.
+| Risk | Mitigation |
+|---|---|
+| LLM nondeterminism for ObjC Worked Examples F/G | `DEFAULT_MAX_LLM_RETRIES = 6`; if a specific symbol fails, hand-write the glue and seed the cache directly via `compiled_glue_cache.insert(...)`. Document the manual-seed escape hatch in the spec under §3.4. |
+| Block lifetime: a non-trivial macOS API holds a completion block past the call | Phase 7 explicitly forbids escaping blocks. INSTRUCTIONS Worked Example G annotates this. If a target API requires escaping, queue it for Phase 8 BlockPillar pool work and switch the example to a synchronous alternative. |
+| Vision OCR fixture image OS-version dependency | Assertions are loose: "results array non-empty" rather than literal text match. Fixture committed under `test/fixtures/ocr_sample.png`. |
+| Manual CFRelease leaks in long-running examples | Phase 7 examples are short-lived (run-and-exit). Process exit reclaims everything. Phase 8 ARC bridging is the long-term fix. |
+| proc_registry switch breaks existing tests transiently | T0 is a strict prerequisite for T1+. Verified GREEN of `test_receive_notification`, `threading_bridge_test`, `callback_pillar_test`, `test_send_packet_via_midi_received` is the gate. Don't proceed until all four are green. |
+| Knowledge DB rebuild needed for Block reclassification | T1 RED tests classifier directly; T2-T6 don't depend on stored Block-kind rows. The example with a Block target (vision_ocr.rb) calls Apple.discover_objc, which doesn't read the DB. So no SDK rebuild required for Phase 7. |
+| Ruby 4.0.3 vs 4.0.1 toolchain split | Pin `.ruby-version` to 4.0.3 across rb-apple-sdk-mac, rb-apple-sdk-knowledge, rb-foundation-model-mac. Recompile each after the pin. Document the pin in this spec. |
 
-## What this phase does NOT touch
+## 7. Verification template
 
-- `lib/apple_sdk_mac/dispatcher.rb` — no protocol changes
-- `lib/apple_sdk_mac/namespace_builder.rb` — no protocol changes
-- `lib/apple_sdk_mac/security_cop*` — orthogonal
-- Any pillar other than CallbackPillar (whose pattern Block reuses)
+When implementation is complete, append to this file:
 
-Scope discipline: only files needed by the Marshallers, classifier, codegen,
-LLM INSTRUCTIONS, and the new tests.
+```
+## Verification (YYYY-MM-DD)
+
+### rake test
+N tests, M assertions, 0 failures, 0 errors
+
+### examples
+- examples/coremidi_receive.rb — exit 0 in ~5s
+- examples/vision_ocr.rb — recognized strings: ["…"]
+- examples/async_demo.rb — result=<value>
+
+### Carry-over
+持ち越し: 0
+```
+
+## 8. What this phase deliberately does not change
+
+- The 9-pillar split in `ext/apple_sdk_mac_runtime/Sources/`.
+- The Knowledge gem's classifier vocabulary (extended, not refactored).
+- `Apple` Box bootstrap, NamespaceBuilder, Dispatcher, GlueLoader internals.
+- The compile cache schema.
+- swiftc invocation (no new flags except the Package.swift `-undefined dynamic_lookup` for the runtime dylib's Swift target).
+
+The only structural addition is `discover_objc` as a parallel discover entry
+point; everything else is filled in catalog or content.
