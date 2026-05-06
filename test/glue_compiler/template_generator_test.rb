@@ -127,6 +127,24 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_not_match(/ErrorBridge\.rb_raise_via_runtime/, out)
   end
 
+  # T52a — () -> Void escaping block (NSBlockOperation の +blockOperationWithBlock:)。
+  # 既存 block_persistent は (Arg?) -> Void 形 (BoxedBlockHandle 経由) で、
+  # void→void block を直接 emit するパスがなかった。
+  def test_emits_block_persistent_void_kind_for_zero_arity_callback
+    s = sym(name: "F",
+            signature: "void F(void (^block)(void))",
+            parameters: [{ name: "block", type: "void (^)(void)",
+                           kind: "block_persistent_void", is_out_param: false }])
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T52a: block_persistent_void kind must be supported"
+    assert_match(/@convention\(block\)\s*\(\)\s*->\s*Void/, out,
+                 "T52a: must emit @convention(block) () -> Void closure type")
+    assert_match(/ThreadingBridge\.enqueueFromAppleThread/, out,
+                 "T52a: must dispatch to Ruby Proc via ThreadingBridge")
+    assert_match(/rb_hash_aset\(runtime_proc_registry_get\(\)/, out,
+                 "T52a: must pin Ruby Proc in proc_registry")
+  end
+
   # T54a — Ruby Array → Swift [<OpaqueType>] marshaller. T52 (NSOperationQueue
   # addOperations:waitUntilFinished:) と T54 (VNImageRequestHandler
   # performRequests:error:) の共通依存。Apple framework instance method の
