@@ -427,6 +427,71 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/MyClass\(int:\s*arg0\)/, swift)
   end
 
+  # T44 — kind=objc_method_instance、receiver = argv[0]、引数は argv[1..]。
+  # spec §3.4.2 の receiver bitCast pattern を emit すること。
+  def test_objc_method_instance_emits_receiver_load_and_method_call
+    sym = {
+      name: "NSString.length",
+      kind: "objc_method_instance",
+      objc_class: "NSString", selector: "length",
+      params: [], return_kind: :int,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "oim1")
+    refute_nil swift
+    assert_match(/import Foundation/, swift)
+    # receiver = argv[0]
+    assert_match(/let receiver = unsafeBitCast/, swift,
+      "T44: receiver は argv[0] から OpaquePointer + bitCast で取得")
+    assert_match(/to:\s*NSString\.self/, swift,
+      "T44: bitCast ターゲットは objc_class の Swift 名")
+    # 呼び出しは receiver.length()
+    assert_match(/receiver\.length\(\)/, swift)
+    # int 戻り値
+    assert_match(/rb_ll2inum/, swift)
+  end
+
+  # T44 — instance method with arg: argv[0]=receiver, argv[1]=user arg。
+  def test_objc_method_instance_with_arg_uses_argv_offset_1
+    sym = {
+      name: "NSString.characterAtIndex",
+      kind: "objc_method_instance",
+      objc_class: "NSString", selector: "characterAtIndex:",
+      params: [:int], return_kind: :int,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "oim2")
+    refute_nil swift
+    assert_match(/let receiver = unsafeBitCast/, swift)
+    # First user arg loaded from argv[1] (not argv[0]).
+    assert_match(/rb_num2ll\(argv\[1\]\)/, swift,
+      "T44: 引数 index は receiver 用 +1 offset (argv[1] が user arg0)")
+    refute_match(/rb_num2ll\(argv\[0\]\)/, swift,
+      "T44: argv[0] は receiver 専用、user arg として使ってはいけない")
+    assert_match(/receiver\.characterAtIndex\(arg0\)/, swift)
+  end
+
+  # T44 — selector が `init*` で始まる場合は Swift init form (no receiver)。
+  # ObjC `+alloc/-init` chain は Swift で `Klass(label: arg)` に統合されている。
+  def test_objc_method_instance_init_selector_emits_swift_init_form
+    sym = {
+      name: "VNImageRequestHandler.init(cgImage:options:)",
+      kind: "objc_method_instance",
+      objc_class: "VNImageRequestHandler",
+      selector: "initWithCGImage:options:",
+      params: [:opaque_ref, :void_ptr_nilable], return_kind: :opaque_ref,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Vision", symbol: sym, glue_id: "oim3")
+    refute_nil swift
+    refute_match(/let receiver = unsafeBitCast/, swift,
+      "T44: init shape は receiver を持たない")
+    assert_match(/VNImageRequestHandler\(cgImage:\s*arg0,\s*options:\s*arg1\)/, swift,
+      "T44: init multi-segment は Swift bridged init(cgImage:options:) form")
+    assert_match(/Unmanaged\.passRetained/, swift,
+      "T44: opaque_ref 戻り値は +1 retained pointer")
+  end
+
   # Phase 7 T4: CF Create-rule auto-ARC. A symbol whose knowledge record has
   # cf_create_rule=true gets its CF-typed return value automatically wrapped
   # via the runtime ARC pillar's runtime_arc_box_cftype entry point. The
