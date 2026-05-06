@@ -110,8 +110,10 @@ module AppleSDKMac
 
       dispatcher = @dispatcher
       wrap_proxy = opaque_ref_return?(sym)
+      builder = self
       proxy_class.singleton_class.send(:define_method, ruby_method) do |*args|
-        result = dispatcher.call(framework: framework, symbol: canonical, args: args)
+        unwrapped = builder.send(:unwrap_proxy_args, args)
+        result = dispatcher.call(framework: framework, symbol: canonical, args: unwrapped)
         if wrap_proxy && result.is_a?(Integer)
           proxy_class.from_ref(result)
         else
@@ -139,10 +141,12 @@ module AppleSDKMac
 
       dispatcher = @dispatcher
       wrap_proxy = opaque_ref_return?(sym)
+      builder = self
       proxy_class.send(:define_method, ruby_method) do |*args|
+        unwrapped = builder.send(:unwrap_proxy_args, args)
         result = dispatcher.call(
           framework: framework, symbol: canonical,
-          args: [@__opaque_ref, *args]
+          args: [@__opaque_ref, *unwrapped]
         )
         if wrap_proxy && result.is_a?(Integer)
           proxy_class.from_ref(result)
@@ -150,6 +154,20 @@ module AppleSDKMac
           result
         end
       end
+    end
+
+    # T52h — Apple proxy instance を含む引数列を raw opaque ref Integer に
+    # 再帰的に unwrap。Array 要素も element-wise に unwrap (T54a Marshaller の
+    # array_of_opaque_ref は要素を rb_num2ull で読むため Integer 必須)。
+    # それ以外の値はそのまま pass-through。
+    def unwrap_proxy_args(args)
+      args.map { |a| unwrap_one(a) }
+    end
+
+    def unwrap_one(value)
+      return value.__opaque_ref if value.respond_to?(:__opaque_ref) && !value.is_a?(Module)
+      return value.map { |x| unwrap_one(x) } if value.is_a?(Array)
+      value
     end
 
     # T52b — selector が ObjC alloc.init 経路 (`initWith...` / `init`) かを判定。
