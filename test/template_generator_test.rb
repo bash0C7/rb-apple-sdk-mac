@@ -231,10 +231,11 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/@_silgen_name\("runtime_callback_pillar_register_midi_notify"\)/, h)
     assert_match(/@_silgen_name\("runtime_callback_pillar_get_midi_notify_fnptr"\)/, h)
     assert_match(/@_silgen_name\("rb_obj_id"\)/, h)
-    # Glue Swift fetches the proc_registry hash via rb_gv_get (a libruby
-    # symbol) — replaces the previous rb_hash_aset_proc_registry shim that
-    # broke under RUBY_BOX=1 (RTLD_LOCAL load of the C ext bundle).
-    assert_match(/@_silgen_name\("rb_gv_get"\)/, h)
+    # Glue Swift fetches the proc_registry hash via runtime_proc_registry_get
+    # (exported from libAppleSDKMacRuntime.dylib in flat namespace) — replaces
+    # the previous rb_gv_get($__apple_sdk_mac_proc_registry) approach that
+    # broke under RUBY_BOX=1 (Box-wrapped global vs C-static VALUE divergence).
+    assert_match(/@_silgen_name\("runtime_proc_registry_get"\)/, h)
   end
 
   # struct_in_pointer kind: Ruby user passes a UInt encoding a pointer

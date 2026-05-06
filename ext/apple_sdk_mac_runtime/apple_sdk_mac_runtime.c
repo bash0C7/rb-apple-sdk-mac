@@ -2,7 +2,14 @@
 #include <dlfcn.h>
 #include "AppleSDKMacRuntime-Swift.h"
 
-static VALUE proc_registry = Qnil;
+// proc_registry lives in the Swift runtime dylib (see appleProcRegistry in
+// RuntimeBridge.swift). The previous rb_define_variable("$__apple_sdk_mac_proc_registry")
+// approach didn't work under Ruby::Box: the Ruby-visible global was Box-wrapped
+// and didn't share storage with the C-static VALUE the dispatcher read.
+// runtime_proc_registry_get / runtime_proc_registry_init are exported from the
+// libAppleSDKMacRuntime.dylib in flat namespace, so both this C ext and any
+// glue dylib resolve to the same Hash regardless of RTLD_LOCAL boundaries.
+#define proc_registry runtime_proc_registry_get()
 
 static VALUE rb_dlopen_glue(VALUE self, VALUE path) {
     void *h = dlopen(StringValueCStr(path), RTLD_NOW | RTLD_LOCAL);
@@ -157,20 +164,13 @@ static VALUE rb_callback_pillar_unregister_midi_notify(VALUE self, VALUE slot) {
     return Qnil;
 }
 
-// proc_registry is also exposed as a Ruby global variable so glue Swift
-// can reach it via rb_gv_get (a libruby symbol that's always in flat
-// namespace). The previous shim function rb_hash_aset_proc_registry
-// failed under RUBY_BOX=1 because Ruby loaded the C ext with RTLD_LOCAL,
-// keeping the shim invisible to subsequent dlopens of glue dylibs.
+// proc_registry lives in libAppleSDKMacRuntime.dylib (flat namespace). Both
+// the dispatcher above (via the proc_registry macro = runtime_proc_registry_get())
+// and per-symbol glue Swift dylibs reach the same Hash, sidestepping
+// Ruby::Box's wrapping of rb_define_variable globals.
 
 void Init_apple_sdk_mac_runtime(void) {
-    proc_registry = rb_hash_new();
-    rb_global_variable(&proc_registry);
-    // Expose as a Ruby $-prefixed global so Swift glue can fetch the same
-    // hash via rb_gv_get (a libruby symbol that's reachable via flat
-    // namespace lookup even when this ext bundle was loaded RTLD_LOCAL,
-    // e.g. under RUBY_BOX=1).
-    rb_define_variable("$__apple_sdk_mac_proc_registry", &proc_registry);
+    runtime_proc_registry_init();
     runtime_callback_set_dispatcher(ruby_callback_dispatcher);
     VALUE module = rb_define_module("AppleSDKMacRuntime");
     rb_define_singleton_method(module, "dlopen_glue", rb_dlopen_glue, 1);

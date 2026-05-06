@@ -1,6 +1,32 @@
 import Foundation
 import CoreMIDI
 
+// Proc registry — Ruby Hash VALUE owned by the runtime Swift dylib so that
+// both the Ruby C extension (loaded RTLD_LOCAL) and per-symbol glue dylibs
+// (each loaded RTLD_LOCAL) reach the SAME hash via a flat-namespace symbol.
+//
+// rb_define_variable + rb_gv_get does NOT work here under Ruby::Box: the
+// $__...-named global is a Box-wrapped view that does not share storage with
+// the C-static VALUE the dispatcher reads. Confirmed empirically: a Ruby
+// `$reg[k] = v` mutation is invisible to a C-side `rb_hash_lookup(proc_reg, k)`.
+nonisolated(unsafe) public var appleProcRegistry: UInt = 0
+
+@_silgen_name("rb_hash_new")
+private func _rb_hash_new() -> UInt
+@_silgen_name("rb_global_variable")
+private func _rb_global_variable(_ p: UnsafeMutablePointer<UInt>)
+
+@c
+public func runtime_proc_registry_init() {
+    appleProcRegistry = _rb_hash_new()
+    _rb_global_variable(&appleProcRegistry)
+}
+
+@c
+public func runtime_proc_registry_get() -> UInt {
+    return appleProcRegistry
+}
+
 @c
 public func runtime_ref_retain_test(_ rubyObjectId: UInt64) -> UInt32 {
     let box = TestObjectIDBox(id: rubyObjectId)

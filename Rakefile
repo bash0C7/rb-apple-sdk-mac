@@ -26,7 +26,23 @@ namespace :runtime do
   end
 end
 
-task compile: "runtime:codegen_callback_pillar"
+namespace :apple do
+  namespace :runtime do
+    desc "swift build the runtime dylib and copy generated -Swift.h into ext/"
+    task :sync_header do
+      ext_dir = File.expand_path("ext/apple_sdk_mac_runtime", __dir__)
+      sh "swift", "build", "--package-path", ext_dir
+      generated = Dir.glob(File.join(ext_dir, ".build", "**", "AppleSDKMacRuntime-Swift.h")).first
+      raise "AppleSDKMacRuntime-Swift.h not produced by swift build" unless generated
+      target = File.join(ext_dir, "AppleSDKMacRuntime-Swift.h")
+      require "fileutils"
+      FileUtils.cp(generated, target)
+      puts "synced #{generated} -> #{target}"
+    end
+  end
+end
+
+task compile: ["runtime:codegen_callback_pillar", "apple:runtime:sync_header"]
 
 desc "Start an IRB console with apple_sdk_mac loaded"
 task console: :compile do

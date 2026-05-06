@@ -198,7 +198,7 @@ module AppleSDKMac
                   #{name} = nil
               } else {
                   let #{name}_pid_v = rb_obj_id(argv[#{i}])
-                  let #{name}_reg = rb_gv_get("$__apple_sdk_mac_proc_registry")
+                  let #{name}_reg = runtime_proc_registry_get()
                   rb_hash_aset(#{name}_reg, #{name}_pid_v, argv[#{i}])
                   let #{name}_pid_u = rb_num2ull(#{name}_pid_v)
                   let #{name}_slot = #{fn_register}(#{name}_pid_u)

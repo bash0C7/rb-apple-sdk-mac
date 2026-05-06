@@ -53,8 +53,8 @@ module AppleSDKMac
         func rb_block_proc() -> UInt
         @_silgen_name("rb_obj_id")
         func rb_obj_id(_ v: UInt) -> UInt
-        @_silgen_name("rb_gv_get")
-        func rb_gv_get(_ name: UnsafePointer<CChar>) -> UInt
+        @_silgen_name("runtime_proc_registry_get")
+        func runtime_proc_registry_get() -> UInt
         #{CALLBACK_BRIDGE_DECLS}
 
         let Qfalse: UInt = 0
