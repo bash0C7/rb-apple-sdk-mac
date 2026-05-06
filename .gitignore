@@ -9,5 +9,8 @@
 /data/*.sqlite
 /data/*.sqlite-shm
 /data/*.sqlite-wal
+/data/*.sqlite.bak
+/data/*.sqlite.bak-shm
+/data/*.sqlite.bak-wal
 /Gemfile.lock
 /vendor/bundle

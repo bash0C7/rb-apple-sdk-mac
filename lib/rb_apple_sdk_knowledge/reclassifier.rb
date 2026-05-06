@@ -10,7 +10,7 @@ module AppleSDKKnowledge
     K = AppleSDKKnowledge::Importer::Kind
 
     KIND_VOCABULARY = %w[
-      string int bool float opaque_ref
+      string int bool float opaque_ref cftype_ref
       callback_nilable callback_non_nil void_ptr_nilable
       struct_in struct_out struct_in_pointer variadic_args
       unsupported

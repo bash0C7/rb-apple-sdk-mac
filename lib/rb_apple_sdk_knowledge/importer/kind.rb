@@ -40,8 +40,14 @@ module AppleSDKKnowledge
           return "opaque_ref" if qual_type =~ /\b\w+Ref\b/
           return "int"
         end
-        # Struct pointer typedefs ending in Ref (e.g. MiniClientRef, CGContextRef) —
-        # treated as opaque handles regardless of underlying integer-vs-pointer shape.
+        # Pointer-typed Refs from CF/CG/CV/CT/CM/CL/IO/Sec/AX framework families.
+        # Their clang-desugared form is `struct OpaqueX *`, NOT an integer typedef.
+        # The Marshaller must cast via OpaquePointer(bitPattern:) + unsafeBitCast
+        # rather than `T(rb_num2ull(...))` (which only compiles for UInt32-backed
+        # typedefs like MIDIClientRef). Must precede the integer-Ref fallback.
+        return "cftype_ref" if qual_type =~ /\b(?:CF|CG|CV|CT|CM|CL|IO|Sec|AX)\w+Ref\b/
+        # Struct pointer typedefs ending in Ref (MIDIClientRef, AudioComponentInstance,
+        # etc.) — UInt32-backed integer handles. Marshaller uses `T(rb_num2ull(...))`.
         return "opaque_ref" if qual_type =~ /\b\w+Ref\b/
         # `const SomeStruct *` (read-only struct pointer) — Ruby user passes
         # a UInt encoding a pointer (commonly built via Fiddle); the Marshaller
