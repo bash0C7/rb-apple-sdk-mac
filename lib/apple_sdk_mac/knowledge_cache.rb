@@ -10,9 +10,25 @@ module AppleSDKMac
     def initialize(store)
       @store = store
       @db = store.db
+      @transient = {}
+    end
+
+    # Phase 7 T5 — transient lookup tier. Apple.discover synthesizes
+    # symbol records for the polymorphic shapes (objc / swift / etc.)
+    # that aren't necessarily in the knowledge DB and registers them
+    # here. lookup_symbol returns the transient record before falling
+    # back to the DB, so registered overlays win.
+    def register_transient(framework:, symbol:, record:)
+      @transient[[framework.to_s, symbol.to_s]] = record
+    end
+
+    def clear_transient!
+      @transient.clear
     end
 
     def lookup_symbol(framework:, symbol:)
+      key = [framework.to_s, symbol.to_s]
+      return @transient[key] if @transient.key?(key)
       row = @db.execute(<<~SQL, [framework, symbol]).first
         SELECT s.id, s.name, s.kind, s.signature, s.abi, s.documentation,
                s.parameters_json, s.requires_main_thread, s.content_hash,

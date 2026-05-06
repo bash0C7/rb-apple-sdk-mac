@@ -59,17 +59,116 @@ module AppleSDKMac
       )
     end
 
-    def discover(framework:, symbol:)
-      sym_meta = knowledge_cache.lookup_symbol(framework: framework.to_s, symbol: symbol.to_s)
-      raise Error, "symbol not in knowledge base: #{framework}::#{symbol}" unless sym_meta
+    # Phase 7 T5 — polymorphic single entry. Seven keyword shapes:
+    #   symbol:           — C function (the README canonical form)
+    #   selector:         — ObjC instance method (requires klass:)
+    #   class_method:     — ObjC class method (requires klass:)
+    #   swift_func:       — Swift function (top-level or static)
+    #   swift_initializer:— Swift initializer (requires klass:)
+    #   swift_property:   — Swift property (requires klass:)
+    #   type_args:        — Swift generic resolution (combined with swift_func:)
+    #
+    # The dispatch synthesizes a symbol record with the proper kind,
+    # registers it into the KnowledgeCache transient lookup tier, then
+    # runs the existing compile pipeline. C-symbol path keeps using the
+    # KB-stored record when available so the README canonical snippet's
+    # behavior is unchanged.
+    def discover(framework:, **opts)
+      symbol_name = _discover_symbol_name(opts)
+      sym_meta = _synthesize_symbol_record(framework: framework, **opts)
+
+      # For C symbols where the DB has the record, use the DB version —
+      # it carries parameters_json + abi + signature that the synthesized
+      # record can't guess. Synthesized record is the fallback only.
+      if opts.key?(:symbol)
+        db_meta = knowledge_cache.lookup_symbol(
+          framework: framework.to_s, symbol: symbol_name.to_s
+        )
+        sym_meta = db_meta if db_meta
+      else
+        # Non-C shapes: register synthesized record into transient tier so
+        # downstream lookups (Dispatcher, NamespaceBuilder) see it.
+        knowledge_cache.register_transient(
+          framework: framework.to_s, symbol: symbol_name.to_s, record: sym_meta
+        )
+      end
+
+      raise Apple::DiscoveryError, "symbol not in knowledge base: #{framework}::#{symbol_name}" unless sym_meta
 
       result = compiler.compile(framework: framework.to_s, symbol: sym_meta)
       unless result.success?
-        raise CompileError,
+        raise Apple::CompileError,
               "discover failed at #{result.error_stage}: #{result.error_detail}"
       end
-      install_into_box(framework, symbol, sym_meta)
+      install_into_box(framework, symbol_name, sym_meta)
       true
+    end
+
+    # Build a symbol record (Hash) for the requested shape without
+    # touching the KB. Public for testability — Apple.discover wraps this
+    # plus transient register + compile.
+    def _synthesize_symbol_record(framework:, **opts)
+      base = { id: -1, signature: nil, abi: nil, documentation: nil,
+               parameters_json: "[]", requires_main_thread: false,
+               content_hash: nil, fields_json: nil }
+      case
+      when opts.key?(:symbol)
+        base.merge(name: opts[:symbol].to_s, kind: "function", abi: "c")
+      when opts.key?(:class_method)
+        base.merge(
+          name: "#{opts[:klass]}.#{opts[:class_method]}",
+          kind: "objc_method_class",
+          objc_class: opts[:klass].to_s, selector: opts[:class_method].to_s,
+          params: opts[:params], return_kind: opts[:return_kind]
+        )
+      when opts.key?(:selector)
+        base.merge(
+          name: "#{opts[:klass]}##{opts[:selector]}",
+          kind: "objc_method_instance",
+          objc_class: opts[:klass].to_s, selector: opts[:selector].to_s,
+          params: opts[:params], return_kind: opts[:return_kind]
+        )
+      when opts.key?(:swift_initializer)
+        base.merge(
+          name: "#{opts[:klass]}.#{opts[:swift_initializer]}",
+          kind: "swift_init",
+          swift_class: opts[:klass].to_s,
+          swift_initializer: opts[:swift_initializer].to_s,
+          params: opts[:params], return_kind: opts[:return_kind]
+        )
+      when opts.key?(:swift_property)
+        base.merge(
+          name: "#{opts[:klass]}.#{opts[:swift_property]}",
+          kind: "swift_property",
+          swift_class: opts[:klass].to_s,
+          swift_property: opts[:swift_property].to_s,
+          return_kind: opts[:return_kind]
+        )
+      when opts.key?(:swift_func)
+        rec = base.merge(
+          name: opts[:swift_func].to_s, kind: "swift_func",
+          swift_func: opts[:swift_func].to_s,
+          params: opts[:params], return_kind: opts[:return_kind]
+        )
+        rec[:type_args] = opts[:type_args] if opts.key?(:type_args)
+        rec
+      else
+        raise Apple::DiscoveryError,
+          "Apple.discover requires one of: symbol, selector, class_method, swift_func, swift_initializer, swift_property"
+      end
+    end
+
+    # Pick the user-visible symbol name from the keyword shape used.
+    # Returned name flows into Apple::<Framework>.<name>(...) dispatch.
+    def _discover_symbol_name(opts)
+      return opts[:symbol]            if opts.key?(:symbol)
+      return opts[:class_method]      if opts.key?(:class_method)
+      return opts[:selector]          if opts.key?(:selector)
+      return opts[:swift_initializer] if opts.key?(:swift_initializer)
+      return opts[:swift_property]    if opts.key?(:swift_property)
+      return opts[:swift_func]        if opts.key?(:swift_func)
+      raise Apple::DiscoveryError,
+        "Apple.discover requires one of: symbol, selector, class_method, swift_func, swift_initializer, swift_property"
     end
 
     # Eagerly populate Apple::<Framework> modules and their type constants from
