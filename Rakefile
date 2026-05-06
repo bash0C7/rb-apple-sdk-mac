@@ -44,6 +44,59 @@ namespace :apple do
       puts "synced #{generated} -> #{target}"
     end
   end
+
+  namespace :cache do
+    # Cache directory layout: ~/.cache/rb-apple-sdk-mac/<sdk_version>/{lib,sources}
+    # + compiled_glue.sqlite (compiled_glue_cache.rb で管理)。
+    # CACHE_SCHEMA_VERSION bump 時 / dylib export 名変更時に lib/sources を
+    # 一括 invalidate するための明示 task。 直接 `rm -rf` するのは禁止 (user
+    # feedback 2026-05-07): scope を必ず Rakefile task で固定する。
+    CACHE_ROOT = File.expand_path("~/.cache/rb-apple-sdk-mac")
+
+    def _safe_inside_cache_root?(path)
+      abs = File.expand_path(path)
+      abs.start_with?(CACHE_ROOT + File::SEPARATOR) || abs == CACHE_ROOT
+    end
+
+    desc "Clear compiled glue dylibs + Swift sources for the given SDK version (default: env SDK_VERSION or 26.2)"
+    task :clear_glue do
+      require "fileutils"
+      sdk_version = ENV["SDK_VERSION"] || "26.2"
+      raise "invalid SDK_VERSION '#{sdk_version}'" unless sdk_version =~ /\A[0-9.]+\z/
+      base = File.join(CACHE_ROOT, sdk_version)
+      raise "cache base outside CACHE_ROOT: #{base}" unless _safe_inside_cache_root?(base)
+      unless File.directory?(base)
+        puts "no cache to clear at #{base}"
+        next
+      end
+      ["lib", "sources"].each do |sub|
+        dir = File.join(base, sub)
+        next unless File.directory?(dir) && _safe_inside_cache_root?(dir)
+        Dir.glob(File.join(dir, "*")).each do |entry|
+          next unless _safe_inside_cache_root?(entry)
+          FileUtils.rm_rf(entry)
+        end
+        puts "cleared #{dir}"
+      end
+    end
+
+    desc "Clear the compiled_glue.sqlite DB for the given SDK version (default: env SDK_VERSION or 26.2)"
+    task :clear_db do
+      require "fileutils"
+      sdk_version = ENV["SDK_VERSION"] || "26.2"
+      raise "invalid SDK_VERSION '#{sdk_version}'" unless sdk_version =~ /\A[0-9.]+\z/
+      base = File.join(CACHE_ROOT, sdk_version)
+      raise "cache base outside CACHE_ROOT: #{base}" unless _safe_inside_cache_root?(base)
+      Dir.glob(File.join(base, "compiled_glue*.sqlite*")).each do |entry|
+        next unless _safe_inside_cache_root?(entry)
+        FileUtils.rm_f(entry)
+        puts "cleared #{entry}"
+      end
+    end
+
+    desc "Clear all cache artifacts (glue + sources + DB) for the given SDK version"
+    task :clear_all => [:clear_glue, :clear_db]
+  end
 end
 
 task compile: ["runtime:codegen_callback_pillar", "apple:runtime:sync_header"]
