@@ -71,6 +71,15 @@ module AppleSDKMac
       def generate(framework:, symbol:, glue_id:)
         return nil unless symbol[:kind] == "function" && symbol[:abi] == "c"
         params = parse_params(symbol[:parameters_json])
+        # Phase 7 — KB-side classification fix-up. `void *` single-pointer
+        # parameters carry an in-cookie (refCon) by Apple-API convention
+        # but the knowledge importer occasionally tags nullable void*
+        # as is_out_param=true (true out-pointers are double-pointers,
+        # `void **`). Force the flag back to in so the call shape is
+        # not corrupted (`MIDIPortConnectSource(port, source, )` etc.).
+        params.each do |p|
+          p[:is_out_param] = false if p[:kind] == "void_ptr_nilable"
+        end
         ctx = { framework: framework, knowledge_cache: @kc, struct_visited: Set.new }
         marshallers = params.map.with_index { |p, i| Marshaller.for(p, i, ctx) }
         return nil if marshallers.any?(&:nil?)

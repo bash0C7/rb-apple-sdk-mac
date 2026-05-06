@@ -58,14 +58,16 @@ module AppleSDKMac
 
       # Phase 7 — narrow the Int64 in_load value to the target C scalar
       # type at the call site. swiftc 6 rejects implicit Int64 → UInt32
-      # / Int32 / CFStringEncoding (= UInt32 typealias) conversions, so
-      # we wrap the variable in `<TargetType>(truncatingIfNeeded:)`. For
-      # `Int64` the wrap is unnecessary and would generate noise; pass
-      # through unchanged.
+      # / Int32 / CFStringEncoding conversions; we use numericCast which
+      # infers the target FixedWidthInteger type from the call site, so
+      # framework-typedef'd integers (ItemCount, CFIndex, OSStatus,
+      # OSType, CFStringEncoding) all work without requiring the typedef
+      # to be visible at glue lexical scope. For `Int64` the cast is
+      # unnecessary noise; pass through unchanged.
       def call_arg
         ctype = scalar_type_token(@param[:type])
         return @param[:name] if ctype.nil? || ctype == "Int64"
-        "#{ctype}(truncatingIfNeeded: #{@param[:name]})"
+        "numericCast(#{@param[:name]})"
       end
 
       private

@@ -64,12 +64,17 @@ task test: :compile
 # subtasks include env-gated heavy ones; a full v1.0 ship run on
 # macOS 26 hardware should report PASS for everything below.
 namespace :test do
-  desc "Run the spec §9 release-quality suite (test + canonical + examples + bench)"
+  desc "Run the spec §9 release-quality suite (test + canonical + examples + coverage + leak + concurrent + bench)"
   task release_quality: :test do
-    sh "bundle", "exec", "ruby", "-Ilib", "-Itest",
-       "test/integration/readme_canonical_test.rb"
-    sh "bundle", "exec", "ruby", "-Ilib", "-Itest",
-       "test/integration/examples_smoke_test.rb"
+    [
+      "test/integration/readme_canonical_test.rb",
+      "test/integration/examples_smoke_test.rb",
+      "test/integration/discover_coverage_test.rb",
+      "test/integration/memory_leak_test.rb",
+      "test/concurrency/concurrent_discover_test.rb"
+    ].each do |t|
+      sh "bundle", "exec", "ruby", "-Ilib", "-Itest", t
+    end
     # Default budget here is loose (1000µs) so a normal CI box passes.
     # Override via BENCH_BUDGET_US=200 for the strict spec §9 target.
     sh({ "RUBY_BOX" => "1", "BENCH_BUDGET_US" => ENV["BENCH_BUDGET_US"] || "1000" },
