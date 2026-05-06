@@ -69,6 +69,13 @@ module AppleSDKMac
       end
 
       def generate(framework:, symbol:, glue_id:)
+        # T42-T48 — kind dispatcher。Apple.discover の synth record で
+        # objc/swift kinds が来たら専用 emitter に routing。C-function 経路は
+        # 既存 path を維持。未対応 kind は nil で LLM fallback へ流す。
+        case symbol[:kind]
+        when "objc_method_class"
+          return emit_objc_class_method(framework: framework, symbol: symbol, glue_id: glue_id)
+        end
         return nil unless symbol[:kind] == "function" && symbol[:abi] == "c"
         params = parse_params(symbol[:parameters_json])
         # Phase 7 — KB-side classification fix-up. `void *` single-pointer
@@ -164,6 +171,98 @@ module AppleSDKMac
               #{body.join("\n    ")}
           }
         SWIFT
+      end
+
+      # T42 — ObjC class method emit (spec §3.4.1)。
+      # Apple.discover(class_method: "stringWithUTF8String:", ...) で来た synth
+      # record を Swift glue に。selector 末尾 colon を strip し、
+      # `Klass.swiftMethod(args)` 形式の call site を emit。
+      def emit_objc_class_method(framework:, symbol:, glue_id:)
+        klass = symbol[:objc_class].to_s
+        selector = symbol[:selector].to_s
+        swift_method = swift_method_name_from_selector(selector)
+        params = symbol[:params] || []
+        return_kind = (symbol[:return_kind] || :void).to_sym
+        swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
+        exported = "glue_#{glue_id}_#{swift_id}"
+
+        in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i) }
+        call_args = params.each_with_index.map { |_, i| "arg#{i}" }.join(", ")
+        call_expr = "#{klass}.#{swift_method}(#{call_args})"
+
+        body = in_loads + ["let raw = #{call_expr}"] + objc_return_lines(return_kind, "raw")
+
+        <<~SWIFT
+          import #{framework}
+          import Foundation
+
+          #{HEADER}
+          @c
+          public func #{exported}(
+              _ argv: UnsafePointer<UInt>, _ argc: Int32
+          ) -> UInt {
+              #{body.join("\n    ")}
+          }
+        SWIFT
+      end
+
+      # selector → Swift method 名 (spec §3.4.1)。
+      # single-segment `stringWithUTF8String:` → `stringWithUTF8String`
+      # multi-segment は init 専用が大半（T44 の instance method で本格対応）。
+      # class method の multi-segment は rare、暫定的に最初の segment を採用。
+      def swift_method_name_from_selector(selector)
+        parts = selector.split(":", -1).reject(&:empty?)
+        return selector if parts.empty?
+        return parts[0] if parts.size == 1
+        parts[0]
+      end
+
+      # objc/swift kind 用の inline argv binding。`:params` array の kind symbol
+      # に応じて `let arg<i>` を Swift で declare。既存 Marshaller 経路は
+      # parameters_json + clang AST type を要求するので、synth record（params:
+      # symbol kinds の配列）専用に inline 展開する。
+      def objc_in_load(kind_sym, index)
+        case kind_sym.to_sym
+        when :string
+          "var v#{index} = argv[#{index}]; let arg#{index} = rb_string_value_cstr(&v#{index})"
+        when :int
+          "let arg#{index}: Int64 = rb_num2ll(argv[#{index}])"
+        when :bool
+          "let arg#{index}: Bool = (argv[#{index}] != Qfalse && argv[#{index}] != Qnil)"
+        when :float
+          "let arg#{index}: Double = rb_num2dbl(argv[#{index}])"
+        when :opaque_ref
+          "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{index}])))"
+        when :cftype_ref
+          "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{index}])))"
+        when :void_ptr_nilable
+          "let arg#{index}: UnsafeMutableRawPointer? = (argv[#{index}] == Qnil) ? nil : UnsafeMutableRawPointer(bitPattern: Int(rb_num2ll(argv[#{index}])))"
+        else
+          raise ArgumentError, "objc_in_load: unsupported param kind #{kind_sym.inspect}"
+        end
+      end
+
+      # synth record の return_kind を Ruby VALUE 化する Swift snippet 列。
+      # opaque_ref は ObjC instance を Unmanaged.passRetained で raw pointer 化。
+      def objc_return_lines(return_kind, var)
+        case return_kind.to_sym
+        when :opaque_ref
+          [
+            "if #{var} == nil { return Qnil }",
+            "let p = Unmanaged.passRetained(#{var}! as AnyObject).toOpaque()",
+            "return rb_ull2inum(UInt64(UInt(bitPattern: p)))"
+          ]
+        when :int
+          ["return rb_ll2inum(Int64(#{var}))"]
+        when :bool
+          ["return #{var} ? Qtrue : Qfalse"]
+        when :float
+          ["return rb_float_new(#{var})"]
+        when :void
+          ["return Qnil"]
+        else
+          raise ArgumentError, "objc_return_lines: unsupported return_kind #{return_kind.inspect}"
+        end
       end
 
       private
