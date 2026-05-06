@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "apple_sdk_mac/version"
+require_relative "apple_sdk_mac/errors"
 require_relative "apple_sdk_mac/apple_sdk_mac_runtime"
 require_relative "apple_sdk_mac/public_api"
 
