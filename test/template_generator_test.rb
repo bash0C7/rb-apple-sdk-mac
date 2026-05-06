@@ -543,6 +543,43 @@ class TestTemplateGenerator < Test::Unit::TestCase
       "T45: multi-label init は labeled args full set")
   end
 
+  # T46 — kind=swift_property は class-side static property access form。
+  # spec §3.4.4 base shape。NSURLSession.shared, ProcessInfo.processInfo etc.
+  # 戻り値 marshaling は return_kind に従う。
+  def test_swift_property_static_emits_klass_dot_property
+    sym = {
+      name: "NSURLSession.shared",
+      kind: "swift_property",
+      swift_class: "NSURLSession",
+      swift_property: "shared",
+      return_kind: :opaque_ref,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "swp1")
+    refute_nil swift, "T46: swift_property must produce template glue"
+    assert_match(/import Foundation/, swift)
+    assert_match(/let raw = NSURLSession\.shared/, swift,
+      "T46: static property access form `Klass.prop`")
+    assert_match(/Unmanaged\.passRetained/, swift,
+      "T46: opaque_ref 戻り値は passRetained で raw pointer")
+  end
+
+  def test_swift_property_returns_int
+    sym = {
+      name: "ProcessInfo.processInfo",  # 適当な int-returning property を想定
+      kind: "swift_property",
+      swift_class: "ProcessInfo",
+      swift_property: "processInfo",  # 実際は ProcessInfo を返すが test 用に return_kind 上書き
+      return_kind: :int,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "swp2")
+    refute_nil swift
+    assert_match(/let raw = ProcessInfo\.processInfo/, swift)
+    assert_match(/rb_ll2inum/, swift,
+      "T46: int 戻り値は rb_ll2inum")
+  end
+
   # Phase 7 T4: CF Create-rule auto-ARC. A symbol whose knowledge record has
   # cf_create_rule=true gets its CF-typed return value automatically wrapped
   # via the runtime ARC pillar's runtime_arc_box_cftype entry point. The
