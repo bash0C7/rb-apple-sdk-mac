@@ -206,7 +206,11 @@ module AppleSDKMac
       TXT
 
       def initialize(model: nil, session: nil)
-        @session = session || AppleFoundationModel::Session.new(instructions: INSTRUCTIONS, model: model)
+        # rb-foundation-model-mac's Session.new accepts instructions: only.
+        # The model: parameter is preserved on this constructor for forward
+        # compatibility but is currently ignored at the underlying session.
+        _ = model
+        @session = session || AppleFoundationModel::Session.new(instructions: INSTRUCTIONS)
       end
 
       def generate(framework:, symbol:, glue_id:)

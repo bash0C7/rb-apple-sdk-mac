@@ -17,4 +17,12 @@ module Apple
   def self.discover(**kwargs); ::AppleSDKMac.discover(**kwargs); end
   def self.event_loop(&block); ::AppleSDKMac.event_loop(&block); end
   def self.configure(&block); ::AppleSDKMac.configure(&block); end
+
+  # Eagerly populate Apple::<Framework> modules and their constants from the
+  # knowledge base without compiling any glue. Method calls on the populated
+  # modules still trigger lazy discover/compile per symbol on first invocation.
+  # Useful for examples that introspect the namespace before calling anything.
+  def self.bootstrap!
+    ::AppleSDKMac.bootstrap!
+  end
 end

@@ -72,6 +72,21 @@ module AppleSDKMac
       true
     end
 
+    # Eagerly populate Apple::<Framework> modules and their type constants from
+    # the knowledge base without compiling glue. Function methods are still
+    # defined (proxied through the dispatcher) but no symbol is dlopen'd until
+    # called. Idempotent.
+    def bootstrap!
+      builder = NamespaceBuilder.new(
+        knowledge_cache: knowledge_cache, target: ::Apple,
+        dispatcher: ->(framework:, symbol:, args:) {
+          dispatcher.dispatch(framework: framework, symbol: symbol, args: args)
+        }
+      )
+      builder.build!
+      true
+    end
+
     def event_loop
       ctx = EventLoopContext.new
       until ctx.stopped?
