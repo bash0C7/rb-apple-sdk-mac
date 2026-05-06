@@ -418,6 +418,36 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["block_persistent"] = BlockPersistentMarshaller
 
+    # T52a — `() -> Void` escaping block (e.g. NSBlockOperation の
+    # +blockOperationWithBlock:)。既存 BlockPersistentMarshaller は
+    # BoxedBlockHandle + arity 1 前提なので、arity 0 / void return の
+    # 直接 emit パスを別 kind として用意。
+    #
+    # ライフタイム: block literal が ObjC ブロックに bridge される時点で
+    # Block_copy 相当が走り Apple 側 (NSOperationQueue) が retain する。
+    # Ruby Proc は proc_registry に pin して GC を防ぐ。block_persistent と
+    # 違い handle を返さない (1-shot 用途想定、auto release は queue 任せ)。
+    class BlockPersistentVoidMarshaller < Marshaller
+      def in_load
+        name = @param[:name]
+        i = @index
+        <<~SWIFT.chomp
+          let #{name}: (@convention(block) () -> Void)?
+              if argv[#{i}] == Qnil {
+                  #{name} = nil
+              } else {
+                  let #{name}_pid_v = rb_obj_id(argv[#{i}])
+                  rb_hash_aset(runtime_proc_registry_get(), #{name}_pid_v, argv[#{i}])
+                  let #{name}_pid_u = rb_num2ull(#{name}_pid_v)
+                  #{name} = {
+                      ThreadingBridge.enqueueFromAppleThread(procId: #{name}_pid_u, arg: 0)
+                  }
+              }
+        SWIFT
+      end
+    end
+    Marshaller::REGISTRY["block_persistent_void"] = BlockPersistentVoidMarshaller
+
     class VoidPtrNilableMarshaller < Marshaller
       def in_load
         name = @param[:name]; i = @index
