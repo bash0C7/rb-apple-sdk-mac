@@ -258,14 +258,17 @@ module AppleSDKMac
       [File.join(gem_root, "ext/apple_sdk_mac_runtime/.build/arm64-apple-macosx/release/Modules")].select { |p| File.directory?(p) }
     end
 
-    def install_into_box(framework, symbol, sym_meta)
+    # T41 — Apple.discover の install path を install_one 経由に。
+    # build! 全走査の毎回コストが消え、transient synth record（DB に未収載
+    # の objc/swift kinds）も install できるようになる（spec G2 fix）。
+    def install_into_box(framework, _canonical_name, sym_meta)
       builder = NamespaceBuilder.new(
         knowledge_cache: knowledge_cache, target: ::Apple,
         dispatcher: ->(framework:, symbol:, args:) {
           dispatcher.dispatch(framework: framework, symbol: symbol, args: args)
         }
       )
-      builder.build!
+      builder.install_one(framework.to_s, sym_meta)
     end
   end
 
