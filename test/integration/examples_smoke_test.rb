@@ -78,16 +78,39 @@ class TestExamplesSmoke < Test::Unit::TestCase
     assert_match(/^async OK$/, res[:stdout])
   end
 
-  # Phase 7 T10 — Swift TaskGroup parallel fan-out via 3 Ruby threads
-  # each calling the runtime's async_await_sleep_and_double. Asserts
-  # 3 parallel results match doubled inputs and elapsed_ms is closer
-  # to max(inputs) than sum(inputs) (i.e. parallel, not sequential).
-  def test_async_taskgroup_fans_out_in_parallel
+  # T52 — Apple Foundation framework (NSOperationQueue + NSBlockOperation)
+  # 経由の真の並列実行。Ruby Thread fake と runtime fixture (T51) 退路を
+  # 排除し、release 水準 README L3 を直接満たす example。
+  #
+  # spec § 4 / spec § 4.3 acceptance:
+  # - examples/async_taskgroup.rb から `Thread.new` と
+  #   `AppleSDKMacRuntime::Test` literal を完全消去
+  # - Apple::Foundation::NSOperationQueue を直接使用 (Apple.discover 経由のみ)
+  # - 出力 `results=[20, 40, 60]` (each input doubled)
+  # - 出力 `parallel=true` (elapsed_ms < max(input) + 80)
+  # - DEFERRED literal 不在
+  def test_async_taskgroup_uses_apple_foundation_operationqueue
+    src = File.read(File.join(GEM_ROOT, "examples", "async_taskgroup.rb"))
+    refute_match(/Thread\.new/, src,
+      "T52: Ruby Thread fake は禁止 (release_quality 命題)")
+    refute_match(/AppleSDKMacRuntime::Test/, src,
+      "T52: runtime fixture (T51) 退路は禁止")
+    assert_match(/Apple::Foundation::NSOperationQueue/, src,
+      "T52: must use Apple Foundation NSOperationQueue (release 水準 README L3)")
+
     res = run_example("async_taskgroup.rb")
     assert_equal 0, res[:exitstatus],
       "async_taskgroup.rb exited #{res[:exitstatus]}; stderr:\n#{res[:stderr]}"
-    assert_match(/^TaskGroup OK$/, res[:stdout],
-      "expected TaskGroup OK line; got:\n#{res[:stdout]}")
+    refute_match(/DEFERRED/, res[:stdout],
+      "T52: DEFERRED 退路は禁止")
+    assert_match(/results=\[20, 40, 60\]/, res[:stdout],
+      "T52: each input doubled (10*2=20, 20*2=40, 30*2=60)")
+    assert_match(/parallel=true/, res[:stdout],
+      "T52: must run in parallel (elapsed_ms < max(input)+80)")
+    elapsed = res[:stdout][/elapsed_ms=(\d+)/, 1].to_i
+    assert elapsed < 110,
+      "T52: elapsed_ms=#{elapsed} suggests sequential (sum) execution; " \
+      "expected near max(input)=30 + overhead"
   end
 
   # Phase 7 T9 — NSURLSession + escaping completion block (LLM
