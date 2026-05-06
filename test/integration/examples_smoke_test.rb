@@ -28,16 +28,22 @@ class TestExamplesSmoke < Test::Unit::TestCase
       "expected vision_ocr OK or DEFERRED line; got:\n#{res[:stdout]}")
   end
 
-  # Phase 7 T11 — CFStringCreateWithCString round-trip via auto-ARC box.
-  # Acceptance: example exits 0, prints "auto-ARC OK" line. Source code
-  # contains zero CFRelease references (spec §3.5 requires no manual
-  # release in user code).
-  def test_cf_string_create_runs_under_autoarc
+  # T50 — CFStringCreateWithCString → CFStringGetLength → CFStringGetCString
+  # の round-trip。spec §3.9 + §6 acceptance: "hello" を Ruby String に
+  # 戻せること。autoarc box pointer は CFTypeRefMarshaller の
+  # runtime_arc_unbox_cftype 経由で内部 CFString pointer に unwrap される。
+  def test_cf_string_create_round_trips_hello_via_autoarc_box
     res = run_example("cf_string_create.rb")
     assert_equal 0, res[:exitstatus],
       "cf_string_create.rb exited #{res[:exitstatus]}; stderr:\n#{res[:stderr]}"
     assert_match(/auto-ARC OK/, res[:stdout],
       "expected 'auto-ARC OK' message; got:\n#{res[:stdout]}")
+    assert_match(/^length=5$/, res[:stdout],
+      "T50: CFStringGetLength(box) で 5 が取れる (hello)")
+    assert_match(/^read_back=hello$/, res[:stdout],
+      "T50: CFStringGetCString で Ruby String 'hello' に戻せる (round-trip)")
+    refute_match(/DEFERRED/, res[:stdout],
+      "T50: DEFERRED 退路は禁止 (release_quality 命題)")
     src = File.read(File.join(GEM_ROOT, "examples", "cf_string_create.rb"))
     refute_match(/CFRelease/i, src.gsub(/^#.*$/, ""),
       "spec §3.5 forbids manual CFRelease in user code (comments excluded)")
