@@ -291,6 +291,39 @@ puts "OperationQueue OK"
 
 各 commit 独立。
 
+### 4.5.-4 確実発火する延長 task: T52g (single-segment class method の preposition-aware bridge)
+
+**発火条件**: T52 GREEN smoke リトライで
+```
+error: 'sleepForTimeInterval' has been renamed to 'sleep(forTimeInterval:)'
+note: 'sleepForTimeInterval' was obsoleted in Swift 3
+```
+
+`+sleepForTimeInterval:` は Swift 6 で `Thread.sleep(forTimeInterval:)` に
+rename されている。現 swift_call_for_class_method は "With" preposition 専用
+regex で、`sleepForTimeInterval` の "For" preposition では match せず、 fallback
+で `Thread.sleepForTimeInterval(arg0)` を emit (compile error)。
+
+Apple ObjC→Swift bridge convention:
+- `<verb>With<Type>:` → `<verb>(<typeAsLabel>:)` where label = lowerCamel(<Type>)
+  e.g. `stringWithUTF8String:` → `string(utf8String:)` → `NSString(utf8String:)`
+- `<verb><Preposition><Type>:` (For/By/Using/From/At/In/To/On) →
+  `<verb>(<prepositionWithType>:)` where label = lowerCamel(Preposition + Type)
+  e.g. `sleepForTimeInterval:` → `sleep(forTimeInterval:)`
+
+**RED**: template_generator_test.rb に
+- selector "sleepForTimeInterval:" の class method emit が `Thread.sleep(forTimeInterval: arg0)` 形を出す
+
+の期待 test 追加。
+
+**GREEN**: swift_call_for_class_method の verb-preposition-type 分解を
+`PREPOSITIONS` 配列で順次試行。"With" の場合は label = lowerCamel(<Type>)、
+他の prepositions では label = lowerCamel(<Preposition> + <Type>)。
+
+**HEADER 不変** → CACHE_SCHEMA_VERSION bump 不要。
+
+**commit**: `test: T52g RED ...` / `feat: T52g GREEN — preposition-aware single-segment class method bridge`
+
 ### 4.5.-3 確実発火する延長 task: T52f (multi-segment instance method の first-arg unlabeled bridge)
 
 **発火条件**: T52 GREEN smoke リトライで
@@ -827,6 +860,7 @@ T52c RED → T52c GREEN     (emit_swift_init NS-prefix strip + non-failable init
 T52d RED → T52d GREEN     (objc_in_load 拡張: block_persistent_void + array_of_opaque_ref + Hash 形)
 T52e RED → T52e GREEN     (emit_objc_*_method の NS-strip + non-optional return 対応)
 T52f RED → T52f GREEN     (multi-segment instance method first-arg unlabeled bridge)
+T52g RED → T52g GREEN     (single-segment class method preposition-aware bridge)
 T52  GREEN                 (NSOperationQueue 経由、Apple.discover のみ)
 T53a RED → T53a GREEN     (block_persistent multi-arg / typed)
 T53  RED → T53 GREEN      (HTTP via WEBrick fixture、file:// 退路廃止)

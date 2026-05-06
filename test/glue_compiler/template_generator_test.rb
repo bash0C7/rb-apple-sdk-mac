@@ -127,6 +127,28 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_not_match(/ErrorBridge\.rb_raise_via_runtime/, out)
   end
 
+  # T52g — single-segment class method の preposition-aware bridge。
+  # `+sleepForTimeInterval:` は Swift 6 で `sleep(forTimeInterval:)` に rename。
+  # ObjC→Swift bridge は "With" 以外の preposition (For/By/Using/From/At/In/To/On)
+  # にも対応する必要がある。
+  def test_emit_objc_class_method_for_preposition_bridge
+    s = sym(name: "NSThread.sleepForTimeInterval:",
+            kind: "objc_method_class",
+            signature: "+ (void)sleepForTimeInterval:(NSTimeInterval)ti",
+            parameters: [])
+    s[:objc_class] = "NSThread"
+    s[:selector] = "sleepForTimeInterval:"
+    s[:params] = [:float]
+    s[:return_kind] = :void
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T52g: must emit"
+    assert_match(/Thread\.sleep\(forTimeInterval:\s*arg0\)/, out,
+                 "T52g: For-preposition verb must split as `sleep(forTimeInterval:)`")
+    refute_match(/Thread\.sleepForTimeInterval\(arg0\)/, out,
+                 "T52g: must not emit obsoleted ObjC method form")
+  end
+
   # T52f — multi-segment instance method (verb-with-type pattern 非該当) の
   # first-arg unlabeled bridge。
   # ObjC selector `addOperations:waitUntilFinished:` の Swift bridged signature
