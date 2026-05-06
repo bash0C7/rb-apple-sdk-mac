@@ -191,17 +191,17 @@ module AppleSDKMac
     # 後続単語の先頭大文字は維持。
     def _lower_first_camel(s)
       return "" if s.empty?
-      upper = s.match(/\A[A-Z]+/)
-      return s[0].downcase + (s[1..] || "") unless upper
-      run = upper[0]
-      if run.length == s.length
-        s.downcase
-      elsif run.length == 1
-        s[0].downcase + s[1..]
-      else
-        # multi-letter acronym followed by uppercase-starting word: the last
-        # uppercase of the run starts the next word.
+      m = s.match(/\A[A-Z]+/)
+      return s[0].downcase + (s[1..] || "") unless m
+      run = m[0]
+      return s.downcase if run.length == s.length
+      return s[0].downcase + s[1..] if run.length == 1
+      next_char = s[run.length]
+      if next_char =~ /[a-z]/
         run[0..-2].downcase + run[-1] + s[run.length..]
+      else
+        # acronym followed by digit/non-letter: lowercase the entire run.
+        run.downcase + s[run.length..]
       end
     end
 

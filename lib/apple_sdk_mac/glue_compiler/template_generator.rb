@@ -177,18 +177,21 @@ module AppleSDKMac
       # Apple.discover(class_method: "stringWithUTF8String:", ...) で来た synth
       # record を Swift glue に。selector 末尾 colon を strip し、
       # `Klass.swiftMethod(args)` 形式の call site を emit。
+      #
+      # T43 修正: Swift 6 は多くの ObjC convenience constructors
+      # (`+stringWithUTF8String:`, `+arrayWithObjects:count:` etc) を init に
+      # rename する (NS_SWIFT_NAME / API_RENAMED)。selector が `<verb>With<Type>:`
+      # 形式の場合は `Klass(label: arg)` init form を emit。
       def emit_objc_class_method(framework:, symbol:, glue_id:)
         klass = symbol[:objc_class].to_s
         selector = symbol[:selector].to_s
-        swift_method = swift_method_name_from_selector(selector)
         params = symbol[:params] || []
         return_kind = (symbol[:return_kind] || :void).to_sym
         swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
         exported = "glue_#{glue_id}_#{swift_id}"
 
         in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i) }
-        call_args = params.each_with_index.map { |_, i| "arg#{i}" }.join(", ")
-        call_expr = "#{klass}.#{swift_method}(#{call_args})"
+        call_expr = swift_call_for_class_method(klass, selector, params)
 
         body = in_loads + ["let raw = #{call_expr}"] + objc_return_lines(return_kind, "raw")
 
@@ -215,6 +218,54 @@ module AppleSDKMac
         return selector if parts.empty?
         return parts[0] if parts.size == 1
         parts[0]
+      end
+
+      # T43 — class method を Swift call expression に変換。Swift 6 は
+      # `+<verb>With<Type>:` shape の convenience constructors を init に rename
+      # (e.g. NSString.stringWithUTF8String → NSString.init(utf8String:))。
+      # この shape の selector は init form を emit する。それ以外は class method
+      # form (`Klass.swiftMethod(args)`) を維持。
+      def swift_call_for_class_method(klass, selector, params)
+        parts = selector.split(":", -1).reject(&:empty?)
+        if parts.size == 1
+          sole = parts[0]
+          if (m = sole.match(/\A([a-z]+[a-z0-9]*)With([A-Z]\w*)\z/))
+            label = lower_first_camel_local(m[2])
+            "#{klass}(#{label}: arg0)"
+          else
+            args_str = params.each_index.map { |i| "arg#{i}" }.join(", ")
+            "#{klass}.#{sole}(#{args_str})"
+          end
+        else
+          # multi-segment class method: 最初の segment を init label の頭に
+          # 持ち、残りを segment label に対応させる convenience init form。
+          head = parts[0].sub(/\A[a-z]+With/, "")
+          head = lower_first_camel_local(head)
+          labels = head.empty? ? parts[1..] : ([head] + parts[1..])
+          args = params.each_index.map { |i| "arg#{i}" }
+          label_args = labels.zip(args).map { |l, a| "#{l}: #{a}" }.join(", ")
+          "#{klass}(#{label_args})"
+        end
+      end
+
+      # acronym-aware first-word lowercase (Apple ObjC→Swift bridging rule)。
+      # CGImage→cgImage, URL→url, HTTPHeader→httpHeader, Image→image,
+      # UTF8String→utf8String (acronym + digit boundary も全 lowercase 化)。
+      def lower_first_camel_local(s)
+        return "" if s.empty?
+        m = s.match(/\A[A-Z]+/)
+        return s[0].downcase + (s[1..] || "") unless m
+        run = m[0]
+        return s.downcase if run.length == s.length
+        return s[0].downcase + s[1..] if run.length == 1
+        next_char = s[run.length]
+        if next_char =~ /[a-z]/
+          # 最後 upper letter が次の word を始める: 残りの acronym を lowercase。
+          run[0..-2].downcase + run[-1] + s[run.length..]
+        else
+          # acronym 後が digit / 非 letter → run 全体を lowercase。
+          run.downcase + s[run.length..]
+        end
       end
 
       # objc/swift kind 用の inline argv binding。`:params` array の kind symbol
