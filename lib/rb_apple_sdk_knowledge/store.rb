@@ -4,7 +4,11 @@ require "sqlite_vec"
 
 module AppleSDKKnowledge
   class Store
-    SCHEMA_VERSION = 2
+    # Phase 7 / spec §5 — bump for cf_create_rule + objc_kind + swift_kind
+    # columns. ingest population of those columns is staged for v1.1; the
+    # column shape is committed at v1.0 so the mac gem's schema_version
+    # invalidation path doesn't have to thrash on later bumps.
+    SCHEMA_VERSION = 3
 
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;
@@ -77,6 +81,14 @@ module AppleSDKKnowledge
     def migrate!
       @db.execute_batch(SCHEMA_SQL)
       ensure_column!("symbols", "fields_json", "TEXT")
+      # Phase 7 / spec §5 — Apple-API-classification columns. The mac
+      # gem's TemplateGenerator already prefers symbol[:cf_create_rule]
+      # for CF auto-ARC routing (falling back to the Create/Copy naming
+      # heuristic when null); objc_kind / swift_kind unblock the
+      # ObjC method dispatch + Swift initializer / property paths.
+      ensure_column!("symbols", "cf_create_rule", "INTEGER DEFAULT 0")
+      ensure_column!("symbols", "objc_kind",      "TEXT")
+      ensure_column!("symbols", "swift_kind",     "TEXT")
       @db.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
         ["schema_version", SCHEMA_VERSION.to_s]
