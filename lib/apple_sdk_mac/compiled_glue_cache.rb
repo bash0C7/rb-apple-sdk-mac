@@ -12,7 +12,11 @@ module AppleSDKMac
     # in_load を runtime_arc_unbox_cftype 経由 (autoarc box unwrap) に変更。
     # T50 bump → "1.2": CFTypeRefMarshaller の Qnil ガード再構成 (rb_num2ull
     # が Qnil で raise するバグ修正)。
-    CACHE_SCHEMA_VERSION = "1.2"
+    # T54a bump → "1.3": HEADER に rb_ary_entry / runtime_rb_array_len の
+    # @_silgen_name 宣言を追加、ArrayOfOpaqueRefMarshaller を新規追加 (Ruby
+    # Array<opaque ref> → Swift [<OpaqueType>] 変換、NSMutableArray + unsafeBitCast
+    # 経由)。
+    CACHE_SCHEMA_VERSION = "1.3"
 
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;

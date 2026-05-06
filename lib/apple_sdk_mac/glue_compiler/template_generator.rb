@@ -53,6 +53,10 @@ module AppleSDKMac
         func rb_block_proc() -> UInt
         @_silgen_name("rb_obj_id")
         func rb_obj_id(_ v: UInt) -> UInt
+        @_silgen_name("rb_ary_entry")
+        func rb_ary_entry(_ ary: UInt, _ off: Int) -> UInt
+        @_silgen_name("runtime_rb_array_len")
+        func runtime_rb_array_len(_ ary: UInt) -> Int
         @_silgen_name("runtime_proc_registry_get")
         func runtime_proc_registry_get() -> UInt
         @_silgen_name("runtime_arc_box_cftype")

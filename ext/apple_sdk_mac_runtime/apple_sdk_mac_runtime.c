@@ -119,6 +119,15 @@ static VALUE rb_async_taskgroup_double(VALUE self, VALUE a, VALUE b, VALUE c) {
     return LL2NUM(runtime_async_test_taskgroup_double(NUM2LL(a), NUM2LL(b), NUM2LL(c)));
 }
 
+// T54a — Swift glue is unable to resolve `rb_array_len` directly because it's
+// a `static inline` function in CRuby's rarray.h (no symbol exported). Expose
+// a non-inline wrapper here so the array_of_opaque_ref Marshaller can call it
+// via @_silgen_name. `rb_ary_entry` is already a real exported function, so
+// Swift glue can reach it without a wrapper.
+long runtime_rb_array_len(VALUE ary) {
+    return RARRAY_LEN(ary);
+}
+
 static VALUE rb_runloop_pump(VALUE self, VALUE timeout) {
     runtime_runloop_pump(NUM2DBL(timeout));
     return Qnil;

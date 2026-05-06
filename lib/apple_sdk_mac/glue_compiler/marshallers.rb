@@ -433,6 +433,47 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["void_ptr_nilable"] = VoidPtrNilableMarshaller
 
+    # T54a — Ruby Array<Integer (opaque ref pointer)> → Swift [<OpaqueType>].
+    # Apple framework instance methods that take NSArray<X*>* (e.g.
+    # NSOperationQueue.addOperations:waitUntilFinished:, VNImageRequestHandler
+    # .performRequests:error:) require a Swift-typed array. We construct an
+    # NSMutableArray, populate it by unsafeBitCast from each Ruby integer's
+    # bit-pattern back to the requested Swift Ref type, then `as!` cast to
+    # the typed Swift array. Empty array passes through as []; nil entries
+    # (Qnil or 0) are skipped.
+    class ArrayOfOpaqueRefMarshaller < Marshaller
+      def in_load
+        return nil if @param[:is_out_param]
+        name = @param[:name]
+        i = @index
+        type = element_type(@param[:type])
+        <<~SWIFT.chomp
+          let #{name}_nsma_v = NSMutableArray()
+              let #{name}_count_v = runtime_rb_array_len(argv[#{i}])
+              for #{name}_k_v in 0..<#{name}_count_v {
+                  let #{name}_raw_v = UInt(rb_num2ull(rb_ary_entry(argv[#{i}], #{name}_k_v)))
+                  if #{name}_raw_v == 0 { continue }
+                  if let #{name}_ptr_v = OpaquePointer(bitPattern: #{name}_raw_v) {
+                      let #{name}_obj_v = unsafeBitCast(#{name}_ptr_v, to: #{type}.self)
+                      #{name}_nsma_v.add(#{name}_obj_v)
+                  }
+              }
+              let #{name} = #{name}_nsma_v as! [#{type}]
+        SWIFT
+      end
+
+      private
+
+      def element_type(t)
+        t.to_s.sub(/\Aconst\s+/, "")
+              .sub(/\s*\*.*\z/, "")
+              .gsub(/\b_(Nonnull|Nullable)\b/, "")
+              .strip
+              .sub(/Ref\z/, "")
+      end
+    end
+    Marshaller::REGISTRY["array_of_opaque_ref"] = ArrayOfOpaqueRefMarshaller
+
     class StructInMarshaller < Marshaller
       def initialize(param, index, ctx)
         super
