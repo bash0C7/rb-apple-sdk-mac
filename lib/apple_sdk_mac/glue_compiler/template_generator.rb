@@ -446,6 +446,22 @@ module AppleSDKMac
         m[1].split(":", -1).reject(&:empty?)
       end
 
+      # T52g — Preposition-aware verb-label split for ObjC→Swift bridge.
+      # Returns [verb, label] when sole matches `<verb><Preposition><Type>` for
+      # any preposition in OBJC_BRIDGE_PREPOSITIONS, else nil.
+      OBJC_BRIDGE_PREPOSITIONS = %w[For By Using From At In To On].freeze
+      def split_preposition_verb(sole)
+        OBJC_BRIDGE_PREPOSITIONS.each do |prep|
+          if (m = sole.match(/\A([a-z][a-zA-Z0-9]*?)#{prep}([A-Z]\w*)\z/))
+            verb = m[1]
+            type_part = m[2]
+            label = lower_first_camel_local(prep + type_part)
+            return [verb, label]
+          end
+        end
+        nil
+      end
+
       # T52c — Swift 6 ObjC class bridge: NS-prefix 落とし。
       # NSOperationQueue → OperationQueue / NSBlockOperation → BlockOperation /
       # NSURL → URL 等。Apple Foundation の標準 bridge rule。
@@ -537,15 +553,20 @@ module AppleSDKMac
         parts = selector.split(":", -1).reject(&:empty?)
         if parts.size == 1
           sole = parts[0]
-          # T52e — `<verb>With<Type>` shape の verb 部分は lowerCamel (mixed
-          # case) も許容: "blockOperationWithBlock" → m[1] = "blockOperation",
-          # m[2] = "Block" → BlockOperation(block: arg0)。旧 regex は verb 部を
-          # 全 lowercase 限定だったため "stringWithUTF8String" は通るが
-          # "blockOperationWithBlock" が unmatched で class method form に
-          # 落ちていた (Swift 6 で error)。
+          # T52e/T52g — Apple ObjC→Swift bridge convention:
+          # 1. `<verb>With<Type>:` (init bridge) → `<klass>(<typeAsLabel>: arg0)`
+          #    label は lowerCamel(<Type>)。e.g. stringWithUTF8String →
+          #    NSString(utf8String: arg0).
+          # 2. `<verb><Preposition><Type>:` (For/By/Using/From/At/In/To/On)
+          #    (class method bridge) → `<klass>.<verb>(<prepositionWithType>: arg0)`
+          #    label は lowerCamel(<Preposition><Type>)。e.g. sleepForTimeInterval
+          #    → Thread.sleep(forTimeInterval: arg0).
           if (m = sole.match(/\A([a-z][a-zA-Z0-9]*?)With([A-Z]\w*)\z/))
             label = lower_first_camel_local(m[2])
             "#{klass}(#{label}: arg0)"
+          elsif (verb_label = split_preposition_verb(sole))
+            verb, label = verb_label
+            "#{klass}.#{verb}(#{label}: arg0)"
           else
             args_str = params.each_index.map { |i| "arg#{i}" }.join(", ")
             "#{klass}.#{sole}(#{args_str})"
