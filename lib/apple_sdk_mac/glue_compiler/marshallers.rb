@@ -123,6 +123,51 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["opaque_ref"] = OpaqueRefMarshaller
 
+    # CF/CG/CV/CT/CM/CL/IO/Sec/AX pointer-typed Refs. Underlying clang shape is
+    # `struct OpaqueX *`, so the Ruby integer (a pointer bit-pattern) must round
+    # trip via OpaquePointer(bitPattern:) and then unsafeBitCast to the real
+    # Swift Ref type. The OpaqueRefMarshaller's `T(rb_num2ull(...))` path is
+    # rejected by swiftc for these typedefs.
+    class CFTypeRefMarshaller < Marshaller
+      def in_load
+        return nil if @param[:is_out_param]
+        type = ref_type(@param[:type])
+        "let #{@param[:name]} = unsafeBitCast(OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{@index}])))!, to: #{type}.self)"
+      end
+
+      def call_arg
+        @param[:is_out_param] ? "&#{@param[:name]}" : @param[:name]
+      end
+
+      def out_init
+        return nil unless @param[:is_out_param]
+        type = ref_type(@param[:type])
+        "var #{@param[:name]}: #{type}? = nil"
+      end
+
+      def out_addr
+        return nil unless @param[:is_out_param]
+        "&#{@param[:name]}"
+      end
+
+      def out_to_ruby
+        return nil unless @param[:is_out_param]
+        # Encode the CF pointer as Ruby Integer via the OpaquePointer raw bit-pattern.
+        # User must CFRelease manually (no auto-ARC bridging in Phase 7).
+        "rb_ull2inum(UInt64(UInt(bitPattern: unsafeBitCast(#{@param[:name]}!, to: OpaquePointer.self))))"
+      end
+
+      private
+
+      def ref_type(t)
+        t.sub(/\Aconst\s+/, "")
+         .sub(/\s*\*.*\z/, "")
+         .gsub(/\b_(Nonnull|Nullable)\b/, "")
+         .strip
+      end
+    end
+    Marshaller::REGISTRY["cftype_ref"] = CFTypeRefMarshaller
+
     # Callback type → CallbackPillar route. MVP catalog: MIDINotifyProc only.
     # Additional signatures are added by listing them in
     # ext/apple_sdk_mac_runtime/callback_signatures.yml + extending this map.

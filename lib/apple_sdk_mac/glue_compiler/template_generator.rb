@@ -139,10 +139,12 @@ module AppleSDKMac
         return "void"   if sig =~ /\A(?:void)\b/
         return "string" if sig =~ /\A(?:CFStringRef|NSString\s*\*|char\s*\*|const\s+char\s*\*)/
         return "bool"   if sig =~ /\A(?:_Bool|Bool|BOOL)\b/
-        return "float"  if sig =~ /\A(?:double|float|CGFloat)\b/
+        return "float"  if sig =~ /\A(?:double|float|CGFloat|CFAbsoluteTime|CFTimeInterval|NSTimeInterval|TimeInterval)\b/
         if sig =~ /\A(?:OSStatus|kern_return_t|int|signed|unsigned|U?Int(?:8|16|32|64)?|SInt(?:8|16|32|64)?|long|short|uint(?:8|16|32|64)_t|int(?:8|16|32|64)_t)\b/
           return "status_int"
         end
+        # Pointer-typed Refs (CF/CG/CV/CT/CM/CL/IO/Sec/AX). See cftype_ref Marshaller.
+        return "cftype_ref" if sig =~ /\A(?:CF|CG|CV|CT|CM|CL|IO|Sec|AX)\w+Ref\b/
         return "opaque_ref" if sig =~ /\A\w+Ref\b/
         "unsupported"
       end
@@ -152,6 +154,10 @@ module AppleSDKMac
         when "string"     then "rb_str_new_cstr(#{swift_var})"
         when "bool"       then "(#{swift_var} ? Qtrue : Qfalse)"
         when "float"      then "rb_float_new(#{swift_var})"
+        when "cftype_ref"
+          # Encode CF pointer as Ruby Integer via OpaquePointer raw bit-pattern.
+          # User is responsible for CFRelease (no ARC bridging in Phase 7).
+          "rb_ull2inum(UInt64(UInt(bitPattern: unsafeBitCast(#{swift_var}, to: OpaquePointer.self))))"
         when "opaque_ref"
           if signature.match?(/\A(?:UInt|uint)/)
             "rb_ull2inum(UInt64(#{swift_var}))"
