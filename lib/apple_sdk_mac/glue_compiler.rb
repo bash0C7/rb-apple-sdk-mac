@@ -81,7 +81,19 @@ module AppleSDKMac
                          error_detail: "LLM generator not provided") unless @llm
 
       @max_llm_retries.times do |attempt|
-        swift_source = @llm.generate(framework: framework, symbol: symbol, glue_id: glue_id)
+        swift_source = begin
+          @llm.generate(framework: framework, symbol: symbol, glue_id: glue_id)
+        rescue StandardError => e
+          # Phase 7 — wrap LLM-side raises (Foundation Models context
+          # overflow, network failure, model load error) into a normal
+          # compile-history attempt row so Apple.discover gets a clean
+          # CompileError instead of an unhandled framework exception.
+          @cache.record_attempt(framework: framework, symbol: symbol[:name],
+                                 generator: "llm",
+                                 error_stage: "llm_raise",
+                                 error_detail: "#{e.class}: #{e.message[0..400]}")
+          nil
+        end
         if swift_source.nil? || swift_source.strip.empty?
           @cache.record_attempt(framework: framework, symbol: symbol[:name],
                                  generator: "llm",
