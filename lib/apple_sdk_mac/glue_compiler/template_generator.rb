@@ -164,14 +164,28 @@ module AppleSDKMac
       # auto-ARC path fires.
       def effective_return_kind(symbol)
         kind = return_kind(symbol[:signature])
-        return "cftype_ref_autoarc" if symbol[:cf_create_rule] && kind == "cftype_ref"
+        return kind unless kind == "cftype_ref"
+        return "cftype_ref_autoarc" if symbol[:cf_create_rule]
+        # Spec §5: naming-prefix heuristic ("Create" / "Copy") fills the gap
+        # when the clang AST attribute is missing. Per CF ownership rules,
+        # any CF*Create* / CF*Copy* function returns a +1-retained reference
+        # the caller must release — so it's auto-ARC eligible.
+        return "cftype_ref_autoarc" if cf_create_naming?(symbol[:name])
         kind
+      end
+
+      def cf_create_naming?(name)
+        name.to_s =~ /\A(?:CF|CG|CV|CT|CM|CL|IO|Sec|AX)\w*(?:Create|Copy)/
       end
 
       def return_kind(signature)
         sig = signature.to_s.strip
         return "void"   if sig =~ /\A(?:void)\b/
-        return "string" if sig =~ /\A(?:CFStringRef|NSString\s*\*|char\s*\*|const\s+char\s*\*)/
+        # NOTE: CFStringRef / NSString * are CF / ObjC opaque types, NOT
+        # raw cstrings — passing them to rb_str_new_cstr is a type error.
+        # Only the `char *` family is treated as a cstring return; CF/NS
+        # text types fall through to cftype_ref / opaque_ref handling.
+        return "string" if sig =~ /\A(?:char\s*\*|const\s+char\s*\*)/
         return "bool"   if sig =~ /\A(?:_Bool|Bool|BOOL)\b/
         return "float"  if sig =~ /\A(?:double|float|CGFloat|CFAbsoluteTime|CFTimeInterval|NSTimeInterval|TimeInterval)\b/
         if sig =~ /\A(?:OSStatus|kern_return_t|int|signed|unsigned|U?Int(?:8|16|32|64)?|SInt(?:8|16|32|64)?|long|short|uint(?:8|16|32|64)_t|int(?:8|16|32|64)_t)\b/

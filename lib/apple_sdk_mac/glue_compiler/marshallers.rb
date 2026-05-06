@@ -55,6 +55,29 @@ module AppleSDKMac
       def in_load
         "let #{@param[:name]}: Int64 = rb_num2ll(argv[#{@index}])"
       end
+
+      # Phase 7 — narrow the Int64 in_load value to the target C scalar
+      # type at the call site. swiftc 6 rejects implicit Int64 → UInt32
+      # / Int32 / CFStringEncoding (= UInt32 typealias) conversions, so
+      # we wrap the variable in `<TargetType>(truncatingIfNeeded:)`. For
+      # `Int64` the wrap is unnecessary and would generate noise; pass
+      # through unchanged.
+      def call_arg
+        ctype = scalar_type_token(@param[:type])
+        return @param[:name] if ctype.nil? || ctype == "Int64"
+        "#{ctype}(truncatingIfNeeded: #{@param[:name]})"
+      end
+
+      private
+
+      def scalar_type_token(raw)
+        cleaned = raw.to_s.strip
+                     .sub(/\Aconst\s+/, "")
+                     .gsub(/\b_(Nonnull|Nullable)\b/, "")
+                     .strip
+        return nil if cleaned.empty? || cleaned.include?("*")
+        cleaned
+      end
     end
     Marshaller::REGISTRY["int"] = IntMarshaller
 
@@ -132,7 +155,21 @@ module AppleSDKMac
       def in_load
         return nil if @param[:is_out_param]
         type = ref_type(@param[:type])
-        "let #{@param[:name]} = unsafeBitCast(OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{@index}])))!, to: #{type}.self)"
+        name = @param[:name]; i = @index
+        # Phase 7 — Qnil and 0-pointer both pass through as Swift nil. CF
+        # types are pervasively nullable (kCFAllocatorDefault is encoded
+        # as a NULL CFAllocatorRef, etc.), so force-unwrapping here
+        # SIGTRAPs on otherwise-valid Apple-API NULL conventions.
+        <<~SWIFT.chomp
+          let #{name}: #{type}?
+              if argv[#{i}] == Qnil {
+                  #{name} = nil
+              } else if let __ptr_#{i} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{i}]))) {
+                  #{name} = unsafeBitCast(__ptr_#{i}, to: #{type}.self)
+              } else {
+                  #{name} = nil
+              }
+        SWIFT
       end
 
       def call_arg
@@ -160,10 +197,16 @@ module AppleSDKMac
       private
 
       def ref_type(t)
-        t.sub(/\Aconst\s+/, "")
-         .sub(/\s*\*.*\z/, "")
-         .gsub(/\b_(Nonnull|Nullable)\b/, "")
-         .strip
+        base = t.sub(/\Aconst\s+/, "")
+                .sub(/\s*\*.*\z/, "")
+                .gsub(/\b_(Nonnull|Nullable)\b/, "")
+                .strip
+        # Swift 6 dropped the trailing `Ref` from CF / CG / CV / CT / CM /
+        # IO / Sec / AX bridged type names: `CFStringRef` is now `CFString`,
+        # `CFAllocatorRef` is `CFAllocator`. The `*Ref` typealias is
+        # deprecated and emits a swiftc 6.0 error in our glue. Strip `Ref`
+        # so `unsafeBitCast(..., to: T.self)` finds the canonical type.
+        base.sub(/Ref\z/, "")
       end
     end
     Marshaller::REGISTRY["cftype_ref"] = CFTypeRefMarshaller

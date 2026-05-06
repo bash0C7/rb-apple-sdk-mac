@@ -96,18 +96,26 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
   # emits `T(rb_num2ull(...))` which only compiles for integer Refs (MIDI/Audio
   # family). For CF pointer Refs we must cast via OpaquePointer(bitPattern:)
   # then `unsafeBitCast` to the real Swift type.
+  # Phase 7 — CF input handling: declares an Optional of the
+  # Ref-stripped Swift type, branches on Qnil, and unsafeBitCasts the
+  # OpaquePointer when present. Ref suffix removed because Swift 6
+  # renamed CFTypeRef → CFType, CFArrayRef → CFArray, etc.
   def test_emits_cftype_ref_kind_in
     s = sym(name: "CFRetain", signature: "CFTypeRef CFRetain(CFTypeRef cf)",
             parameters: [{ name: "cf", type: "CFTypeRef", kind: "cftype_ref", is_out_param: false }])
     out = gen.generate(framework: "CoreFoundation", symbol: s, glue_id: "abc")
-    assert_match(/let cf = unsafeBitCast\(OpaquePointer\(bitPattern: UInt\(rb_num2ull\(argv\[0\]\)\)\)!, to: CFTypeRef\.self\)/, out)
+    assert_match(/let cf: CFType\?/, out)
+    assert_match(/argv\[0\] == Qnil/, out)
+    assert_match(/unsafeBitCast\(__ptr_0, to: CFType\.self\)/, out)
   end
 
   def test_emits_cftype_ref_kind_in_for_cf_array_ref
     s = sym(name: "CFArrayGetCount", signature: "CFIndex CFArrayGetCount(CFArrayRef array)",
             parameters: [{ name: "array", type: "CFArrayRef", kind: "cftype_ref", is_out_param: false }])
     out = gen.generate(framework: "CoreFoundation", symbol: s, glue_id: "abc")
-    assert_match(/let array = unsafeBitCast\(OpaquePointer\(bitPattern: UInt\(rb_num2ull\(argv\[0\]\)\)\)!, to: CFArrayRef\.self\)/, out)
+    assert_match(/let array: CFArray\?/, out)
+    assert_match(/argv\[0\] == Qnil/, out)
+    assert_match(/unsafeBitCast\(__ptr_0, to: CFArray\.self\)/, out)
   end
 
   def test_does_not_reference_marshal_or_errorbridge
