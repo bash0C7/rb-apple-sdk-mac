@@ -580,6 +580,63 @@ class TestTemplateGenerator < Test::Unit::TestCase
       "T46: int 戻り値は rb_ll2inum")
   end
 
+  # T47 — kind=swift_func 同期形式。spec §3.4.5。
+  # top-level: runtime_async_test_taskgroup_double(arg0, arg1, arg2)
+  def test_swift_func_sync_top_level_emits_func_call
+    sym = {
+      name: "runtime_marshal_int_round_trip",
+      kind: "swift_func",
+      swift_func: "runtime_marshal_int_round_trip",
+      params: [:int], return_kind: :int,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "swf1")
+    refute_nil swift, "T47: swift_func must produce template glue"
+    assert_match(/let raw = runtime_marshal_int_round_trip\(arg0\)/, swift,
+      "T47: top-level swift func は そのまま <func>(args) 形式")
+    refute_match(/DispatchSemaphore/, swift,
+      "T47: 同期 func は async skeleton 含まない")
+    assert_match(/rb_ll2inum/, swift)
+  end
+
+  # T47 — Klass 付き static method。`Klass.<func>(args)`。
+  def test_swift_func_sync_with_klass_emits_static_call
+    sym = {
+      name: "URL.someStaticHelper",
+      kind: "swift_func",
+      swift_class: "URL",
+      swift_func: "someStaticHelper",
+      params: [], return_kind: :int,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "swf2")
+    refute_nil swift
+    assert_match(/let raw = URL\.someStaticHelper\(\)/, swift,
+      "T47: swift_class があれば Klass.func form")
+  end
+
+  # T47 — async swift_func は DispatchSemaphore + Task + sema.wait skeleton
+  # (spec §3.6 / E1 worked example shape)。ValidationGates.async_shape 通過。
+  def test_swift_func_async_emits_dispatchsemaphore_skeleton
+    sym = {
+      name: "runtime_async_test_taskgroup_double",
+      kind: "swift_func",
+      swift_func: "runtime_async_test_taskgroup_double",
+      params: [:int, :int, :int], return_kind: :int,
+      async: true,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "swfa1")
+    refute_nil swift, "T47: async swift_func も template path で emit"
+    assert_match(/DispatchSemaphore\(value:\s*0\)/, swift,
+      "T47: async は DispatchSemaphore で sync 化")
+    assert_match(/Task\s*\{/, swift, "T47: async は Task block 内で実行")
+    assert_match(/try await runtime_async_test_taskgroup_double\(arg0,\s*arg1,\s*arg2\)/, swift)
+    assert_match(/sema\.wait\(\)/, swift)
+    assert_match(/sema\.signal\(\)/, swift)
+    assert_match(/captured/, swift, "T47: error を post-wait raise 用に capture")
+  end
+
   # Phase 7 T4: CF Create-rule auto-ARC. A symbol whose knowledge record has
   # cf_create_rule=true gets its CF-typed return value automatically wrapped
   # via the runtime ARC pillar's runtime_arc_box_cftype entry point. The
