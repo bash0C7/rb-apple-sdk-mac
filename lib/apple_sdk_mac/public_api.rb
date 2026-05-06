@@ -93,11 +93,11 @@ module AppleSDKMac
         )
       end
 
-      raise Apple::DiscoveryError, "symbol not in knowledge base: #{framework}::#{symbol_name}" unless sym_meta
+      raise AppleSDKMac::DiscoveryError, "symbol not in knowledge base: #{framework}::#{symbol_name}" unless sym_meta
 
       result = compiler.compile(framework: framework.to_s, symbol: sym_meta)
       unless result.success?
-        raise Apple::CompileError,
+        raise AppleSDKMac::CompileError,
               "discover failed at #{result.error_stage}: #{result.error_detail}"
       end
       install_into_box(framework, symbol_name, sym_meta)
@@ -153,7 +153,7 @@ module AppleSDKMac
         rec[:type_args] = opts[:type_args] if opts.key?(:type_args)
         rec
       else
-        raise Apple::DiscoveryError,
+        raise AppleSDKMac::DiscoveryError,
           "Apple.discover requires one of: symbol, selector, class_method, swift_func, swift_initializer, swift_property"
       end
     end
@@ -167,7 +167,7 @@ module AppleSDKMac
       return opts[:swift_initializer] if opts.key?(:swift_initializer)
       return opts[:swift_property]    if opts.key?(:swift_property)
       return opts[:swift_func]        if opts.key?(:swift_func)
-      raise Apple::DiscoveryError,
+      raise AppleSDKMac::DiscoveryError,
         "Apple.discover requires one of: symbol, selector, class_method, swift_func, swift_initializer, swift_property"
     end
 
