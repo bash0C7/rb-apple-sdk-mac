@@ -40,4 +40,153 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     coremidi = box.const_get(:CoreMIDI)
     assert coremidi.const_defined?(:MIDIClientRef)
   end
+
+  # T41 — per-symbol install API. Apple.discover synthesizes a transient
+  # symbol record; install_one must put exactly that one record into the
+  # namespace without re-iterating the entire DB (G2 fix). Returns the
+  # installed proxy/module so Apple.discover can verify install path.
+  class EmptyKC
+    def list_frameworks; []; end
+    def list_framework_symbols(framework:, kinds: nil); []; end
+  end
+
+  def test_install_one_creates_framework_module_for_function_kind
+    box = Module.new
+    calls = []
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(framework:, symbol:, args:) {
+        calls << [framework, symbol, args]; :ok
+      }
+    )
+    rec = { name: "MIDIClientCreate", kind: "function", abi: "c" }
+    builder.install_one("CoreMIDI", rec)
+
+    assert box.const_defined?(:CoreMIDI), "framework module must be created"
+    fw = box.const_get(:CoreMIDI)
+    assert_respond_to fw, :MIDIClientCreate
+    fw.MIDIClientCreate("hi")
+    assert_equal [["CoreMIDI", "MIDIClientCreate", ["hi"]]], calls
+  end
+
+  # T41 — :method_under_klass routing for objc_method_class.
+  # canonical_name "NSString.stringWithUTF8String" splits into klass+method;
+  # install_one ensures Apple::Foundation::NSString proxy class exists, and
+  # defines singleton method `stringWithUTF8String` that dispatches with
+  # canonical_name (= sym_record[:name]).
+  def test_install_one_objc_class_method_installs_method_under_klass
+    box = Module.new
+    calls = []
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(framework:, symbol:, args:) {
+        calls << [framework, symbol, args]; "result_value"
+      }
+    )
+    rec = {
+      name: "NSString.stringWithUTF8String",
+      kind: "objc_method_class",
+      objc_class: "NSString", selector: "stringWithUTF8String:"
+    }
+    builder.install_one("Foundation", rec)
+
+    assert box.const_defined?(:Foundation)
+    fw = box.const_get(:Foundation)
+    assert fw.const_defined?(:NSString), "T41: proxy class Apple::Foundation::NSString must be ensured"
+    klass = fw.const_get(:NSString)
+    assert_respond_to klass, :stringWithUTF8String,
+      "T41: singleton method derived from canonical_name part after dot"
+
+    result = klass.stringWithUTF8String("hello")
+    assert_equal "result_value", result
+    assert_equal [["Foundation", "NSString.stringWithUTF8String", ["hello"]]], calls,
+      "dispatcher must be called with canonical_name (= sym_record[:name])"
+  end
+
+  # T41 — :method_under_klass routing for objc_method_instance.
+  # The proxy class is the same; the method receives an instance handle as
+  # its first arg (passed through the args array unchanged at this layer —
+  # the glue side handles receiver vs argument routing).
+  def test_install_one_objc_instance_method_installs_under_klass
+    box = Module.new
+    calls = []
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(framework:, symbol:, args:) {
+        calls << [framework, symbol, args]; :inst_ok
+      }
+    )
+    rec = {
+      name: "VNImageRequestHandler.init(cgImage:options:)",
+      kind: "objc_method_instance",
+      objc_class: "VNImageRequestHandler",
+      selector: "initWithCGImage:options:"
+    }
+    builder.install_one("Vision", rec)
+
+    fw = box.const_get(:Vision)
+    klass = fw.const_get(:VNImageRequestHandler)
+    # Ruby method name is derived from canonical_name part after the dot,
+    # sanitized for Ruby identifier safety (parens / colons → underscores).
+    expected_method = :init_cgImage_options
+    assert_respond_to klass, expected_method,
+      "T41: instance method's Ruby identifier must be the canonical part-after-dot, sanitized"
+
+    klass.public_send(expected_method, 0xCAFE, nil)
+    assert_equal [["Vision", "VNImageRequestHandler.init(cgImage:options:)", [0xCAFE, nil]]], calls
+  end
+
+  # T41 — :method_under_klass routing for swift_init / swift_property.
+  def test_install_one_swift_init_installs_under_klass
+    box = Module.new
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(framework:, symbol:, args:) { :url_ok }
+    )
+    rec = {
+      name: "URL.init(string:)",
+      kind: "swift_init",
+      swift_class: "URL", swift_initializer: "init(string:)"
+    }
+    builder.install_one("Foundation", rec)
+
+    klass = box.const_get(:Foundation).const_get(:URL)
+    assert_respond_to klass, :init_string,
+      "T41: swift_init Ruby identifier sanitized from canonical 'init(string:)'"
+  end
+
+  def test_install_one_swift_property_installs_under_klass
+    box = Module.new
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(framework:, symbol:, args:) { 42 }
+    )
+    rec = {
+      name: "ProcessInfo.processIdentifier",
+      kind: "swift_property",
+      swift_class: "ProcessInfo", swift_property: "processIdentifier"
+    }
+    builder.install_one("Foundation", rec)
+
+    klass = box.const_get(:Foundation).const_get(:ProcessInfo)
+    assert_respond_to klass, :processIdentifier
+  end
+
+  # T41 — swift_func (top-level / static) maps to :method on the framework
+  # module, NOT under a klass. canonical_name has no dot for top-level.
+  def test_install_one_swift_func_top_level_installs_on_framework_module
+    box = Module.new
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(framework:, symbol:, args:) { :swift_ok }
+    )
+    rec = {
+      name: "runtime_async_test_taskgroup_double",
+      kind: "swift_func",
+      swift_func: "runtime_async_test_taskgroup_double"
+    }
+    builder.install_one("Foundation", rec)
+    fw = box.const_get(:Foundation)
+    assert_respond_to fw, :runtime_async_test_taskgroup_double
+  end
 end
