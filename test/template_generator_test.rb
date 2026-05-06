@@ -352,6 +352,48 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/if argv\[0\] == Qnil/, swift)
   end
 
+  # T42 — kind=objc_method_class が template path で Swift glue を出す。
+  # Apple.discover の class_method: shape は LLM ではなく決定論的 template で
+  # 解決されること（spec §3.4.1）。stringWithUTF8String: 単一 segment selector
+  # → Swift method 名 `stringWithUTF8String`、call form `NSString.stringWithUTF8String(arg0)`。
+  # 戻り値 opaque_ref は Unmanaged.passRetained 経由で raw pointer を Ruby Integer に。
+  def test_objc_method_class_emits_swift_class_method_call
+    sym = {
+      name: "NSString.stringWithUTF8String",
+      kind: "objc_method_class",
+      objc_class: "NSString", selector: "stringWithUTF8String:",
+      params: [:string], return_kind: :opaque_ref,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "ocm1")
+    refute_nil swift, "T42: objc_method_class must produce template glue, not fall to LLM"
+    assert_match(/import Foundation/, swift)
+    assert_match(/glue_ocm1_NSString_stringWithUTF8String/, swift,
+      "T42: exported func name must be sanitized swift_identifier")
+    assert_match(/NSString\.stringWithUTF8String\(/, swift,
+      "T42: call site uses Klass.swiftMethod form")
+    assert_match(/Unmanaged\.passRetained/, swift,
+      "T42: opaque_ref return must passRetain the ObjC instance pointer")
+    assert_match(/rb_ull2inum/, swift)
+  end
+
+  # T42 — multi-arg ObjC class method (e.g. NSDictionary.dictionaryWithObjects:forKeys:count:).
+  # 各 arg index は 0,1,2,... で in_load される。argv[0]=arg0, argv[1]=arg1...
+  def test_objc_method_class_with_int_param_emits_int_in_load
+    sym = {
+      name: "MyClass.makeWithInt",
+      kind: "objc_method_class",
+      objc_class: "MyClass", selector: "makeWithInt:",
+      params: [:int], return_kind: :opaque_ref,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "ocm2")
+    refute_nil swift
+    assert_match(/rb_num2ll\(argv\[0\]\)/, swift,
+      "T42: int param uses rb_num2ll for argv[0]")
+    assert_match(/MyClass\.makeWithInt\(/, swift)
+  end
+
   # Phase 7 T4: CF Create-rule auto-ARC. A symbol whose knowledge record has
   # cf_create_rule=true gets its CF-typed return value automatically wrapped
   # via the runtime ARC pillar's runtime_arc_box_cftype entry point. The
