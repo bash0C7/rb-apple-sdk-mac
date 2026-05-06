@@ -291,6 +291,40 @@ puts "OperationQueue OK"
 
 各 commit 独立。
 
+### 4.5.-1 確実発火する延長 task: T52d (objc_in_load を新 kinds + Hash 型ヒント対応)
+
+**発火条件**: T52 GREEN smoke 起動時に
+```
+ArgumentError: objc_in_load: unsupported param kind :block_persistent_void
+```
+
+T52a (block_persistent_void Marshaller) と T54a (ArrayOfOpaqueRefMarshaller)
+は Marshaller::REGISTRY 経由 (C function path) で接続されているが、
+`emit_objc_class_method` / `emit_objc_instance_method` / `emit_swift_init` から
+呼ばれる `objc_in_load` は独立した switch table を持っており、新 kinds を
+未対応。さらに spec § 4.4 で `params: [{kind: :array_of_opaque_ref, type: "Operation"}, :bool]`
+の Hash 型ヒントは objc_in_load が Symbol しか受けないため処理不可。
+
+**RED**: template_generator_test.rb に
+- emit_objc_class_method 経路 (NSBlockOperation の class_method) で
+  `block_persistent_void` kind を含む symbol が compile error を出さず emit される
+- 同経路で `{kind: :array_of_opaque_ref, type: "Operation"}` Hash 形を
+  受けて `as! [Operation]` cast を含む Swift template を emit する
+
+の 2 期待 test 追加。
+
+**GREEN**:
+- `objc_in_load(kind_sym, index, argv_offset:)` を Hash も受けられるよう改修
+  (`kind_sym.is_a?(Hash) ? kind_sym[:kind] : kind_sym`)
+- `:block_persistent_void` case 追加: T52a Marshaller と同形の
+  `@convention(block) () -> Void` closure literal + ThreadingBridge dispatch
+- `:array_of_opaque_ref` case 追加: T54a Marshaller と同形の
+  NSMutableArray loop + `as! [Type]` (Hash の `[:type]` を使う)
+
+**HEADER 不変** → CACHE_SCHEMA_VERSION bump 不要 (既に T54a で 1.3 へ bump 済)。
+
+**commit**: `test: T52d RED ...` / `feat: T52d GREEN — objc_in_load 拡張 (block_persistent_void + array_of_opaque_ref + Hash 形)`
+
 ### 4.5.0 確実発火する延長 task: T52c (Swift 6 ObjC bridge: NS-prefix strip + non-failable init)
 
 **発火条件**: T52 GREEN smoke 起動時に swiftc エラー:
@@ -721,6 +755,7 @@ T52a RED → T52a GREEN     (block_persistent void→void kind)
 T52  RED                   (smoke 強化のみ、example 置換は GREEN で)
 T52b RED → T52b GREEN     (proxy class instance method receiver + from_ref)
 T52c RED → T52c GREEN     (Swift 6 NS-prefix strip + non-failable init)
+T52d RED → T52d GREEN     (objc_in_load 拡張: block_persistent_void + array_of_opaque_ref + Hash 形)
 T52  GREEN                 (NSOperationQueue 経由、Apple.discover のみ)
 T53a RED → T53a GREEN     (block_persistent multi-arg / typed)
 T53  RED → T53 GREEN      (HTTP via WEBrick fixture、file:// 退路廃止)

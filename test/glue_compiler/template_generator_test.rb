@@ -127,6 +127,50 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_not_match(/ErrorBridge\.rb_raise_via_runtime/, out)
   end
 
+  # T52d — objc_in_load (emit_objc_class_method / emit_objc_instance_method /
+  # emit_swift_init から共通呼び出し) が新 kinds + Hash 形 type ヒントに
+  # 対応すること。
+  # spec § 4.5.-1: Marshaller::REGISTRY 経路 (C function) と objc_in_load 経路
+  # の双方をサポートしないと、example の Apple.discover (class_method:/selector:)
+  # 呼び出しでは新 kinds が unsupported になる。
+  def test_objc_in_load_supports_block_persistent_void_via_class_method
+    s = sym(name: "NSBlockOperation.blockOperationWithBlock:",
+            kind: "objc_method_class",
+            signature: "+ (instancetype)blockOperationWithBlock:(void (^)(void))block",
+            parameters: [])
+    s[:objc_class] = "NSBlockOperation"
+    s[:selector] = "blockOperationWithBlock:"
+    s[:params] = [:block_persistent_void]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T52d: objc_method_class with block_persistent_void must emit"
+    assert_match(/@convention\(block\)\s*\(\)\s*->\s*Void/, out,
+                 "T52d: must emit @convention(block) () -> Void closure type via objc_in_load")
+    assert_match(/runtime_threading_enqueue/, out,
+                 "T52d: must dispatch to Ruby Proc via runtime_threading_enqueue")
+  end
+
+  def test_objc_in_load_supports_array_of_opaque_ref_hash_type_hint
+    s = sym(name: "NSOperationQueue.addOperations:waitUntilFinished:",
+            kind: "objc_method_instance",
+            signature: "- (void)addOperations:(NSArray<NSOperation *>*)ops waitUntilFinished:(BOOL)wait",
+            parameters: [])
+    s[:objc_class] = "NSOperationQueue"
+    s[:selector] = "addOperations:waitUntilFinished:"
+    s[:params] = [{kind: :array_of_opaque_ref, type: "Operation"}, :bool]
+    s[:return_kind] = :void
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T52d: objc_method_instance with Hash array_of_opaque_ref must emit"
+    assert_match(/NSMutableArray/, out,
+                 "T52d: must build NSMutableArray for Hash-form array_of_opaque_ref")
+    assert_match(/as!\s*\[Operation\]|as\s+\[Operation\]/, out,
+                 "T52d: must cast to typed array using Hash :type ('Operation')")
+    assert_match(/runtime_rb_array_len/, out,
+                 "T52d: must iterate via runtime_rb_array_len")
+  end
+
   # T52c — Swift 6 ObjC class bridge: NS-prefix strip + non-failable init。
   # NSOperationQueue / NSBlockOperation 等は Swift 6 で OperationQueue /
   # BlockOperation に rename され、no-arg init は non-failable (Optional ではない)。
