@@ -166,17 +166,22 @@ module AppleSDKMac
         # 受け取った場合は runtime_arc_unbox_cftype で内部 CF pointer に
         # unwrap、box でない raw pointer 直渡しは 0 が返るので raw に
         # fall-back する。spec §3.9 round-trip 完成の前提。
+        # T50 重要: rb_num2ull は Qnil 入力で raise する。Qnil 検査を最初に。
         <<~SWIFT.chomp
           let #{name}: #{type}?
-              let __raw_in_#{i} = UInt(rb_num2ull(argv[#{i}]))
-              let __unbox_#{i} = runtime_arc_unbox_cftype(__raw_in_#{i})
-              let __actual_#{i}: UInt = (__unbox_#{i} != 0) ? __unbox_#{i} : __raw_in_#{i}
-              if argv[#{i}] == Qnil || __actual_#{i} == 0 {
+              if argv[#{i}] == Qnil {
                   #{name} = nil
-              } else if let __ptr_#{i} = OpaquePointer(bitPattern: __actual_#{i}) {
-                  #{name} = unsafeBitCast(__ptr_#{i}, to: #{type}.self)
               } else {
-                  #{name} = nil
+                  let __raw_in_#{i} = UInt(rb_num2ull(argv[#{i}]))
+                  let __unbox_#{i} = runtime_arc_unbox_cftype(__raw_in_#{i})
+                  let __actual_#{i}: UInt = (__unbox_#{i} != 0) ? __unbox_#{i} : __raw_in_#{i}
+                  if __actual_#{i} == 0 {
+                      #{name} = nil
+                  } else if let __ptr_#{i} = OpaquePointer(bitPattern: __actual_#{i}) {
+                      #{name} = unsafeBitCast(__ptr_#{i}, to: #{type}.self)
+                  } else {
+                      #{name} = nil
+                  }
               }
         SWIFT
       end

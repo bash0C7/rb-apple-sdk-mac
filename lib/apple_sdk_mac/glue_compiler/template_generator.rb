@@ -159,6 +159,9 @@ module AppleSDKMac
             if ret_kind == "status_int"
               body << %(if result != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
               body << "return Qnil"
+            elsif ret_kind == "plain_int"
+              # T50 — return_kind: :int override path: plain rb_ll2inum、OSStatus 検査なし。
+              body << "return rb_ll2inum(Int64(result))"
             elsif ret_kind == "void"
               body << "return Qnil"
             else
@@ -616,7 +619,20 @@ module AppleSDKMac
       # cf_create_rule (clang AST CF_RETURNS_RETAINED / Create / Copy naming
       # heuristic), upgrade a CF*Ref return to cftype_ref_autoarc so the
       # auto-ARC path fires.
+      # T50 — Apple.discover の return_kind: override が来た場合 (synth record
+      # に :return_kind が入っている)、signature regex を bypass してそれを
+      # 直接使う。`int` override は status_int (OSStatus check 付き) ではなく
+      # plain int として marshal される。
+      RETURN_KIND_OVERRIDE_TO_TEMPLATE = {
+        int: "plain_int", bool: "bool", float: "float", void: "void",
+        string: "string", opaque_ref: "opaque_ref",
+        cftype_ref: "cftype_ref", cftype_ref_autoarc: "cftype_ref_autoarc"
+      }.freeze
+
       def effective_return_kind(symbol)
+        if symbol[:return_kind] && (mapped = RETURN_KIND_OVERRIDE_TO_TEMPLATE[symbol[:return_kind].to_sym])
+          return mapped
+        end
         kind = return_kind(symbol[:signature])
         return kind unless kind == "cftype_ref"
         return "cftype_ref_autoarc" if symbol[:cf_create_rule]

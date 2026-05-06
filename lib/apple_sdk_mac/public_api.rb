@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+require "json"
 require_relative "config"
 require_relative "knowledge_cache"
 require_relative "compiled_glue_cache"
@@ -85,6 +86,14 @@ module AppleSDKMac
           framework: framework.to_s, symbol: canonical
         )
         sym_meta = db_meta if db_meta
+        # T50 — KB の分類間違い (CFStringRef を string とした、buffer を
+        # is_out_param=true にした、Boolean を unrecognised return にした、
+        # 等) を回避する `params:` / `return_kind:` override。
+        # User が明示的に渡した kind 配列 / return_kind で parameters_json と
+        # signature を上書きする。
+        if opts[:params] || opts[:return_kind]
+          sym_meta = _override_c_symbol_params(sym_meta, opts)
+        end
       else
         # Non-C shapes: register synthesized record into transient tier so
         # downstream lookups (Dispatcher, NamespaceBuilder) see it. Key MUST
@@ -162,6 +171,54 @@ module AppleSDKMac
         raise AppleSDKMac::DiscoveryError,
           "Apple.discover requires one of: symbol, selector, class_method, swift_func, swift_initializer, swift_property"
       end
+    end
+
+    # T50 — KB 分類オーバーライド。Apple.discover の :symbol path で `:params`
+    # / `:return_kind` が明示された場合、KB の parameters_json と signature を
+    # 書き換える。kind sym → `{name, type, kind, is_out_param, nullability}`
+    # 形式の Hash 配列に変換、parameters_json に詰め直す。
+    #
+    # KB classifier が CFStringRef を `string` (clang AST 上は char* 同等扱い)
+    # として、buffer (mutable char*) を `is_out_param=true` の string out として
+    # mark するなど、CF round-trip 用の出力に対して正しくない classification を
+    # する場合の救済。
+    KIND_SYM_TO_TYPE = {
+      string:           "const char *",
+      int:              "Int64",
+      bool:             "Bool",
+      float:            "Double",
+      opaque_ref:       "OpaquePointer",
+      cftype_ref:       "CFTypeRef",
+      void_ptr_nilable: "void *",
+      block_persistent: "block_persistent_thunk"
+    }.freeze
+
+    def _override_c_symbol_params(sym_meta, opts)
+      if opts[:params]
+        new_params = opts[:params].each_with_index.map do |entry, i|
+          if entry.is_a?(Hash)
+            kind_sym = (entry[:kind] || entry["kind"]).to_sym
+            type     = entry[:type] || entry["type"] || KIND_SYM_TO_TYPE.fetch(kind_sym, "void *")
+          else
+            kind_sym = entry.to_sym
+            type     = KIND_SYM_TO_TYPE.fetch(kind_sym, "void *")
+          end
+          {
+            name: "arg#{i}",
+            type: type,
+            kind: kind_sym.to_s,
+            is_out_param: false,
+            nullability: "unspecified"
+          }
+        end
+        sym_meta = sym_meta.merge(parameters_json: JSON.dump(new_params))
+      end
+      if opts[:return_kind]
+        # T50 — :return_kind を sym_meta に直接埋め込む。template_generator の
+        # effective_return_kind が signature regex より先にこれを参照する。
+        sym_meta = sym_meta.merge(return_kind: opts[:return_kind])
+      end
+      sym_meta
     end
 
     # T40 — selector → Swift-form method name converter (spec §3.4.1 +
