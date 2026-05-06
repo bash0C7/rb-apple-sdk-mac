@@ -255,6 +255,64 @@ class TestNamespaceBuilder < Test::Unit::TestCase
       "T52b: wrapped instance must retain dispatcher-returned raw opaque ref"
   end
 
+  # T52h — proxy instance → raw opaque ref Integer unwrap on dispatcher call。
+  # T52b の auto-wrap で Apple::FW::Klass.method(...) の opaque_ref 戻り値が
+  # proxy instance になるが、その instance を引数として再度 instance method
+  # に渡すケース (queue.addOperations_waitUntilFinished(ops, true) など) で
+  # dispatcher.call に渡る args は raw Integer に unwrap されている必要がある
+  # (Marshaller の Swift 側は rb_num2ull で要素を読むため Integer 必須)。
+
+  def test_dispatcher_args_unwrap_single_proxy_instance_to_raw_int
+    box = Module.new
+    calls = []
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(framework:, symbol:, args:) {
+        calls << args; :ok
+      }
+    )
+    rec_inst = { name: "NSOperationQueue.addOperation:",
+                 kind: "objc_method_instance",
+                 objc_class: "NSOperationQueue",
+                 selector: "addOperation:",
+                 return_kind: :void }
+    builder.install_one("Foundation", rec_inst)
+
+    klass = box.const_get(:Foundation).const_get(:NSOperationQueue)
+    queue = klass.from_ref(0xCAFE)
+    op = klass.from_ref(0xBABE)
+    queue.addOperation(op)
+
+    assert_equal [[0xCAFE, 0xBABE]], calls,
+      "T52h: single proxy instance arg must be unwrapped to raw __opaque_ref Integer"
+  end
+
+  def test_dispatcher_args_unwrap_array_of_proxy_instances_recursively
+    box = Module.new
+    calls = []
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(framework:, symbol:, args:) {
+        calls << args; :ok
+      }
+    )
+    rec = { name: "NSOperationQueue.addOperations:waitUntilFinished:",
+            kind: "objc_method_instance",
+            objc_class: "NSOperationQueue",
+            selector: "addOperations:waitUntilFinished:",
+            return_kind: :void }
+    builder.install_one("Foundation", rec)
+
+    klass = box.const_get(:Foundation).const_get(:NSOperationQueue)
+    queue = klass.from_ref(0xCAFE)
+    op1 = klass.from_ref(0x1111)
+    op2 = klass.from_ref(0x2222)
+    queue.addOperations_waitUntilFinished([op1, op2], true)
+
+    assert_equal [[0xCAFE, [0x1111, 0x2222], true]], calls,
+      "T52h: Array of proxy instances must be unwrapped element-wise to raw Integer Array"
+  end
+
   # T41 — swift_func (top-level / static) maps to :method on the framework
   # module, NOT under a klass. canonical_name has no dot for top-level.
   def test_install_one_swift_func_top_level_installs_on_framework_module

@@ -291,6 +291,36 @@ puts "OperationQueue OK"
 
 各 commit 独立。
 
+### 4.5.-5 確実発火する延長 task: T52h (proxy instance → raw int unwrap on dispatch)
+
+**発火条件**: T52 GREEN smoke リトライで
+```
+TypeError: no implicit conversion of Apple::Foundation::NSBlockOperation into Integer
+```
+
+T52b の proxy class auto-wrap (opaque_ref 戻り値を proxy instance にしている) と
+T54a の ArrayOfOpaqueRefMarshaller が組み合わさると、ユーザコードが
+`queue.addOperations_waitUntilFinished(ops, true)` で `ops` (Array of proxy
+instances) を渡したとき、Marshaller の Swift 側が `rb_num2ull(rb_ary_entry(...))`
+で各要素を Integer 期待で読むが、要素が proxy instance object のため変換失敗。
+
+**RED**: `test/namespace_builder_test.rb` に
+- proxy instance method 経由で args が proxy instance を含む場合、dispatcher.call
+  に渡される args では proxy instance が `__opaque_ref` Integer に置換されている
+- args 内の Array 要素についても proxy instance → Integer に再帰的 unwrap される
+
+の期待 test 2 件追加。
+
+**GREEN**: namespace_builder.rb で
+- `define_instance_method_under_klass` / `define_method_under_klass` の
+  dispatcher.call 直前で `_unwrap_proxy_args(args)` を適用
+- `_unwrap_proxy_args(a)`: a が `__opaque_ref` を持てばそれを返す、a が Array
+  なら要素を再帰 unwrap、それ以外は as-is
+
+**HEADER 不変** → CACHE_SCHEMA_VERSION bump 不要。
+
+**commit**: `test: T52h RED ...` / `feat: T52h GREEN — proxy instance arg unwrap to raw opaque ref`
+
 ### 4.5.-4 確実発火する延長 task: T52g (single-segment class method の preposition-aware bridge)
 
 **発火条件**: T52 GREEN smoke リトライで
@@ -861,6 +891,7 @@ T52d RED → T52d GREEN     (objc_in_load 拡張: block_persistent_void + array_
 T52e RED → T52e GREEN     (emit_objc_*_method の NS-strip + non-optional return 対応)
 T52f RED → T52f GREEN     (multi-segment instance method first-arg unlabeled bridge)
 T52g RED → T52g GREEN     (single-segment class method preposition-aware bridge)
+T52h RED → T52h GREEN     (proxy instance arg unwrap → raw opaque ref Integer)
 T52  GREEN                 (NSOperationQueue 経由、Apple.discover のみ)
 T53a RED → T53a GREEN     (block_persistent multi-arg / typed)
 T53  RED → T53 GREEN      (HTTP via WEBrick fixture、file:// 退路廃止)
