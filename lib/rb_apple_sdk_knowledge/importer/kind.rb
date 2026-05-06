@@ -8,6 +8,12 @@ module AppleSDKKnowledge
       def classify_kind(qual_type, desugared = qual_type, nullability = "unspecified")
         is_function_pointer = desugared.include?("(") && desugared.include?(")")
         is_void_ptr = qual_type =~ /\bvoid\s*\*/
+        # Search both qual_type and desugared for primitive-shape regex hits.
+        # Integer typedefs without an int-keyword in their NAME (ItemCount,
+        # CFIndex, NSInteger, MIDITimeStamp) need the desugared "unsigned
+        # long" / "long" / etc. visible to the regex, otherwise they fall
+        # through to "unsupported".
+        combined = qual_type == desugared ? qual_type : "#{qual_type} #{desugared}"
         # Unspecified nullability is treated as nilable (safe default — older
         # headers without _Nullable annotations still get the nilable
         # Marshaller, which handles Qnil correctly).
@@ -34,12 +40,12 @@ module AppleSDKKnowledge
         end
 
         return "string" if qual_type =~ /\b(CFStringRef|NSString\s*\*|char\s*\*|const\s+char\s*\*)/
-        return "bool"   if qual_type =~ /\b(_Bool|Bool|BOOL|bool)\b/
+        return "bool"   if combined =~ /\b(_Bool|Bool|BOOL|bool)\b/
         # Float-shaped typedefs in addition to plain double/float/CGFloat:
         # Carbon/Foundation date-time typedefs are all `double` underneath.
         # Without these, qual_type lookups fall through to int and lose precision.
-        return "float"  if qual_type =~ /\b(double|float|CGFloat|CFAbsoluteTime|CFTimeInterval|NSTimeInterval|TimeInterval)\b/
-        if qual_type =~ /\b(?:int|U?Int(?:8|16|32|64)?|SInt(?:8|16|32|64)?|long|short|unsigned|signed|uint(?:8|16|32|64)_t|int(?:8|16|32|64)_t|OSStatus|kern_return_t)\b/
+        return "float"  if combined =~ /\b(double|float|CGFloat|CFAbsoluteTime|CFTimeInterval|NSTimeInterval|TimeInterval)\b/
+        if combined =~ /\b(?:int|U?Int(?:8|16|32|64)?|SInt(?:8|16|32|64)?|long|short|unsigned|signed|uint(?:8|16|32|64)_t|int(?:8|16|32|64)_t|OSStatus|kern_return_t)\b/
           return "opaque_ref" if qual_type =~ /\b\w+Ref\b/
           return "int"
         end
