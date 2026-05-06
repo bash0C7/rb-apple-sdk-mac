@@ -486,9 +486,15 @@ module AppleSDKMac
             labels = ["with"] + parts[1..]
           else
             method_name = parts[0]
-            labels = parts[1..]
+            # T52f — Apple SDK ObjC→Swift bridge convention: multi-segment
+            # selector の first arg は label 無し (`_:`)、第2..n 引数のラベル
+            # は parts[1..] で対応する。`addOperations:waitUntilFinished:` →
+            # `addOperations(_ ops:, waitUntilFinished wait:)` 型。
+            labels = [nil] + parts[1..]
           end
-          label_args = labels.zip(args).map { |l, a| "#{l}: #{a}" }.join(", ")
+          label_args = labels.zip(args).map { |l, a|
+            l.nil? ? a.to_s : "#{l}: #{a}"
+          }.join(", ")
           "#{receiver_var}.#{method_name}(#{label_args})"
         end
       end
