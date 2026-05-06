@@ -75,6 +75,8 @@ module AppleSDKMac
         case symbol[:kind]
         when "objc_method_class"
           return emit_objc_class_method(framework: framework, symbol: symbol, glue_id: glue_id)
+        when "objc_method_instance"
+          return emit_objc_instance_method(framework: framework, symbol: symbol, glue_id: glue_id)
         end
         return nil unless symbol[:kind] == "function" && symbol[:abi] == "c"
         params = parse_params(symbol[:parameters_json])
@@ -209,6 +211,71 @@ module AppleSDKMac
         SWIFT
       end
 
+      # T44 — ObjC instance method emit (spec §3.4.2)。
+      # `selector:` で来た synth record。argv[0] = receiver pointer、argv[1..]
+      # が user 引数。selector が `init*` 始まりの場合は Swift init form
+      # (no receiver) に分岐し、`Klass(label: arg)` を emit する。
+      def emit_objc_instance_method(framework:, symbol:, glue_id:)
+        klass = symbol[:objc_class].to_s
+        selector = symbol[:selector].to_s
+        params = symbol[:params] || []
+        return_kind = (symbol[:return_kind] || :void).to_sym
+        swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
+        exported = "glue_#{glue_id}_#{swift_id}"
+
+        body =
+          if selector.start_with?("init")
+            # Init form: argv 0..N-1 が引数。receiver なし。
+            in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i) }
+            call_expr = swift_init_call(klass, selector, params)
+            in_loads + ["let raw = #{call_expr}"] + objc_return_lines(return_kind, "raw")
+          else
+            # Instance method: argv[0] = receiver, argv[1..] が引数。
+            receiver_load = <<~SWIFT.chomp
+              let receiver = unsafeBitCast(
+                  OpaquePointer(bitPattern: UInt(rb_num2ull(argv[0])))!,
+                  to: #{klass}.self
+              )
+            SWIFT
+            in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i, argv_offset: 1) }
+            swift_method = swift_method_name_from_selector(selector)
+            args_str = params.each_index.map { |i| "arg#{i}" }.join(", ")
+            call_expr = "receiver.#{swift_method}(#{args_str})"
+            [receiver_load] + in_loads + ["let raw = #{call_expr}"] + objc_return_lines(return_kind, "raw")
+          end
+
+        <<~SWIFT
+          import #{framework}
+          import Foundation
+
+          #{HEADER}
+          @c
+          public func #{exported}(
+              _ argv: UnsafePointer<UInt>, _ argc: Int32
+          ) -> UInt {
+              #{body.join("\n    ")}
+          }
+        SWIFT
+      end
+
+      # init multi-segment selector (`initWithCGImage:options:`) を Swift
+      # bridged init form (`Klass(cgImage: arg0, options: arg1)`) に変換。
+      def swift_init_call(klass, selector, params)
+        parts = selector.split(":", -1).reject(&:empty?)
+        # parts[0] starts with "init" — drop "init" + optional bridge prefix
+        head = parts[0].sub(/\Ainit/, "").sub(/\A(With|From|By|Using|For)/, "")
+        head = lower_first_camel_local(head)
+        labels = head.empty? ? parts[1..] : ([head] + parts[1..])
+        if labels.empty?
+          # `init` selector with no labels (rare).
+          "#{klass}()"
+        else
+          args = params.each_index.map { |i| "arg#{i}" }
+          label_args = labels.zip(args).map { |l, a| "#{l}: #{a}" }.join(", ")
+          "#{klass}(#{label_args})"
+        end
+      end
+
       # selector → Swift method 名 (spec §3.4.1)。
       # single-segment `stringWithUTF8String:` → `stringWithUTF8String`
       # multi-segment は init 専用が大半（T44 の instance method で本格対応）。
@@ -272,22 +339,25 @@ module AppleSDKMac
       # に応じて `let arg<i>` を Swift で declare。既存 Marshaller 経路は
       # parameters_json + clang AST type を要求するので、synth record（params:
       # symbol kinds の配列）専用に inline 展開する。
-      def objc_in_load(kind_sym, index)
+      # argv_offset: instance method の receiver 用に argv[0] を予約する場合に
+      # +1 を指定 (argv index = arg index + offset)。default 0。
+      def objc_in_load(kind_sym, index, argv_offset: 0)
+        ai = index + argv_offset
         case kind_sym.to_sym
         when :string
-          "var v#{index} = argv[#{index}]; let arg#{index} = rb_string_value_cstr(&v#{index})"
+          "var v#{index} = argv[#{ai}]; let arg#{index} = rb_string_value_cstr(&v#{index})"
         when :int
-          "let arg#{index}: Int64 = rb_num2ll(argv[#{index}])"
+          "let arg#{index}: Int64 = rb_num2ll(argv[#{ai}])"
         when :bool
-          "let arg#{index}: Bool = (argv[#{index}] != Qfalse && argv[#{index}] != Qnil)"
+          "let arg#{index}: Bool = (argv[#{ai}] != Qfalse && argv[#{ai}] != Qnil)"
         when :float
-          "let arg#{index}: Double = rb_num2dbl(argv[#{index}])"
+          "let arg#{index}: Double = rb_num2dbl(argv[#{ai}])"
         when :opaque_ref
-          "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{index}])))"
+          "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{ai}])))"
         when :cftype_ref
-          "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{index}])))"
+          "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{ai}])))"
         when :void_ptr_nilable
-          "let arg#{index}: UnsafeMutableRawPointer? = (argv[#{index}] == Qnil) ? nil : UnsafeMutableRawPointer(bitPattern: Int(rb_num2ll(argv[#{index}])))"
+          "let arg#{index}: UnsafeMutableRawPointer? = (argv[#{ai}] == Qnil) ? nil : UnsafeMutableRawPointer(bitPattern: Int(rb_num2ll(argv[#{ai}])))"
         else
           raise ArgumentError, "objc_in_load: unsupported param kind #{kind_sym.inspect}"
         end
