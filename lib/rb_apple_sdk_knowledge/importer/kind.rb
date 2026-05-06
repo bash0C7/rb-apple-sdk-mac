@@ -35,7 +35,10 @@ module AppleSDKKnowledge
 
         return "string" if qual_type =~ /\b(CFStringRef|NSString\s*\*|char\s*\*|const\s+char\s*\*)/
         return "bool"   if qual_type =~ /\b(_Bool|Bool|BOOL|bool)\b/
-        return "float"  if qual_type =~ /\b(double|float|CGFloat)\b/
+        # Float-shaped typedefs in addition to plain double/float/CGFloat:
+        # Carbon/Foundation date-time typedefs are all `double` underneath.
+        # Without these, qual_type lookups fall through to int and lose precision.
+        return "float"  if qual_type =~ /\b(double|float|CGFloat|CFAbsoluteTime|CFTimeInterval|NSTimeInterval|TimeInterval)\b/
         if qual_type =~ /\b(?:int|U?Int(?:8|16|32|64)?|SInt(?:8|16|32|64)?|long|short|unsigned|signed|uint(?:8|16|32|64)_t|int(?:8|16|32|64)_t|OSStatus|kern_return_t)\b/
           return "opaque_ref" if qual_type =~ /\b\w+Ref\b/
           return "int"
