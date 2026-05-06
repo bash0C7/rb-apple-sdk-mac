@@ -51,6 +51,65 @@ class TestPublicApiDiscoverPolymorphic < Test::Unit::TestCase
     assert_equal "stringWithUTF8String:", rec[:selector]
   end
 
+  # T40 — canonical_name 単一化（spec §3.2）。selector 末尾の `:` を取り、
+  # `<Klass>.<method>` 形式の Ruby/Swift 共有 identifier にする。
+  # synth record :name は KnowledgeCache transient lookup key、CompiledGlueCache
+  # symbol_name、NamespaceBuilder install identifier すべての primary key。
+  def test_synthesize_class_method_canonical_name_strips_trailing_colon
+    rec = AppleSDKMac._synthesize_symbol_record(
+      framework: :Foundation, klass: :NSString,
+      class_method: "stringWithUTF8String:",
+      params: [:string], return_kind: :opaque_ref
+    )
+    assert_equal "NSString.stringWithUTF8String", rec[:name],
+      "T40: canonical_name must strip trailing selector colon (Swift identifier shape)"
+  end
+
+  # T40 — instance selector も dot form。`#` 区切りは廃止（旧実装は混在）。
+  def test_synthesize_instance_selector_single_segment_dot_form
+    rec = AppleSDKMac._synthesize_symbol_record(
+      framework: :Foundation, klass: :NSString,
+      selector: "length",
+      params: [], return_kind: :int
+    )
+    assert_equal "NSString.length", rec[:name],
+      "T40: instance selector single-segment uses dot form (no '#')"
+  end
+
+  # T40 — multi-segment selector の init は Swift bridged form `init(arg:arg:)`。
+  # spec §3.4.1 の selector → Swift method 名変換規則。
+  def test_synthesize_init_multi_segment_swift_form
+    rec = AppleSDKMac._synthesize_symbol_record(
+      framework: :Vision, klass: :VNImageRequestHandler,
+      selector: "initWithCGImage:options:",
+      params: [:cftype_ref, :void_ptr_nilable],
+      return_kind: :opaque_ref
+    )
+    assert_equal "VNImageRequestHandler.init(cgImage:options:)", rec[:name],
+      "T40: multi-segment init selector becomes init(cgImage:options:) Swift form"
+  end
+
+  # T40 — swift_initializer の name も同形式（spec §3.2 Name 体系）。
+  def test_synthesize_swift_initializer_canonical_name_keeps_init_form
+    rec = AppleSDKMac._synthesize_symbol_record(
+      framework: :Foundation, klass: :URL,
+      swift_initializer: "init(string:)",
+      params: [:string], return_kind: :opaque_ref
+    )
+    assert_equal "URL.init(string:)", rec[:name],
+      "T40: swift_initializer canonical_name = '<Klass>.<initSig>'"
+  end
+
+  # T40 — swift_property も dot form で synth name 統一。
+  def test_synthesize_swift_property_canonical_name_dot_form
+    rec = AppleSDKMac._synthesize_symbol_record(
+      framework: :Foundation, klass: :ProcessInfo,
+      swift_property: :processIdentifier, return_kind: :int
+    )
+    assert_equal "ProcessInfo.processIdentifier", rec[:name],
+      "T40: swift_property canonical_name uses dot form"
+  end
+
   def test_synthesize_swift_func_record
     rec = AppleSDKMac._synthesize_symbol_record(
       framework: :Foundation, swift_func: :runtime_async_test_sleep_and_double,
