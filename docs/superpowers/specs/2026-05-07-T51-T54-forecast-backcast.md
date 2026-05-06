@@ -286,9 +286,29 @@ puts "OperationQueue OK"
 1. T54a (`array_of_opaque_ref` Marshaller) RED + GREEN — T52 と T54 の共通依存として先取り (§ 8 参照)
 2. T52a (`block_persistent_void` kind) RED + GREEN
 3. T52 RED commit (smoke 強化)
-4. T52 GREEN commit (example 全置換)
+4. **T52b** (Apple proxy class instance method receiver 経由) RED + GREEN — § 4.5.1 参照
+5. T52 GREEN commit (example 全置換)
 
 各 commit 独立。
+
+### 4.5.1 確実発火する延長 task: T52b (proxy class instance method receiver)
+
+**発火条件**: T52 GREEN 着手時、`queue.addOperations_waitUntilFinished(ops, true)` 形の receiver 経由 instance method が install_one で透過化されていない (現状 namespace_builder は class singleton method としてのみ install)。 spec § 5.4 の T53b と同等の機構が T52 でも必要であることが GREEN 着手時に判明したため、§ 2.2 の延長手順に従い T52b として先行実装する (T53b は T52b 実装で既存解決済となるため § 5.4 から削除)。
+
+**RED**: `test/namespace_builder_test.rb` に
+- `Apple::FW::Klass.from_ref(raw_int)` で proxy instance が作成できる
+- proxy instance の `obj.method(args...)` 呼び出しで dispatcher.call が `[raw_int, *args]` を引数として受け取る (receiver 自動挿入)
+- swift_init / class_method の opaque_ref 戻り値が自動的に proxy instance に wrap される
+の 3 期待 test 追加。
+
+**GREEN**:
+- `namespace_builder.rb`: ensure_proxy_class に `__opaque_ref` initializer + `from_ref` class method を追加
+- `objc_method_instance` install path を `define_instance_method_under_klass` に変更 (proxy class の instance method として install、receiver の `@__opaque_ref` を args 先頭に prepend)
+- dispatcher (or installation site) で swift_init/objc_method_class の opaque_ref 戻り値を proxy instance にwrap
+
+**HEADER 不変** → CACHE_SCHEMA_VERSION bump 不要。
+
+**commit**: `test: T52b RED ...` / `feat: T52b GREEN — proxy instance method receiver + from_ref helper`
 
 ### 4.6 撤退ライン
 
@@ -420,19 +440,14 @@ puts "urlsession download OK"
 - GREEN: `objc_in_load` の block_persistent パラメータを Hash 形 `{kind: :block_persistent, arity:, types:}` に拡張、Swift signature と Ruby Proc dispatcher の両方を arity 数に対応
 - HEADER 変更が proc_registry dispatcher 側に発生 → CACHE_SCHEMA_VERSION bump (1.2 → 1.3)
 
-**T53b: `Apple::Foundation::NSData.from_ref(opaque)` ヘルパ + receiver 経由の instance method**
-
-- 発火条件: completion 内で受け取る `data_ref` (UInt opaque) を receiver として instance method を呼ぶ経路が install_one で透過化されていない
-- RED: `test/public_api_test.rb` に `from_ref` 期待 test
-- GREEN: 全 `Apple::Foundation::NS<Klass>` proxy class に `.from_ref(ptr)` class helper を install (T41 install_one 内)、生成 instance は internal opaque pointer を保持して既存 instance method の receiver にする
+**T53b**: T52b で先行実装済 (§ 4.5.1)。 T53 example 内で `Apple::Foundation::NSData.from_ref(data_ref)` + `data.length` 形が透過に動作する想定で削除。spec § 8 順序からも除去 (= T53 RED の前段は T53a のみ)。
 
 ### 5.5 commit 境界
 
-順序:
+順序 (T53b は T52b に統合済 — § 4.5.1):
 1. T53a (block_persistent multi-arg) RED + GREEN
-2. T53b (from_ref helper) RED + GREEN
-3. T53 RED commit (smoke 強化、WEBrick fixture 起動含む)
-4. T53 GREEN commit (example 全置換)
+2. T53 RED commit (smoke 強化、WEBrick fixture 起動含む)
+3. T53 GREEN commit (example 全置換)
 
 ### 5.6 撤退ライン
 
@@ -673,9 +688,10 @@ T54a (`array_of_opaque_ref` Marshaller) は T52 と T54 の共通依存のため
 T51 RED  → screen rebuild → T51 GREEN
 T54a RED → T54a GREEN     (← 確実発火、T52/T54 共通依存)
 T52a RED → T52a GREEN     (block_persistent void→void kind)
-T52  RED → T52 GREEN      (NSOperationQueue 経由、Apple.discover のみ)
+T52  RED                   (smoke 強化のみ、example 置換は GREEN で)
+T52b RED → T52b GREEN     (proxy class instance method receiver + from_ref)
+T52  GREEN                 (NSOperationQueue 経由、Apple.discover のみ)
 T53a RED → T53a GREEN     (block_persistent multi-arg / typed)
-T53b RED → T53b GREEN     (NSData.from_ref helper)
 T53  RED → T53 GREEN      (HTTP via WEBrick fixture、file:// 退路廃止)
 T54  RED → T54 GREEN      (fixture PNG コミット、完全一致 OCR)
 T55 examples_smoke_test 全例 refute_match(/DEFERRED/) 確認 (T52-T54 GREEN 内で既に組込)

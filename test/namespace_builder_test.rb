@@ -172,6 +172,89 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     assert_respond_to klass, :processIdentifier
   end
 
+  # T52b — proxy class instance method receiver + from_ref helper.
+  # spec § 4.5.1: queue.addOperations_waitUntilFinished(ops, true) のような
+  # instance method 呼び出しを Apple.discover 経由で透過化する基盤。
+  # 既存 install_one (objc_method_instance) は class singleton method として
+  # 登録していたが、本機構では proxy class の instance method として登録し、
+  # `from_ref(raw_int)` で生成した proxy instance がメソッド receiver として
+  # 動作するように切替える。
+
+  def test_proxy_class_exposes_from_ref_class_helper
+    box = Module.new
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(*) { :unused }
+    )
+    rec = { name: "NSOperationQueue.addOperations:waitUntilFinished:",
+            kind: "objc_method_instance",
+            objc_class: "NSOperationQueue",
+            selector: "addOperations:waitUntilFinished:",
+            return_kind: :void }
+    builder.install_one("Foundation", rec)
+
+    klass = box.const_get(:Foundation).const_get(:NSOperationQueue)
+    assert_respond_to klass, :from_ref,
+      "T52b: proxy class must expose .from_ref(raw_int) class helper"
+
+    inst = klass.from_ref(0xCAFEBABE)
+    assert_kind_of klass, inst
+    assert_equal 0xCAFEBABE, inst.__opaque_ref,
+      "T52b: from_ref(int) instance must retain raw opaque ref"
+  end
+
+  def test_objc_instance_method_routes_via_proxy_instance_with_receiver_prepend
+    box = Module.new
+    calls = []
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(framework:, symbol:, args:) {
+        calls << [framework, symbol, args]; :ok
+      }
+    )
+    rec = { name: "NSOperationQueue.addOperations:waitUntilFinished:",
+            kind: "objc_method_instance",
+            objc_class: "NSOperationQueue",
+            selector: "addOperations:waitUntilFinished:",
+            return_kind: :void }
+    builder.install_one("Foundation", rec)
+
+    klass = box.const_get(:Foundation).const_get(:NSOperationQueue)
+    inst = klass.from_ref(0xCAFEBABE)
+    assert_respond_to inst, :addOperations_waitUntilFinished,
+      "T52b: objc_method_instance must install as proxy class instance method"
+
+    inst.addOperations_waitUntilFinished([1, 2, 3], true)
+    assert_equal [[
+      "Foundation",
+      "NSOperationQueue.addOperations:waitUntilFinished:",
+      [0xCAFEBABE, [1, 2, 3], true]
+    ]], calls,
+      "T52b: receiver opaque ref must be prepended to dispatcher args"
+  end
+
+  def test_swift_init_opaque_ref_return_auto_wraps_to_proxy_instance
+    box = Module.new
+    raw = 0xDEADBEEF
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(*) { raw }
+    )
+    rec = { name: "NSOperationQueue.init()",
+            kind: "swift_init",
+            swift_class: "NSOperationQueue",
+            swift_initializer: "init()",
+            return_kind: :opaque_ref }
+    builder.install_one("Foundation", rec)
+
+    klass = box.const_get(:Foundation).const_get(:NSOperationQueue)
+    inst = klass.init
+    assert_kind_of klass, inst,
+      "T52b: swift_init with return_kind :opaque_ref must auto-wrap dispatcher result into proxy instance"
+    assert_equal raw, inst.__opaque_ref,
+      "T52b: wrapped instance must retain dispatcher-returned raw opaque ref"
+  end
+
   # T41 — swift_func (top-level / static) maps to :method on the framework
   # module, NOT under a klass. canonical_name has no dot for top-level.
   def test_install_one_swift_func_top_level_installs_on_framework_module
