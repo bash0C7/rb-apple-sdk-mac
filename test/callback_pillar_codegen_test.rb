@@ -47,4 +47,34 @@ class TestCallbackPillarCodegen < Test::Unit::TestCase
       assert_match(/enum Signature[^{]*\{[^}]*case midiNotifyProc/m, out)
     end
   end
+
+  # Phase 7 (Block parameters / callback catalog expansion):
+  # The codegen must template the trampoline parameter list from YAML, not
+  # hardcode the MIDINotifyProc shape. This unlocks adding MIDIReadProc and any
+  # future C-callback signature without re-touching the codegen Ruby file.
+  def test_generates_for_arbitrary_signature_via_swift_params_field
+    Dir.mktmpdir do |dir|
+      yaml_path = File.join(dir, "sigs.yml")
+      File.write(yaml_path, <<~YAML)
+        - token: midiReadProc
+          swift_type: "MIDIReadProc"
+          swift_params: "_ pktlist: UnsafePointer<MIDIPacketList>, _ readProcRefCon: UnsafeMutableRawPointer?, _ srcConnRefCon: UnsafeMutableRawPointer?"
+          arg_marshaller: "Int64(pktlist.pointee.numPackets)"
+          pool_size: 2
+          frameworks: [CoreMIDI]
+      YAML
+      out = AppleSDKMac::CallbackPillarCodegen.generate(yaml_path)
+      assert_match(/_callback_pillar_midiReadProc_slot_0/, out)
+      assert_match(/_register_midiReadProc/, out)
+      assert_match(/_unregister_midiReadProc/, out)
+      # swift_params verbatim in the trampoline declaration
+      assert_match(/_ pktlist: UnsafePointer<MIDIPacketList>/, out)
+      assert_match(/_ readProcRefCon: UnsafeMutableRawPointer\?/, out)
+      assert_match(/_ srcConnRefCon: UnsafeMutableRawPointer\?/, out)
+      # arg_marshaller verbatim
+      assert_match(/Int64\(pktlist\.pointee\.numPackets\)/, out)
+      # No leftover MIDINotification references when only midiReadProc is in catalog
+      refute_match(/MIDINotification/, out)
+    end
+  end
 end
