@@ -354,10 +354,10 @@ class TestTemplateGenerator < Test::Unit::TestCase
 
   # T42 — kind=objc_method_class が template path で Swift glue を出す。
   # Apple.discover の class_method: shape は LLM ではなく決定論的 template で
-  # 解決されること（spec §3.4.1）。stringWithUTF8String: 単一 segment selector
-  # → Swift method 名 `stringWithUTF8String`、call form `NSString.stringWithUTF8String(arg0)`。
-  # 戻り値 opaque_ref は Unmanaged.passRetained 経由で raw pointer を Ruby Integer に。
-  def test_objc_method_class_emits_swift_class_method_call
+  # 解決されること（spec §3.4.1）。selector → Swift call form は T43 で
+  # init-bridge / class-method の dual emit に。ここでは emit 自体と shape
+  # invariants をピン止めする。
+  def test_objc_method_class_emits_template_glue_with_correct_shape
     sym = {
       name: "NSString.stringWithUTF8String",
       kind: "objc_method_class",
@@ -370,15 +370,47 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/import Foundation/, swift)
     assert_match(/glue_ocm1_NSString_stringWithUTF8String/, swift,
       "T42: exported func name must be sanitized swift_identifier")
-    assert_match(/NSString\.stringWithUTF8String\(/, swift,
-      "T42: call site uses Klass.swiftMethod form")
     assert_match(/Unmanaged\.passRetained/, swift,
       "T42: opaque_ref return must passRetain the ObjC instance pointer")
     assert_match(/rb_ull2inum/, swift)
   end
 
-  # T42 — multi-arg ObjC class method (e.g. NSDictionary.dictionaryWithObjects:forKeys:count:).
-  # 各 arg index は 0,1,2,... で in_load される。argv[0]=arg0, argv[1]=arg1...
+  # T43 — Swift 6 は `<verb>With<Type>:` shape の ObjC convenience constructors
+  # を init に rename する (NS_SWIFT_NAME / API_RENAMED)。emit_objc_class_method
+  # はこの形式を検出し `Klass(label: arg)` init form を出す。
+  # `+stringWithUTF8String:` → `NSString(utf8String: arg0)`。
+  def test_objc_class_method_uses_swift_init_bridge_for_with_type_shape
+    sym = {
+      name: "NSString.stringWithUTF8String",
+      kind: "objc_method_class",
+      objc_class: "NSString", selector: "stringWithUTF8String:",
+      params: [:string], return_kind: :opaque_ref,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "ocm1")
+    refute_nil swift
+    assert_match(/NSString\(utf8String:\s*arg0\)/, swift,
+      "T43: <verb>With<Type>: → init(<type>:) Swift bridging form")
+  end
+
+  # T43 — class method で init-bridge に当てはまらないものは class method form。
+  # `+date` selector の場合 NSDate.date()。selector に `With` 単語が無いので
+  # fall through。
+  def test_objc_class_method_uses_class_method_form_for_non_init_bridge
+    sym = {
+      name: "NSDate.date",
+      kind: "objc_method_class",
+      objc_class: "NSDate", selector: "date",
+      params: [], return_kind: :opaque_ref,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "ocm3")
+    refute_nil swift
+    assert_match(/NSDate\.date\(\)/, swift,
+      "T43: non-bridged class methods keep Klass.swiftMethod form")
+  end
+
+  # T42 — int param marshaling は kind=int で rb_num2ll 経由。
   def test_objc_method_class_with_int_param_emits_int_in_load
     sym = {
       name: "MyClass.makeWithInt",
@@ -391,7 +423,8 @@ class TestTemplateGenerator < Test::Unit::TestCase
     refute_nil swift
     assert_match(/rb_num2ll\(argv\[0\]\)/, swift,
       "T42: int param uses rb_num2ll for argv[0]")
-    assert_match(/MyClass\.makeWithInt\(/, swift)
+    # T43 — `makeWithInt:` matches <verb>With<Type>:, so init form.
+    assert_match(/MyClass\(int:\s*arg0\)/, swift)
   end
 
   # Phase 7 T4: CF Create-rule auto-ARC. A symbol whose knowledge record has

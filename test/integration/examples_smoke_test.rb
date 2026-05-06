@@ -97,13 +97,20 @@ class TestExamplesSmoke < Test::Unit::TestCase
       "expected urlsession download OK or DEFERRED line; got:\n#{res[:stdout]}")
   end
 
-  # Phase 7 T12 — ObjC pure class method via Apple.discover(class_method:).
-  # Same LLM-deferred pattern.
-  def test_objc_classmethod_runs_or_defers
+  # T43 — ObjC class method via Apple.discover(class_method:) は実呼び出しで
+  # 完結すること。spec §3.4.1 emit_objc_class_method (T42) + Swift 6 init-bridge
+  # により `+stringWithUTF8String:` → `NSString(utf8String: arg0)` に decoded、
+  # 戻り値は +1-retained NSString pointer。DEFERRED 退路は許可しない (spec §6 /
+  # release_quality_completion_required.md)。
+  def test_objc_classmethod_actually_returns_nsstring_pointer
     res = run_example("objc_classmethod.rb")
     assert_equal 0, res[:exitstatus],
       "objc_classmethod.rb exited #{res[:exitstatus]}; stderr:\n#{res[:stderr]}"
-    assert_match(/^objc class method (OK|DEFERRED)$/, res[:stdout],
-      "expected objc class method OK or DEFERRED line; got:\n#{res[:stdout]}")
+    assert_match(/^objc class method OK$/, res[:stdout],
+      "T43: expected 'objc class method OK' (no DEFERRED); got:\n#{res[:stdout]}")
+    refute_match(/DEFERRED/, res[:stdout],
+      "T43: DEFERRED 退路は禁止 (release_quality 命題)")
+    assert_match(/^result=\d+$/, res[:stdout],
+      "T43: result must be a non-zero integer (raw NSString pointer)")
   end
 end
