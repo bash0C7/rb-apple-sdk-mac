@@ -164,6 +164,24 @@ static VALUE rb_callback_pillar_unregister_midi_notify(VALUE self, VALUE slot) {
     return Qnil;
 }
 
+// Phase 7 T2c — persistent (escaping) block slot table.
+static VALUE rb_callback_pillar_register_block_persistent(VALUE self, VALUE proc) {
+    VALUE pid = rb_obj_id(proc);
+    rb_hash_aset(proc_registry, pid, proc);
+    uint64_t slot_id = runtime_callback_register_block_persistent(NUM2ULL(pid));
+    return ULL2NUM(slot_id);
+}
+
+static VALUE rb_callback_pillar_unregister_block_persistent(VALUE self, VALUE slot_id) {
+    runtime_callback_unregister_block_persistent(NUM2ULL(slot_id));
+    return Qnil;
+}
+
+static VALUE rb_callback_pillar_release_auto_block(VALUE self, VALUE slot_id) {
+    runtime_callback_release_auto_block(NUM2ULL(slot_id));
+    return Qnil;
+}
+
 // proc_registry lives in libAppleSDKMacRuntime.dylib (flat namespace). Both
 // the dispatcher above (via the proc_registry macro = runtime_proc_registry_get())
 // and per-symbol glue Swift dylibs reach the same Hash, sidestepping
@@ -201,4 +219,7 @@ void Init_apple_sdk_mac_runtime(void) {
     VALUE callback_pillar_module = rb_define_module_under(module, "CallbackPillar");
     rb_define_singleton_method(callback_pillar_module, "register_midi_notify", rb_callback_pillar_register_midi_notify, 1);
     rb_define_singleton_method(callback_pillar_module, "unregister_midi_notify", rb_callback_pillar_unregister_midi_notify, 1);
+    rb_define_singleton_method(callback_pillar_module, "register_block_persistent", rb_callback_pillar_register_block_persistent, 1);
+    rb_define_singleton_method(callback_pillar_module, "unregister_block_persistent", rb_callback_pillar_unregister_block_persistent, 1);
+    rb_define_singleton_method(callback_pillar_module, "release_auto_block", rb_callback_pillar_release_auto_block, 1);
 }

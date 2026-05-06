@@ -39,4 +39,36 @@ class TestCallbackPillar < Test::Unit::TestCase
     AppleSDKMacRuntime::Test.callback_invoke(proc.object_id, 42)
     assert_equal [42], received
   end
+
+  # Phase 7 T2c: persistent (escaping) block slot table. Decoupled from the
+  # typed per-signature slot pools above; auto-incrementing slot ids; lifetime
+  # tied to BoxedBlockHandle on the Ruby side.
+  def test_register_block_persistent_returns_nonzero_slot_id
+    proc = ->(err) {}
+    slot_id = AppleSDKMacRuntime::CallbackPillar.register_block_persistent(proc)
+    refute_equal 0, slot_id, "slot_id must be non-zero (0 is the sentinel for missing slot)"
+    AppleSDKMacRuntime::CallbackPillar.unregister_block_persistent(slot_id)
+  end
+
+  def test_register_block_persistent_returns_distinct_slot_ids
+    proc1 = ->(err) {}
+    proc2 = ->(err) {}
+    s1 = AppleSDKMacRuntime::CallbackPillar.register_block_persistent(proc1)
+    s2 = AppleSDKMacRuntime::CallbackPillar.register_block_persistent(proc2)
+    refute_equal s1, s2
+    AppleSDKMacRuntime::CallbackPillar.unregister_block_persistent(s1)
+    AppleSDKMacRuntime::CallbackPillar.unregister_block_persistent(s2)
+  end
+
+  def test_release_auto_block_is_alias_for_unregister
+    proc = ->(err) {}
+    slot_id = AppleSDKMacRuntime::CallbackPillar.register_block_persistent(proc)
+    # Should not raise; semantically removes the slot like unregister.
+    AppleSDKMacRuntime::CallbackPillar.release_auto_block(slot_id)
+    # Re-registering after release should succeed.
+    slot_id2 = AppleSDKMacRuntime::CallbackPillar.register_block_persistent(proc)
+    refute_equal slot_id, slot_id2,
+      "auto-incrementing slot ids should not collide across release"
+    AppleSDKMacRuntime::CallbackPillar.unregister_block_persistent(slot_id2)
+  end
 end

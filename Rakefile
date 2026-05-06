@@ -28,10 +28,14 @@ end
 
 namespace :apple do
   namespace :runtime do
-    desc "swift build the runtime dylib and copy generated -Swift.h into ext/"
+    desc "swift build the runtime dylib (release config) and copy generated -Swift.h into ext/"
     task :sync_header do
       ext_dir = File.expand_path("ext/apple_sdk_mac_runtime", __dir__)
-      sh "swift", "build", "--package-path", ext_dir
+      # The C extension is linked with @rpath=.build/release, so the runtime
+      # Swift dylib MUST be built in release config or new exports will go
+      # missing at dlopen. (debug config is built incidentally by swift_gem
+      # tooling; we build release ourselves here.)
+      sh "swift", "build", "-c", "release", "--package-path", ext_dir
       generated = Dir.glob(File.join(ext_dir, ".build", "**", "AppleSDKMacRuntime-Swift.h")).first
       raise "AppleSDKMacRuntime-Swift.h not produced by swift build" unless generated
       target = File.join(ext_dir, "AppleSDKMacRuntime-Swift.h")
