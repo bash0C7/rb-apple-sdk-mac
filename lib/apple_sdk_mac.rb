@@ -4,6 +4,7 @@ require_relative "apple_sdk_mac/version"
 require_relative "apple_sdk_mac/errors"
 require_relative "apple_sdk_mac/apple_sdk_mac_runtime"
 require_relative "apple_sdk_mac/public_api"
+require_relative "apple_sdk_mac/diagnostics"
 
 if defined?(Ruby::Box) && Ruby::Box.enabled?
   Object.send(:remove_const, :Apple) if Object.const_defined?(:Apple, false)
@@ -18,6 +19,7 @@ module Apple
   def self.discover(**kwargs); ::AppleSDKMac.discover(**kwargs); end
   def self.event_loop(&block); ::AppleSDKMac.event_loop(&block); end
   def self.configure(&block); ::AppleSDKMac.configure(&block); end
+  def self.diagnostics; ::AppleSDKMac::Diagnostics.dump; end
 
   # Eagerly populate Apple::<Framework> modules and their constants from the
   # knowledge base without compiling any glue. Method calls on the populated
