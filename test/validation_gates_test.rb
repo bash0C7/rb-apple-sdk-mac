@@ -71,4 +71,108 @@ class TestValidationGates < Test::Unit::TestCase
     refute result.pass?
     assert result.errors.any? { |e| e.include?("export") || e.include?("@c") }
   end
+
+  # Phase 7 T3c — async-shape gate. Glue containing `await` MUST follow the
+  # DispatchSemaphore + Task { do { try await } catch { captured = error }
+  # sema.signal() } + sema.wait() + post-wait raise skeleton from Worked
+  # Examples E1-E4. Any deviation is rejected.
+  def test_rejects_await_without_dispatch_semaphore
+    swift = <<~SWIFT
+      import Foundation
+      @c public func glue_abc_X(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt {
+          Task { _ = try await something() }
+          return 0
+      }
+    SWIFT
+    result = @gates.validate(swift, framework: "Foundation", glue_id: "abc", symbol: "X")
+    refute result.pass?
+    assert result.errors.any? { |e| e.include?("async") || e.include?("DispatchSemaphore") }
+  end
+
+  def test_accepts_well_formed_async_shape
+    swift = <<~SWIFT
+      import Foundation
+      @c public func glue_abc_X(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt {
+          let sema = DispatchSemaphore(value: 0)
+          var captured: Error?
+          Task {
+              do { _ = try await something() }
+              catch { captured = error }
+              sema.signal()
+          }
+          sema.wait()
+          if let e = captured { rb_raise(rb_eRuntimeError, "\\(e)") }
+          return Qnil
+      }
+    SWIFT
+    result = @gates.validate(swift, framework: "Foundation", glue_id: "abc", symbol: "X")
+    # Imports / banned-API / shape checks may flag other things, but the
+    # async-shape rule itself should be silent.
+    assert_empty result.errors.select { |e| e =~ /async|DispatchSemaphore/ }
+  end
+
+  # T3c — persistent-block-shape gate. Glue using BoxedBlockHandle MUST also
+  # call runtime_callback_register_block_persistent (otherwise the handle is
+  # bogus / leaks).
+  def test_rejects_boxed_block_handle_without_register_call
+    swift = <<~SWIFT
+      import Foundation
+      @c public func glue_abc_X(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt {
+          let handle = BoxedBlockHandle(slotId: 1)
+          _ = handle
+          return 0
+      }
+    SWIFT
+    result = @gates.validate(swift, framework: "Foundation", glue_id: "abc", symbol: "X")
+    refute result.pass?
+    assert result.errors.any? { |e| e.include?("persistent-block") || e.include?("register_block_persistent") }
+  end
+
+  # T3c — autoarc-shape gate. Glue boxing into BoxedCFType MUST use
+  # Unmanaged.takeRetainedValue() and MUST NOT call CFRelease manually.
+  def test_rejects_boxed_cf_type_without_take_retained_value
+    swift = <<~SWIFT
+      import CoreFoundation
+      @c public func glue_abc_X(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt {
+          let raw: UnsafeRawPointer = UnsafeRawPointer(bitPattern: 1)!
+          let boxed = BoxedCFType(retained: raw as AnyObject)
+          _ = boxed
+          return 0
+      }
+    SWIFT
+    result = @gates.validate(swift, framework: "CoreFoundation", glue_id: "abc", symbol: "X")
+    refute result.pass?
+    assert result.errors.any? { |e| e.include?("autoarc") || e.include?("takeRetainedValue") }
+  end
+
+  def test_rejects_manual_cfrelease_in_autoarc_glue
+    swift = <<~SWIFT
+      import CoreFoundation
+      @c public func glue_abc_X(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt {
+          let raw = MakeCF()
+          let boxed = BoxedCFType(retained: Unmanaged<CFString>.fromOpaque(raw).takeRetainedValue())
+          CFRelease(raw)
+          _ = boxed
+          return 0
+      }
+    SWIFT
+    result = @gates.validate(swift, framework: "CoreFoundation", glue_id: "abc", symbol: "X")
+    refute result.pass?
+    assert result.errors.any? { |e| e.include?("CFRelease") }
+  end
+
+  # T3c — objc-bridge-shape gate. Manual objc_msgSend is forbidden; use
+  # Swift's bridged class names instead (per Worked Examples F1, F2, G).
+  def test_rejects_manual_objc_msgSend
+    swift = <<~SWIFT
+      import Foundation
+      @c public func glue_abc_X(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt {
+          objc_msgSend(obj, sel, args)
+          return 0
+      }
+    SWIFT
+    result = @gates.validate(swift, framework: "Foundation", glue_id: "abc", symbol: "X")
+    refute result.pass?
+    assert result.errors.any? { |e| e.include?("objc_msgSend") }
+  end
 end

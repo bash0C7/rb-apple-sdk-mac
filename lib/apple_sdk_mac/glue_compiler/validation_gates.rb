@@ -20,10 +20,59 @@ module AppleSDKMac
         check_imports(swift, framework, errors)
         check_banned_apis(swift, symbol, errors)
         check_shape(swift, glue_id, symbol, errors)
+        check_async_shape(swift, errors)
+        check_persistent_block_shape(swift, errors)
+        check_autoarc_shape(swift, errors)
+        check_objc_bridge_shape(swift, errors)
         Result.new(errors.empty?, errors)
       end
 
       private
+
+      # Phase 7 T3c gates — enforce the LLM Worked Example shapes literally.
+      # Malformed glue is rejected before swiftc invocation; LLMGenerator's
+      # retry loop (DEFAULT_MAX_LLM_RETRIES = 6) gets a chance to converge.
+
+      ASYNC_REQUIRED_PATTERNS = [
+        [/DispatchSemaphore\(value:\s*0\)/, "DispatchSemaphore(value: 0)"],
+        [/Task\s*\{/, "Task { ... }"],
+        [/do\s*\{[^}]*try\s+await/m, "do { try await ... }"],
+        [/catch\s*\{/, "catch { ... }"],
+        [/sema\.signal\(\)/, "sema.signal()"],
+        [/sema\.wait\(\)/, "sema.wait()"]
+      ].freeze
+
+      def check_async_shape(swift, errors)
+        return unless swift.match?(/\bawait\b/)
+        ASYNC_REQUIRED_PATTERNS.each do |re, label|
+          unless swift.match?(re)
+            errors << "GATE 6 async-shape violation: missing #{label} in await-bearing glue"
+          end
+        end
+      end
+
+      def check_persistent_block_shape(swift, errors)
+        return unless swift.include?("BoxedBlockHandle")
+        unless swift.include?("runtime_callback_register_block_persistent")
+          errors << "GATE 7 persistent-block-shape: BoxedBlockHandle without runtime_callback_register_block_persistent"
+        end
+      end
+
+      def check_autoarc_shape(swift, errors)
+        return unless swift.include?("BoxedCFType")
+        if swift.match?(/\bCFRelease\(/)
+          errors << "GATE 8 autoarc-shape: manual CFRelease forbidden in cftype_ref_autoarc glue"
+        end
+        unless swift.include?("takeRetainedValue()")
+          errors << "GATE 8 autoarc-shape: BoxedCFType requires Unmanaged.takeRetainedValue()"
+        end
+      end
+
+      def check_objc_bridge_shape(swift, errors)
+        if swift.match?(/\bobjc_msgSend\b/)
+          errors << "GATE 9 objc-bridge-shape: manual objc_msgSend forbidden — import the framework module and use Swift's bridged class name"
+        end
+      end
 
       def check_imports(swift, framework, errors)
         imports = swift.lines.map(&:strip).select { |l| l.start_with?("import ") }
