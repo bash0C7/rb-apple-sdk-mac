@@ -172,7 +172,8 @@ module AppleSDKMac
     # Additional signatures are added by listing them in
     # ext/apple_sdk_mac_runtime/callback_signatures.yml + extending this map.
     CALLBACK_PILLAR_ROUTES = {
-      "MIDINotifyProc" => :midi_notify
+      "MIDINotifyProc" => :midi_notify,
+      "MIDIReadProc"   => :midi_read
     }.freeze
 
     class CallbackNilableMarshaller < Marshaller

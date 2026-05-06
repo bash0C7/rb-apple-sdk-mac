@@ -6,6 +6,19 @@ require_relative "marshallers"
 module AppleSDKMac
   class GlueCompiler
     class TemplateGenerator
+      # @_silgen_name declarations for the per-route CallbackPillar wrappers,
+      # built from CALLBACK_PILLAR_ROUTES so adding a new signature is one YAML
+      # entry + one Marshaller route map line — no manual HEADER edit.
+      CALLBACK_BRIDGE_DECLS = ::AppleSDKMac::GlueCompiler::CALLBACK_PILLAR_ROUTES
+        .values.uniq.map { |route|
+          <<~SWIFT.chomp
+            @_silgen_name("runtime_callback_pillar_register_#{route}")
+            func runtime_callback_pillar_register_#{route}(_ procId: UInt64) -> Int32
+            @_silgen_name("runtime_callback_pillar_get_#{route}_fnptr")
+            func runtime_callback_pillar_get_#{route}_fnptr(_ slot: Int32) -> UInt64
+          SWIFT
+        }.join("\n").freeze
+
       HEADER = <<~SWIFT.freeze
         // CRuby symbols resolved at dlopen via -undefined dynamic_lookup
         @_silgen_name("rb_string_value_cstr")
@@ -42,10 +55,7 @@ module AppleSDKMac
         func rb_obj_id(_ v: UInt) -> UInt
         @_silgen_name("rb_gv_get")
         func rb_gv_get(_ name: UnsafePointer<CChar>) -> UInt
-        @_silgen_name("runtime_callback_pillar_register_midi_notify")
-        func runtime_callback_pillar_register_midi_notify(_ procId: UInt64) -> Int32
-        @_silgen_name("runtime_callback_pillar_get_midi_notify_fnptr")
-        func runtime_callback_pillar_get_midi_notify_fnptr(_ slot: Int32) -> UInt64
+        #{CALLBACK_BRIDGE_DECLS}
 
         let Qfalse: UInt = 0
         let Qnil:   UInt = 4

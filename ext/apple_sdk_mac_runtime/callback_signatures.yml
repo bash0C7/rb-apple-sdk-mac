@@ -16,6 +16,19 @@
   c_signature: "void (*)(const MIDINotification *, void *)"
   swift_type: "MIDINotifyProc"
   swift_signature: "@convention(c) (UnsafePointer<MIDINotification>, UnsafeMutableRawPointer?) -> Void"
+  swift_params: "_ message: UnsafePointer<MIDINotification>, _ refCon: UnsafeMutableRawPointer?"
   arg_marshaller: "Int64(message.pointee.messageID.rawValue)"
+  pool_size: 4
+  frameworks: [CoreMIDI]
+
+# MIDIReadProc — invoked by CoreMIDI when MIDI packets arrive on a connected
+# source. Phase 7 propagates only the packet count to Ruby (single-Int64
+# threading channel). Richer packet marshalling is deferred to Phase 8+.
+- token: midiReadProc
+  c_signature: "void (*)(const MIDIPacketList *, void *, void *)"
+  swift_type: "MIDIReadProc"
+  swift_signature: "@convention(c) (UnsafePointer<MIDIPacketList>, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void"
+  swift_params: "_ pktlist: UnsafePointer<MIDIPacketList>, _ readProcRefCon: UnsafeMutableRawPointer?, _ srcConnRefCon: UnsafeMutableRawPointer?"
+  arg_marshaller: "Int64(pktlist.pointee.numPackets)"
   pool_size: 4
   frameworks: [CoreMIDI]

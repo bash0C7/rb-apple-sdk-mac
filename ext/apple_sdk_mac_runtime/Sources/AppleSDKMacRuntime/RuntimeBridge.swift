@@ -115,25 +115,7 @@ public func runtime_conformance_release(_ handle: UInt32) {
     ConformanceBridge.release(handle)
 }
 
-@c
-public func runtime_callback_pillar_register_midi_notify(_ procId: UInt64) -> Int32 {
-    guard let r = CallbackPillar._register_midiNotifyProc(procId: procId) else { return -1 }
-    return Int32(r.slot)
-}
-
-@c
-public func runtime_callback_pillar_get_midi_notify_fnptr(_ slot: Int32) -> UInt64 {
-    let fnptrs: [MIDINotifyProc] = [
-        _callback_pillar_midiNotifyProc_slot_0,
-        _callback_pillar_midiNotifyProc_slot_1,
-        _callback_pillar_midiNotifyProc_slot_2,
-        _callback_pillar_midiNotifyProc_slot_3,
-    ]
-    let p = unsafeBitCast(fnptrs[Int(slot)], to: UnsafeRawPointer.self)
-    return UInt64(UInt(bitPattern: p))
-}
-
-@c
-public func runtime_callback_pillar_unregister_midi_notify(_ slot: Int32) {
-    CallbackPillar._unregister_midiNotifyProc(slot: Int(slot))
-}
+// runtime_callback_pillar_* wrappers (register / get_fnptr / unregister) are
+// now auto-generated per signature in CallbackPillarGenerated.swift from
+// callback_signatures.yml. To add a new C function-pointer signature:
+// edit callback_signatures.yml, then `rake runtime:codegen_callback_pillar`.
