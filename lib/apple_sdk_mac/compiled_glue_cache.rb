@@ -7,7 +7,10 @@ module AppleSDKMac
     # Phase 7 T15 — bumped any time the template HEADER, marshaller emit, or
     # validation gate set changes in a way that invalidates pre-bump Swift
     # sources. v1.0 lifts this to "1.0" (was implicitly v0 / unset).
-    CACHE_SCHEMA_VERSION = "1.0"
+    # T49 bump → "1.1": HEADER に runtime_threading_enqueue / register_block_persistent /
+    # arc_unbox_cftype の @_silgen_name 宣言を追加、CFTypeRefMarshaller の
+    # in_load を runtime_arc_unbox_cftype 経由 (autoarc box unwrap) に変更。
+    CACHE_SCHEMA_VERSION = "1.1"
 
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;

@@ -162,11 +162,18 @@ module AppleSDKMac
         # types are pervasively nullable (kCFAllocatorDefault is encoded
         # as a NULL CFAllocatorRef, etc.), so force-unwrapping here
         # SIGTRAPs on otherwise-valid Apple-API NULL conventions.
+        # T49 — autoarc box pointer (runtime_arc_box_cftype の戻り値) を
+        # 受け取った場合は runtime_arc_unbox_cftype で内部 CF pointer に
+        # unwrap、box でない raw pointer 直渡しは 0 が返るので raw に
+        # fall-back する。spec §3.9 round-trip 完成の前提。
         <<~SWIFT.chomp
           let #{name}: #{type}?
-              if argv[#{i}] == Qnil {
+              let __raw_in_#{i} = UInt(rb_num2ull(argv[#{i}]))
+              let __unbox_#{i} = runtime_arc_unbox_cftype(__raw_in_#{i})
+              let __actual_#{i}: UInt = (__unbox_#{i} != 0) ? __unbox_#{i} : __raw_in_#{i}
+              if argv[#{i}] == Qnil || __actual_#{i} == 0 {
                   #{name} = nil
-              } else if let __ptr_#{i} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{i}]))) {
+              } else if let __ptr_#{i} = OpaquePointer(bitPattern: __actual_#{i}) {
                   #{name} = unsafeBitCast(__ptr_#{i}, to: #{type}.self)
               } else {
                   #{name} = nil

@@ -57,6 +57,8 @@ module AppleSDKMac
         func runtime_proc_registry_get() -> UInt
         @_silgen_name("runtime_arc_box_cftype")
         func runtime_arc_box_cftype(_ raw: UInt) -> UInt
+        @_silgen_name("runtime_arc_unbox_cftype")
+        func runtime_arc_unbox_cftype(_ raw: UInt) -> UInt
         @_silgen_name("runtime_threading_enqueue")
         func runtime_threading_enqueue(_ procId: UInt64, _ arg: Int64)
         @_silgen_name("runtime_callback_register_block_persistent")
