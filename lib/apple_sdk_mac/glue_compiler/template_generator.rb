@@ -57,6 +57,10 @@ module AppleSDKMac
         func runtime_proc_registry_get() -> UInt
         @_silgen_name("runtime_arc_box_cftype")
         func runtime_arc_box_cftype(_ raw: UInt) -> UInt
+        @_silgen_name("runtime_threading_enqueue")
+        func runtime_threading_enqueue(_ procId: UInt64, _ arg: Int64)
+        @_silgen_name("runtime_callback_register_block_persistent")
+        func runtime_callback_register_block_persistent(_ procId: UInt64) -> UInt64
         #{CALLBACK_BRIDGE_DECLS}
 
         let Qfalse: UInt = 0
@@ -244,9 +248,7 @@ module AppleSDKMac
               )
             SWIFT
             in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i, argv_offset: 1) }
-            swift_method = swift_method_name_from_selector(selector)
-            args_str = params.each_index.map { |i| "arg#{i}" }.join(", ")
-            call_expr = "receiver.#{swift_method}(#{args_str})"
+            call_expr = swift_call_for_instance_method(selector, params)
             [receiver_load] + in_loads + ["let raw = #{call_expr}"] + objc_return_lines(return_kind, "raw")
           end
 
@@ -434,6 +436,29 @@ module AppleSDKMac
         end
       end
 
+      # T48 — instance method selector を Swift bridged call form に変換。
+      # single-segment: receiver.<method>(arg0, arg1, ...) (label なし)
+      # multi-segment: receiver.<method>(<label>: arg0, <label>: arg1, ...)
+      # 第1 segment が `<verb>With<Type>` shape なら Apple bridging に従い
+      # method = `<verb>`, first_label = "with" (Type は label に含めない)。
+      def swift_call_for_instance_method(selector, params, receiver_var: "receiver")
+        parts = selector.split(":", -1).reject(&:empty?)
+        args = params.each_index.map { |i| "arg#{i}" }
+        if parts.size == 1
+          "#{receiver_var}.#{parts[0]}(#{args.join(', ')})"
+        else
+          if (m = parts[0].match(/\A(\w+?)With([A-Z]\w+)\z/))
+            method_name = m[1]
+            labels = ["with"] + parts[1..]
+          else
+            method_name = parts[0]
+            labels = parts[1..]
+          end
+          label_args = labels.zip(args).map { |l, a| "#{l}: #{a}" }.join(", ")
+          "#{receiver_var}.#{method_name}(#{label_args})"
+        end
+      end
+
       # init multi-segment selector (`initWithCGImage:options:`) を Swift
       # bridged init form (`Klass(cgImage: arg0, options: arg1)`) に変換。
       def swift_init_call(klass, selector, params)
@@ -534,6 +559,22 @@ module AppleSDKMac
           "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{ai}])))"
         when :void_ptr_nilable
           "let arg#{index}: UnsafeMutableRawPointer? = (argv[#{ai}] == Qnil) ? nil : UnsafeMutableRawPointer(bitPattern: Int(rb_num2ll(argv[#{ai}])))"
+        when :block_persistent
+          # T48 — escaping completion block。Ruby Proc を proc_registry に pin、
+          # persistent slot register、そして @convention(block) closure を組む。
+          # closure は runtime_threading_enqueue 経由で Ruby callback を起動。
+          # signature は v1.0 では URLSession の `(Data?, URLResponse?, Error?)
+          # -> Void` を default。将来的に :block_signature opt 化。
+          <<~SWIFT.chomp
+            let arg#{index}_pid_v = rb_obj_id(argv[#{ai}])
+                rb_hash_aset(runtime_proc_registry_get(), arg#{index}_pid_v, argv[#{ai}])
+                let arg#{index}_pid_u = rb_num2ull(arg#{index}_pid_v)
+                let arg#{index}_slot_id = runtime_callback_register_block_persistent(arg#{index}_pid_u)
+                _ = arg#{index}_slot_id
+                let arg#{index}: (Data?, URLResponse?, Error?) -> Void = { (data, resp, err) in
+                    runtime_threading_enqueue(arg#{index}_pid_u, err == nil ? 0 : -1)
+                }
+          SWIFT
         else
           raise ArgumentError, "objc_in_load: unsupported param kind #{kind_sym.inspect}"
         end
