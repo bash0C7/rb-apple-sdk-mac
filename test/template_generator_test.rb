@@ -492,6 +492,57 @@ class TestTemplateGenerator < Test::Unit::TestCase
       "T44: opaque_ref 戻り値は +1 retained pointer")
   end
 
+  # T45 — kind=swift_init は Swift initializer 直接呼び出し form。
+  # spec §3.4.3 の `guard let v = Klass(args) else { return Qnil }` shape。
+  def test_swift_init_no_args_emits_klass_paren_call
+    sym = {
+      name: "VNRecognizeTextRequest.init()",
+      kind: "swift_init",
+      swift_class: "VNRecognizeTextRequest",
+      swift_initializer: "init()",
+      params: [], return_kind: :opaque_ref,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Vision", symbol: sym, glue_id: "swi1")
+    refute_nil swift, "T45: swift_init must produce template glue"
+    assert_match(/import Vision/, swift)
+    assert_match(/VNRecognizeTextRequest\(\)/, swift)
+    assert_match(/Unmanaged\.passRetained/, swift,
+      "T45: opaque_ref 戻り値は +1 retained pointer")
+  end
+
+  def test_swift_init_single_label_emits_init_with_arg
+    sym = {
+      name: "URL.init(string:)",
+      kind: "swift_init",
+      swift_class: "URL",
+      swift_initializer: "init(string:)",
+      params: [:string], return_kind: :opaque_ref,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "swi2")
+    refute_nil swift
+    assert_match(/URL\(string:\s*arg0\)/, swift,
+      "T45: init(string:) → URL(string: arg0)")
+    assert_match(/guard let v = URL\(.*\) else \{ return Qnil \}/, swift,
+      "T45: failable init は guard let で nil 時に Qnil 返す")
+  end
+
+  def test_swift_init_multi_label_emits_each_label
+    sym = {
+      name: "VNImageRequestHandler.init(cgImage:options:)",
+      kind: "swift_init",
+      swift_class: "VNImageRequestHandler",
+      swift_initializer: "init(cgImage:options:)",
+      params: [:opaque_ref, :void_ptr_nilable], return_kind: :opaque_ref,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Vision", symbol: sym, glue_id: "swi3")
+    refute_nil swift
+    assert_match(/VNImageRequestHandler\(cgImage:\s*arg0,\s*options:\s*arg1\)/, swift,
+      "T45: multi-label init は labeled args full set")
+  end
+
   # Phase 7 T4: CF Create-rule auto-ARC. A symbol whose knowledge record has
   # cf_create_rule=true gets its CF-typed return value automatically wrapped
   # via the runtime ARC pillar's runtime_arc_box_cftype entry point. The
