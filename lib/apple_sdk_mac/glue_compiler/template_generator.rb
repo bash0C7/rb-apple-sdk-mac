@@ -77,6 +77,8 @@ module AppleSDKMac
           return emit_objc_class_method(framework: framework, symbol: symbol, glue_id: glue_id)
         when "objc_method_instance"
           return emit_objc_instance_method(framework: framework, symbol: symbol, glue_id: glue_id)
+        when "swift_init"
+          return emit_swift_init(framework: framework, symbol: symbol, glue_id: glue_id)
         end
         return nil unless symbol[:kind] == "function" && symbol[:abi] == "c"
         params = parse_params(symbol[:parameters_json])
@@ -256,6 +258,69 @@ module AppleSDKMac
               #{body.join("\n    ")}
           }
         SWIFT
+      end
+
+      # T45 — Swift initializer emit (spec §3.4.3)。
+      # Apple.discover(swift_initializer: "init(string:)", ...) で来た synth
+      # record を `guard let v = Klass(label: arg) else { return Qnil }` shape
+      # の Swift glue に。failable init の nil branch を Qnil で握りつぶす。
+      def emit_swift_init(framework:, symbol:, glue_id:)
+        klass = symbol[:swift_class].to_s
+        initializer = symbol[:swift_initializer].to_s
+        params = symbol[:params] || []
+        return_kind = (symbol[:return_kind] || :opaque_ref).to_sym
+        swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
+        exported = "glue_#{glue_id}_#{swift_id}"
+
+        labels = swift_init_labels(initializer)
+        in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i) }
+        call_expr =
+          if labels.empty?
+            "#{klass}()"
+          else
+            args = params.each_index.map { |i| "arg#{i}" }
+            "#{klass}(" + labels.zip(args).map { |l, a| "#{l}: #{a}" }.join(", ") + ")"
+          end
+
+        body = in_loads + [
+          "guard let v = #{call_expr} else { return Qnil }",
+          *swift_init_return_lines(return_kind, "v")
+        ]
+
+        <<~SWIFT
+          import #{framework}
+          import Foundation
+
+          #{HEADER}
+          @c
+          public func #{exported}(
+              _ argv: UnsafePointer<UInt>, _ argc: Int32
+          ) -> UInt {
+              #{body.join("\n    ")}
+          }
+        SWIFT
+      end
+
+      # `init(label1:label2:)` から ["label1", "label2"] を抜き出す。
+      # `init()` → []。
+      def swift_init_labels(initializer)
+        m = initializer.match(/\Ainit\((.*)\)\z/)
+        return [] unless m
+        m[1].split(":", -1).reject(&:empty?)
+      end
+
+      # swift_init の return marshaling。opaque_ref を passRetained して
+      # Ruby Integer へ。それ以外は基本 marshaling。
+      def swift_init_return_lines(return_kind, var)
+        case return_kind.to_sym
+        when :opaque_ref
+          [
+            "let p = Unmanaged.passRetained(#{var} as AnyObject).toOpaque()",
+            "return rb_ull2inum(UInt64(UInt(bitPattern: p)))"
+          ]
+        else
+          objc_return_lines(return_kind, var)
+        end
       end
 
       # init multi-segment selector (`initWithCGImage:options:`) を Swift
