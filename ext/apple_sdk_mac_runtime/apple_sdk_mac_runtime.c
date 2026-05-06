@@ -157,17 +157,20 @@ static VALUE rb_callback_pillar_unregister_midi_notify(VALUE self, VALUE slot) {
     return Qnil;
 }
 
-// Exposed to glue Swift via @_silgen_name so CallbackNilableMarshaller can
-// pin the Ruby Block in the global proc_registry without reaching into the
-// C-static directly. Both args are raw VALUE (Ruby Fixnum VALUE / Ruby Proc
-// VALUE) — already encoded; do NOT re-encode via ULL2NUM.
-void rb_hash_aset_proc_registry(uint64_t pid_v, uint64_t proc_v) {
-    rb_hash_aset(proc_registry, (VALUE)pid_v, (VALUE)proc_v);
-}
+// proc_registry is also exposed as a Ruby global variable so glue Swift
+// can reach it via rb_gv_get (a libruby symbol that's always in flat
+// namespace). The previous shim function rb_hash_aset_proc_registry
+// failed under RUBY_BOX=1 because Ruby loaded the C ext with RTLD_LOCAL,
+// keeping the shim invisible to subsequent dlopens of glue dylibs.
 
 void Init_apple_sdk_mac_runtime(void) {
     proc_registry = rb_hash_new();
     rb_global_variable(&proc_registry);
+    // Expose as a Ruby $-prefixed global so Swift glue can fetch the same
+    // hash via rb_gv_get (a libruby symbol that's reachable via flat
+    // namespace lookup even when this ext bundle was loaded RTLD_LOCAL,
+    // e.g. under RUBY_BOX=1).
+    rb_define_variable("$__apple_sdk_mac_proc_registry", &proc_registry);
     runtime_callback_set_dispatcher(ruby_callback_dispatcher);
     VALUE module = rb_define_module("AppleSDKMacRuntime");
     rb_define_singleton_method(module, "dlopen_glue", rb_dlopen_glue, 1);

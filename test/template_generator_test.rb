@@ -195,14 +195,17 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/rb_raise\(rb_eRuntimeError, "non-nil callback not yet supported"\)/, swift)
   end
 
-  def test_callback_non_nil_emits_unconditional_rb_raise_stub
+  def test_callback_non_nil_unsupported_falls_through_to_nil
+    # Non-catalog non-nil callbacks cannot be synthesized into a working
+    # `@convention(c)` function pointer without a per-signature trampoline,
+    # so the marshaller marks itself broken; the template generator returns
+    # nil so the symbol can fall through to LLM fallback / unsupported.
     sym = {
       kind: "function", abi: "c", name: "Foo", signature: "void Foo(MyCallback)",
       parameters_json: '[{"name":"cb","type":"MyCallback _Nonnull","kind":"callback_non_nil","is_out_param":false,"nullability":"nonnull"}]'
     }
     swift = @gen.generate(framework: "Acme", symbol: sym, glue_id: "ab12")
-    refute_nil swift
-    assert_match(/rb_raise\(rb_eRuntimeError, "non-nil callback not yet supported"\)/, swift)
+    assert_nil swift, "non-catalog callback_non_nil must not produce glue"
   end
 
   # Phase 6 (callback pillar): MIDINotifyProc routes to CallbackPillar register
@@ -228,7 +231,10 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/@_silgen_name\("runtime_callback_pillar_register_midi_notify"\)/, h)
     assert_match(/@_silgen_name\("runtime_callback_pillar_get_midi_notify_fnptr"\)/, h)
     assert_match(/@_silgen_name\("rb_obj_id"\)/, h)
-    assert_match(/@_silgen_name\("rb_hash_aset_proc_registry"\)/, h)
+    # Glue Swift fetches the proc_registry hash via rb_gv_get (a libruby
+    # symbol) — replaces the previous rb_hash_aset_proc_registry shim that
+    # broke under RUBY_BOX=1 (RTLD_LOCAL load of the C ext bundle).
+    assert_match(/@_silgen_name\("rb_gv_get"\)/, h)
   end
 
   # struct_in_pointer kind: Ruby user passes a UInt encoding a pointer

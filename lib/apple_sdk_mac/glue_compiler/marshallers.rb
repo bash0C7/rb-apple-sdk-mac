@@ -152,7 +152,8 @@ module AppleSDKMac
                   #{name} = nil
               } else {
                   let #{name}_pid_v = rb_obj_id(argv[#{i}])
-                  rb_hash_aset_proc_registry(#{name}_pid_v, argv[#{i}])
+                  let #{name}_reg = rb_gv_get("$__apple_sdk_mac_proc_registry")
+                  rb_hash_aset(#{name}_reg, #{name}_pid_v, argv[#{i}])
                   let #{name}_pid_u = rb_num2ull(#{name}_pid_v)
                   let #{name}_slot = #{fn_register}(#{name}_pid_u)
                   if #{name}_slot < 0 { rb_raise(rb_eRuntimeError, "callback slot pool exhausted") }
@@ -176,39 +177,36 @@ module AppleSDKMac
     Marshaller::REGISTRY["callback_nilable"] = CallbackNilableMarshaller
 
     class CallbackNonNilMarshaller < Marshaller
-      def in_load
+      # Outside the catalog we cannot synthesize a real C function pointer
+      # without crashing (the previous "let cb: T?; rb_raise(...)" stub was
+      # rejected by swiftc because optional T? cannot be passed where the C
+      # function expects T). Mark the marshaller as broken so the template
+      # generator returns nil and the symbol falls through to LLM fallback
+      # / unsupported. Catalog routes still produce real glue.
+      def initialize(param, index, ctx)
+        super
         type = @param[:type].sub(/\s*_(?:Nullable|Nonnull)\b/, "").strip
-        name = @param[:name]; i = @index
-        if (route = CALLBACK_PILLAR_ROUTES[type])
-          register_branch(name, type, i, route)
-        else
-          legacy_branch(name, type)
-        end
+        @route = CALLBACK_PILLAR_ROUTES[type]
+        @broken = @route.nil?
       end
 
-      private
+      def broken?; @broken; end
 
-      def register_branch(name, type, i, route)
-        fn_register = "runtime_callback_pillar_register_#{route}"
-        fn_get_fnptr = "runtime_callback_pillar_get_#{route}_fnptr"
+      def in_load
+        return nil if @broken
+        type = @param[:type].sub(/\s*_(?:Nullable|Nonnull)\b/, "").strip
+        name = @param[:name]; i = @index
+        fn_register = "runtime_callback_pillar_register_#{@route}"
+        fn_get_fnptr = "runtime_callback_pillar_get_#{@route}_fnptr"
         <<~SWIFT.chomp
-          let #{name}: #{type}?
-              let #{name}_pid_v = rb_obj_id(argv[#{i}])
-              rb_hash_aset_proc_registry(#{name}_pid_v, argv[#{i}])
+          let #{name}_pid_v = rb_obj_id(argv[#{i}])
+              let #{name}_reg = rb_gv_get("$__apple_sdk_mac_proc_registry")
+              rb_hash_aset(#{name}_reg, #{name}_pid_v, argv[#{i}])
               let #{name}_pid_u = rb_num2ull(#{name}_pid_v)
               let #{name}_slot = #{fn_register}(#{name}_pid_u)
               if #{name}_slot < 0 { rb_raise(rb_eRuntimeError, "callback slot pool exhausted") }
               let #{name}_raw = #{fn_get_fnptr}(#{name}_slot)
-              #{name} = unsafeBitCast(UnsafeRawPointer(bitPattern: UInt(#{name}_raw))!, to: #{type}.self)
-        SWIFT
-      end
-
-      def legacy_branch(name, type)
-        # rb_raise is `-> Never`, so Swift accepts the let-binding as
-        # definitely-assigned in the only non-terminating branch.
-        <<~SWIFT.chomp
-          let #{name}: #{type}?
-              rb_raise(rb_eRuntimeError, "non-nil callback not yet supported")
+              let #{name}: #{type} = unsafeBitCast(UnsafeRawPointer(bitPattern: UInt(#{name}_raw))!, to: #{type}.self)
         SWIFT
       end
     end

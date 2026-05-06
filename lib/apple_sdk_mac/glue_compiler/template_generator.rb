@@ -40,8 +40,8 @@ module AppleSDKMac
         func rb_block_proc() -> UInt
         @_silgen_name("rb_obj_id")
         func rb_obj_id(_ v: UInt) -> UInt
-        @_silgen_name("rb_hash_aset_proc_registry")
-        func rb_hash_aset_proc_registry(_ pid: UInt, _ proc: UInt)
+        @_silgen_name("rb_gv_get")
+        func rb_gv_get(_ name: UnsafePointer<CChar>) -> UInt
         @_silgen_name("runtime_callback_pillar_register_midi_notify")
         func runtime_callback_pillar_register_midi_notify(_ procId: UInt64) -> Int32
         @_silgen_name("runtime_callback_pillar_get_midi_notify_fnptr")

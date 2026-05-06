@@ -153,7 +153,8 @@ module AppleSDKMac
                    cb = nil
                } else {
                    let cb_pid_v = rb_obj_id(argv[i])
-                   rb_hash_aset_proc_registry(cb_pid_v, argv[i])
+                   let cb_reg = rb_gv_get("$__apple_sdk_mac_proc_registry")
+                   rb_hash_aset(cb_reg, cb_pid_v, argv[i])
                    let cb_pid_u = rb_num2ull(cb_pid_v)
                    let cb_slot = runtime_callback_pillar_register_midi_notify(cb_pid_u)
                    if cb_slot < 0 { rb_raise(rb_eRuntimeError, "callback slot pool exhausted") }
