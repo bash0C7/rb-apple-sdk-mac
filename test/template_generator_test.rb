@@ -351,4 +351,37 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/runtime_proc_registry_get\(\)/, swift)
     assert_match(/if argv\[0\] == Qnil/, swift)
   end
+
+  # Phase 7 T4: CF Create-rule auto-ARC. A symbol whose knowledge record has
+  # cf_create_rule=true gets its CF-typed return value automatically wrapped
+  # via the runtime ARC pillar's runtime_arc_box_cftype entry point. The
+  # entry point performs the Unmanaged.takeRetainedValue + BoxedCFType wrap
+  # inside the runtime dylib (per LLM rule 3: glue Swift must not import
+  # AppleSDKMacRuntime, so BoxedCFType lives in the runtime, not the glue).
+  # User code never calls CFRelease — the Box deinit handles release.
+  def test_cftype_ref_autoarc_routes_through_runtime_arc_box
+    sym = {
+      name: "CFStringCreateWithCString",
+      kind: "function",
+      abi: "c",
+      cf_create_rule: true,
+      signature: "CFStringRef CFStringCreateWithCString(CFAllocatorRef alloc, const char *cstr, CFStringEncoding encoding)",
+      parameters_json: JSON.dump([
+        { "name" => "alloc", "type" => "CFAllocatorRef", "kind" => "void_ptr_nilable",
+          "is_out_param" => false, "nullability" => "nullable" },
+        { "name" => "cstr", "type" => "const char *", "kind" => "string",
+          "is_out_param" => false, "nullability" => "unspecified" },
+        { "name" => "encoding", "type" => "CFStringEncoding", "kind" => "int",
+          "is_out_param" => false, "nullability" => "unspecified" }
+      ])
+    }
+    swift = @gen.generate(framework: "CoreFoundation", symbol: sym, glue_id: "cfac")
+    refute_nil swift, "cf_create_rule symbols must produce template glue"
+    assert_match(/runtime_arc_box_cftype/, swift,
+      "auto-ARC glue must route through the runtime entry point")
+    refute_match(/CFRelease/, swift,
+      "auto-ARC glue must NOT call CFRelease — runtime Box deinit handles release")
+    refute_match(/import\s+AppleSDKMacRuntime/, swift,
+      "glue must not import AppleSDKMacRuntime (LLM rule 3)")
+  end
 end

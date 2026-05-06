@@ -55,6 +55,8 @@ module AppleSDKMac
         func rb_obj_id(_ v: UInt) -> UInt
         @_silgen_name("runtime_proc_registry_get")
         func runtime_proc_registry_get() -> UInt
+        @_silgen_name("runtime_arc_box_cftype")
+        func runtime_arc_box_cftype(_ raw: UInt) -> UInt
         #{CALLBACK_BRIDGE_DECLS}
 
         let Qfalse: UInt = 0
@@ -111,15 +113,27 @@ module AppleSDKMac
           end
           body << "return multi_out_h"
         else
-          ret_kind = return_kind(symbol[:signature])
-          body << "let result = #{call_expr}"
-          if ret_kind == "status_int"
-            body << %(if result != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
-            body << "return Qnil"
-          elsif ret_kind == "void"
-            body << "return Qnil"
+          ret_kind = effective_return_kind(symbol)
+          if ret_kind == "cftype_ref_autoarc"
+            # Phase 7 T4 — CF Create-rule auto-ARC. Route the +1-retained CF
+            # return value through the runtime ARC pillar's
+            # runtime_arc_box_cftype entry point, which wraps in a BoxedCFType
+            # whose deinit releases via ARC. User code never calls CFRelease.
+            # The Box wrap happens inside the runtime dylib so glue Swift
+            # doesn't need to import AppleSDKMacRuntime (LLM rule 3).
+            body << "let raw = #{call_expr}"
+            body << "let raw_uint = UInt(bitPattern: unsafeBitCast(raw, to: OpaquePointer.self))"
+            body << "return rb_ull2inum(UInt64(runtime_arc_box_cftype(raw_uint)))"
           else
-            body << "return #{to_ruby_expr_by_kind(ret_kind, symbol[:signature], "result")}"
+            body << "let result = #{call_expr}"
+            if ret_kind == "status_int"
+              body << %(if result != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
+              body << "return Qnil"
+            elsif ret_kind == "void"
+              body << "return Qnil"
+            else
+              body << "return #{to_ruby_expr_by_kind(ret_kind, symbol[:signature], "result")}"
+            end
           end
         end
 
@@ -142,6 +156,16 @@ module AppleSDKMac
       def parse_params(json)
         return [] if json.nil? || json.empty?
         JSON.parse(json, symbolize_names: true)
+      end
+
+      # Phase 7 T4 — when the knowledge record marks a symbol with
+      # cf_create_rule (clang AST CF_RETURNS_RETAINED / Create / Copy naming
+      # heuristic), upgrade a CF*Ref return to cftype_ref_autoarc so the
+      # auto-ARC path fires.
+      def effective_return_kind(symbol)
+        kind = return_kind(symbol[:signature])
+        return "cftype_ref_autoarc" if symbol[:cf_create_rule] && kind == "cftype_ref"
+        kind
       end
 
       def return_kind(signature)
