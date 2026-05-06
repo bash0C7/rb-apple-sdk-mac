@@ -291,6 +291,37 @@ puts "OperationQueue OK"
 
 各 commit 独立。
 
+### 4.5.-3 確実発火する延長 task: T52f (multi-segment instance method の first-arg unlabeled bridge)
+
+**発火条件**: T52 GREEN smoke リトライで
+```
+error: missing argument for parameter #1 in call
+note: 'addOperations(_:waitUntilFinished:)' declared here
+```
+
+`addOperations:waitUntilFinished:` の Swift bridged signature は
+`addOperations(_ ops: [Operation], waitUntilFinished wait: Bool)` だが、現
+swift_call_for_instance_method は `verb-with-type` pattern に match しない
+multi-segment selector で first segment を method 名 + first label として
+扱ってしまい、`receiver.addOperations(waitUntilFinished: arg0)` (引数1個) を
+emit。Apple SDK の ObjC→Swift bridge convention では「first segment は method
+名のみ、第1 引数は label 無し (`_:`)、残り segments が第2..n 引数のラベル」が
+正解。
+
+**RED**: template_generator_test.rb に
+- selector "addOperations:waitUntilFinished:" の instance method emit が
+  `receiver.addOperations(arg0, waitUntilFinished: arg1)` 形を出す
+
+の期待 test 追加。
+
+**GREEN**: swift_call_for_instance_method の multi-segment 非 verb-with-type
+分岐で `labels = [nil] + parts[1..]` とし、nil label は `_` 省略形 (label を
+書かない) で emit。
+
+**HEADER 不変** → CACHE_SCHEMA_VERSION bump 不要。
+
+**commit**: `test: T52f RED ...` / `feat: T52f GREEN — multi-segment instance method の first-arg unlabeled bridge`
+
 ### 4.5.-2 確実発火する延長 task: T52e (emit_objc_class_method/instance を Swift 6 ObjC bridge 完全対応)
 
 **発火条件**: T52 GREEN smoke リトライで
@@ -795,6 +826,7 @@ T52b RED → T52b GREEN     (proxy class instance method receiver + from_ref)
 T52c RED → T52c GREEN     (emit_swift_init NS-prefix strip + non-failable init)
 T52d RED → T52d GREEN     (objc_in_load 拡張: block_persistent_void + array_of_opaque_ref + Hash 形)
 T52e RED → T52e GREEN     (emit_objc_*_method の NS-strip + non-optional return 対応)
+T52f RED → T52f GREEN     (multi-segment instance method first-arg unlabeled bridge)
 T52  GREEN                 (NSOperationQueue 経由、Apple.discover のみ)
 T53a RED → T53a GREEN     (block_persistent multi-arg / typed)
 T53  RED → T53 GREEN      (HTTP via WEBrick fixture、file:// 退路廃止)

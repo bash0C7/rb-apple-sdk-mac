@@ -127,6 +127,31 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_not_match(/ErrorBridge\.rb_raise_via_runtime/, out)
   end
 
+  # T52f — multi-segment instance method (verb-with-type pattern 非該当) の
+  # first-arg unlabeled bridge。
+  # ObjC selector `addOperations:waitUntilFinished:` の Swift bridged signature
+  # は `addOperations(_ ops: [Operation], waitUntilFinished wait: Bool)` で、
+  # 第1 引数は label 無し。現実装は first segment を first label として扱う
+  # bug があり `receiver.addOperations(waitUntilFinished: arg0)` を emit して
+  # しまっていた。
+  def test_emit_objc_instance_method_multi_segment_first_arg_unlabeled
+    s = sym(name: "NSOperationQueue.addOperations:waitUntilFinished:",
+            kind: "objc_method_instance",
+            signature: "- (void)addOperations:(NSArray *)ops waitUntilFinished:(BOOL)wait",
+            parameters: [])
+    s[:objc_class] = "NSOperationQueue"
+    s[:selector] = "addOperations:waitUntilFinished:"
+    s[:params] = [{kind: :array_of_opaque_ref, type: "Operation"}, :bool]
+    s[:return_kind] = :void
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T52f: must emit"
+    assert_match(/receiver\.addOperations\(arg0,\s*waitUntilFinished:\s*arg1\)/, out,
+                 "T52f: first arg must be unlabeled (Apple SDK ObjC→Swift bridge convention)")
+    refute_match(/receiver\.addOperations\(waitUntilFinished:\s*arg0\)/, out,
+                 "T52f: must not assign first segment as first arg label")
+  end
+
   # T52e — emit_objc_class_method の klass NS-strip。
   # NSBlockOperation +blockOperationWithBlock: → BlockOperation(block:) 形に
   # 変換 (Swift 6 で NSBlockOperation は obsoleted、blockOperationWithBlock も
