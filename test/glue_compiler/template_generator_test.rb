@@ -127,6 +127,48 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_not_match(/ErrorBridge\.rb_raise_via_runtime/, out)
   end
 
+  # T52e — emit_objc_class_method の klass NS-strip。
+  # NSBlockOperation +blockOperationWithBlock: → BlockOperation(block:) 形に
+  # 変換 (Swift 6 で NSBlockOperation は obsoleted、blockOperationWithBlock も
+  # init(block:) に rename された)。さらに戻り値は non-optional Self なので
+  # `raw == nil` / `raw!` を含めない non-optional 耐性 emit を要求。
+  def test_emit_objc_class_method_strips_ns_prefix_for_block_operation
+    s = sym(name: "NSBlockOperation.blockOperationWithBlock:",
+            kind: "objc_method_class",
+            signature: "+ (instancetype)blockOperationWithBlock:(void (^)(void))block",
+            parameters: [])
+    s[:objc_class] = "NSBlockOperation"
+    s[:selector] = "blockOperationWithBlock:"
+    s[:params] = [:block_persistent_void]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T52e: must emit"
+    refute_match(/NSBlockOperation/, out,
+                 "T52e: ObjC NS-prefixed name must not appear in Swift call site")
+    assert_match(/BlockOperation\(block:\s*arg0\)/, out,
+                 "T52e: must call Swift bridged BlockOperation(block: arg0)")
+  end
+
+  def test_emit_objc_class_method_opaque_ref_return_handles_non_optional_self
+    s = sym(name: "NSBlockOperation.blockOperationWithBlock:",
+            kind: "objc_method_class",
+            signature: "+ (instancetype)blockOperationWithBlock:(void (^)(void))block",
+            parameters: [])
+    s[:objc_class] = "NSBlockOperation"
+    s[:selector] = "blockOperationWithBlock:"
+    s[:params] = [:block_persistent_void]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    # Non-optional 戻り値に対し `raw == nil` 比較や `raw!` force unwrap が出ると
+    # Swift 6 で compile error。Optional 化は AnyObject? 経由などで耐性化する。
+    refute_match(/raw\s*==\s*nil/, out,
+                 "T52e: non-optional Self 戻り値で raw == nil 比較は禁止 (warning)")
+    refute_match(/raw!\s+as\s+AnyObject/, out,
+                 "T52e: non-optional Self 戻り値で raw! force unwrap は禁止 (compile error)")
+  end
+
   # T52d — objc_in_load (emit_objc_class_method / emit_objc_instance_method /
   # emit_swift_init から共通呼び出し) が新 kinds + Hash 形 type ヒントに
   # 対応すること。

@@ -291,6 +291,44 @@ puts "OperationQueue OK"
 
 各 commit 独立。
 
+### 4.5.-2 確実発火する延長 task: T52e (emit_objc_class_method/instance を Swift 6 ObjC bridge 完全対応)
+
+**発火条件**: T52 GREEN smoke リトライで
+```
+error: 'NSBlockOperation' has been renamed to 'BlockOperation'
+error: 'blockOperationWithBlock' has been replaced by 'init(block:)'
+warning: comparing non-optional value of type 'BlockOperation' to 'nil' always returns false
+error: cannot force unwrap value of non-optional type 'BlockOperation'
+```
+
+T52c は emit_swift_init のみ NS-strip 化したが、emit_objc_class_method と
+emit_objc_instance_method (swift_call_for_class_method / swift_init_call /
+receiver type 注釈) はまだ klass を ObjC 名 (NSBlockOperation) のまま emit。
+さらに objc_return_lines の opaque_ref 経路は `raw == nil` 比較と `raw!` force
+unwrap を使うが、Swift 6 で多くの ObjC class init/class method の戻り値が
+non-optional (Self 直接) のため compile error。
+
+**RED**: template_generator_test.rb に
+- emit_objc_class_method (NSBlockOperation の `+blockOperationWithBlock:`)
+  経路で `BlockOperation(block:` (NS-stripped + init bridge form) が emit され、
+  `NSBlockOperation` literal は出ない
+- objc_return_lines の opaque_ref が non-optional 戻り値でも compile-safe な
+  パターン (`AnyObject?` 経由 cast 等) を emit する
+
+の 2 期待 test 追加。
+
+**GREEN**:
+- emit_objc_class_method / emit_objc_instance_method の klass を
+  `swift_bridged_class_name(klass)` (T52c で導入) で NS-strip してから
+  swift_call_for_class_method / swift_init_call / receiver type 注釈に渡す
+- objc_return_lines の `:opaque_ref` 経路を non-optional 耐性に書き換え
+  (`let p = Unmanaged.passRetained(raw as AnyObject).toOpaque()` のように
+  Optional? 経由を排除)
+
+**HEADER 不変** → CACHE_SCHEMA_VERSION bump 不要。
+
+**commit**: `test: T52e RED ...` / `feat: T52e GREEN — emit_objc_*_method を Swift 6 ObjC bridge 完全対応`
+
 ### 4.5.-1 確実発火する延長 task: T52d (objc_in_load を新 kinds + Hash 型ヒント対応)
 
 **発火条件**: T52 GREEN smoke 起動時に
@@ -754,8 +792,9 @@ T54a RED → T54a GREEN     (← 確実発火、T52/T54 共通依存)
 T52a RED → T52a GREEN     (block_persistent void→void kind)
 T52  RED                   (smoke 強化のみ、example 置換は GREEN で)
 T52b RED → T52b GREEN     (proxy class instance method receiver + from_ref)
-T52c RED → T52c GREEN     (Swift 6 NS-prefix strip + non-failable init)
+T52c RED → T52c GREEN     (emit_swift_init NS-prefix strip + non-failable init)
 T52d RED → T52d GREEN     (objc_in_load 拡張: block_persistent_void + array_of_opaque_ref + Hash 形)
+T52e RED → T52e GREEN     (emit_objc_*_method の NS-strip + non-optional return 対応)
 T52  GREEN                 (NSOperationQueue 経由、Apple.discover のみ)
 T53a RED → T53a GREEN     (block_persistent multi-arg / typed)
 T53  RED → T53 GREEN      (HTTP via WEBrick fixture、file:// 退路廃止)
