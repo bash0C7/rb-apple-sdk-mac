@@ -115,6 +115,10 @@ static VALUE rb_async_await_sleep(VALUE self, VALUE millis) {
     return LL2NUM(runtime_async_test_sleep_and_double(NUM2LL(millis)));
 }
 
+static VALUE rb_async_taskgroup_double(VALUE self, VALUE a, VALUE b, VALUE c) {
+    return LL2NUM(runtime_async_test_taskgroup_double(NUM2LL(a), NUM2LL(b), NUM2LL(c)));
+}
+
 static VALUE rb_runloop_pump(VALUE self, VALUE timeout) {
     runtime_runloop_pump(NUM2DBL(timeout));
     return Qnil;
@@ -215,6 +219,7 @@ void Init_apple_sdk_mac_runtime(void) {
     rb_define_singleton_method(test_module, "arc_release_counter_init", rb_arc_counter_init, 0);
     rb_define_singleton_method(test_module, "arc_release_counter_value", rb_arc_counter_value, 1);
     rb_define_singleton_method(test_module, "async_await_sleep_and_double", rb_async_await_sleep, 1);
+    rb_define_singleton_method(test_module, "async_taskgroup_double", rb_async_taskgroup_double, 3);
 
     VALUE callback_pillar_module = rb_define_module_under(module, "CallbackPillar");
     rb_define_singleton_method(callback_pillar_module, "register_midi_notify", rb_callback_pillar_register_midi_notify, 1);

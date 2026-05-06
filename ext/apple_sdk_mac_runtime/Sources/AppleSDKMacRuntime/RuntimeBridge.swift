@@ -127,6 +127,27 @@ public func runtime_async_test_sleep_and_double(_ millis: Int64) -> Int64 {
 }
 
 @c
+public func runtime_async_test_taskgroup_double(_ msA: Int64, _ msB: Int64, _ msC: Int64) -> Int64 {
+    do {
+        return try AsyncBridge.runSync { () async throws -> Int64 in
+            try await withThrowingTaskGroup(of: Int64.self) { group in
+                for ms in [msA, msB, msC] {
+                    group.addTask {
+                        try await Task.sleep(nanoseconds: UInt64(ms) * 1_000_000)
+                        return ms * 2
+                    }
+                }
+                var total: Int64 = 0
+                for try await v in group { total += v }
+                return total
+            }
+        }
+    } catch {
+        return -1
+    }
+}
+
+@c
 public func runtime_runloop_pump(_ timeoutSeconds: Double) {
     RunLoopBridge.pump(timeoutSeconds: timeoutSeconds)
 }
