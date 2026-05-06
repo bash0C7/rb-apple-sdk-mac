@@ -573,7 +573,12 @@ module AppleSDKMac
       # +1 を指定 (argv index = arg index + offset)。default 0。
       def objc_in_load(kind_sym, index, argv_offset: 0)
         ai = index + argv_offset
-        case kind_sym.to_sym
+        # T52d — Hash 形 (`{kind: :array_of_opaque_ref, type: "Operation"}`) と
+        # Symbol 形 (`:block_persistent_void`) の両方を受ける。Hash 形は :type
+        # ヒントを Swift cast 先 type として使う。
+        kind_actual = kind_sym.is_a?(Hash) ? kind_sym[:kind] : kind_sym
+        type_hint = kind_sym.is_a?(Hash) ? kind_sym[:type] : nil
+        case kind_actual.to_sym
         when :string
           "var v#{index} = argv[#{ai}]; let arg#{index} = rb_string_value_cstr(&v#{index})"
         when :int
@@ -603,6 +608,37 @@ module AppleSDKMac
                 let arg#{index}: (Data?, URLResponse?, Error?) -> Void = { (data, resp, err) in
                     runtime_threading_enqueue(arg#{index}_pid_u, err == nil ? 0 : -1)
                 }
+          SWIFT
+        when :block_persistent_void
+          # T52a/T52d — () -> Void escaping block (NSBlockOperation の
+          # +blockOperationWithBlock:)。Ruby Proc を proc_registry に pin、
+          # @convention(block) () -> Void closure を組み、内部で
+          # runtime_threading_enqueue 経由で Ruby callback を起動 (arg=0)。
+          <<~SWIFT.chomp
+            let arg#{index}_pid_v = rb_obj_id(argv[#{ai}])
+                rb_hash_aset(runtime_proc_registry_get(), arg#{index}_pid_v, argv[#{ai}])
+                let arg#{index}_pid_u = rb_num2ull(arg#{index}_pid_v)
+                let arg#{index}: @convention(block) () -> Void = {
+                    runtime_threading_enqueue(arg#{index}_pid_u, 0)
+                }
+          SWIFT
+        when :array_of_opaque_ref
+          # T54a/T52d — Ruby Array<opaque ref Integer> → Swift [<Type>]。
+          # Hash 形の :type を cast 先 type として使う。NSMutableArray を
+          # populate して `as! [Type]` cast。 Type unknown なら "AnyObject"。
+          element_type = (type_hint || "AnyObject").to_s
+          <<~SWIFT.chomp
+            let arg#{index}_nsma_v = NSMutableArray()
+                let arg#{index}_count_v = runtime_rb_array_len(argv[#{ai}])
+                for arg#{index}_k_v in 0..<arg#{index}_count_v {
+                    let arg#{index}_raw_v = UInt(rb_num2ull(rb_ary_entry(argv[#{ai}], arg#{index}_k_v)))
+                    if arg#{index}_raw_v == 0 { continue }
+                    if let arg#{index}_ptr_v = OpaquePointer(bitPattern: arg#{index}_raw_v) {
+                        let arg#{index}_obj_v = unsafeBitCast(arg#{index}_ptr_v, to: #{element_type}.self)
+                        arg#{index}_nsma_v.add(arg#{index}_obj_v)
+                    }
+                }
+                let arg#{index} = arg#{index}_nsma_v as! [#{element_type}]
           SWIFT
         else
           raise ArgumentError, "objc_in_load: unsupported param kind #{kind_sym.inspect}"
