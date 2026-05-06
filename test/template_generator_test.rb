@@ -321,8 +321,12 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/let completion: \(@convention\(block\)/, swift)
     assert_match(/runtime_proc_registry_get\(\)/, swift)
     assert_match(/ThreadingBridge\.enqueueFromAppleThread/, swift)
-    refute_match(/runtime_callback_register_block_persistent/, swift,
-      "block_nilable must NOT use the persistent slot table")
+    # block_nilable must NOT call into the persistent slot table.
+    # T48 で HEADER に @_silgen_name 宣言が入ったので、`func register_block_persistent
+    # (_ procId:` (declaration) と call site (`register_block_persistent(<var>)`) を
+    # 区別する。call site は underscore-prefix の引数 label を持たない。
+    refute_match(/runtime_callback_register_block_persistent\([^_]/, swift,
+      "block_nilable must NOT call runtime_callback_register_block_persistent")
     assert_match(/if argv\[0\] == Qnil/, swift)
     assert_match(/completion = nil/, swift)
   end
@@ -635,6 +639,49 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/sema\.wait\(\)/, swift)
     assert_match(/sema\.signal\(\)/, swift)
     assert_match(/captured/, swift, "T47: error を post-wait raise 用に capture")
+  end
+
+  # T48 — escaping completion block path。NSURLSession.dataTask(with:completionHandler:)
+  # 形式 (instance method + multi-segment selector + 末尾 :block_persistent param)。
+  # Ruby Proc を proc_registry に pin し、closure を組んで Apple に渡す。
+  # closure 内で runtime_threading_enqueue を呼んで Ruby callback を起動する。
+  def test_objc_instance_method_with_block_persistent_param_emits_register_and_closure
+    sym = {
+      name: "NSURLSession.dataTask(with:completionHandler:)",
+      kind: "objc_method_instance",
+      objc_class: "NSURLSession",
+      selector: "dataTaskWithURL:completionHandler:",
+      params: [:opaque_ref, :block_persistent], return_kind: :opaque_ref,
+      signature: nil, abi: nil, parameters_json: "[]"
+    }
+    swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "blkp1")
+    refute_nil swift
+    # receiver = argv[0], opaque_ref URL = argv[1], block_persistent = argv[2]
+    assert_match(/let receiver = unsafeBitCast/, swift)
+    assert_match(/rb_obj_id\(argv\[2\]\)/, swift,
+      "T48: block_persistent param は argv[2] (receiver +1, opaque_ref +1)")
+    # Proc を runtime_proc_registry に pin
+    assert_match(/rb_hash_aset\(runtime_proc_registry_get\(\)/, swift)
+    # persistent slot register (cleanup 用 handle 確保)
+    assert_match(/runtime_callback_register_block_persistent/, swift)
+    # closure 構築 — URLSession の signature
+    assert_match(/let arg1: \(Data\?, URLResponse\?, Error\?\) -> Void/, swift,
+      "T48: completion block の Swift signature")
+    # closure 内で runtime_threading_enqueue 経由で Ruby に enqueue
+    assert_match(/runtime_threading_enqueue/, swift,
+      "T48: closure 内は @_silgen_name 経由で ThreadingBridge を呼ぶ")
+    # call site は label 付き
+    assert_match(/receiver\.dataTask\(with:\s*arg0,\s*completionHandler:\s*arg1\)/, swift,
+      "T48: multi-segment selector の Swift bridged label-aware call form")
+  end
+
+  # T48 — HEADER に runtime_threading_enqueue の @_silgen_name 宣言が必要。
+  def test_header_includes_runtime_threading_enqueue_silgen_name
+    h = AppleSDKMac::GlueCompiler::TemplateGenerator::HEADER
+    assert_match(/@_silgen_name\("runtime_threading_enqueue"\)/, h,
+      "T48: closure からの enqueue ルートを @_silgen_name で参照可能に")
+    assert_match(/@_silgen_name\("runtime_callback_register_block_persistent"\)/, h,
+      "T48: persistent slot register も @_silgen_name 経由")
   end
 
   # Phase 7 T4: CF Create-rule auto-ARC. A symbol whose knowledge record has
