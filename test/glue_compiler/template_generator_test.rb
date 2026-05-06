@@ -127,6 +127,32 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_not_match(/ErrorBridge\.rb_raise_via_runtime/, out)
   end
 
+  # T52c — Swift 6 ObjC class bridge: NS-prefix strip + non-failable init。
+  # NSOperationQueue / NSBlockOperation 等は Swift 6 で OperationQueue /
+  # BlockOperation に rename され、no-arg init は non-failable (Optional ではない)。
+  # emit_swift_init はこれを反映して NS-stripped class name と `let v = Klass()`
+  # 形 (guard let ではなく) を emit せねばならない。
+  def test_emit_swift_init_strips_ns_prefix_and_uses_non_failable_let
+    s = sym(name: "NSOperationQueue.init()",
+            kind: "swift_init",
+            signature: "init()", parameters: [])
+    s[:swift_class] = "NSOperationQueue"
+    s[:swift_initializer] = "init()"
+    s[:params] = []
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T52c: swift_init must emit"
+    assert_match(/OperationQueue\(\)/, out,
+                 "T52c: NS-prefix must be stripped in emitted Swift init call")
+    refute_match(/NSOperationQueue\(\)/, out,
+                 "T52c: ObjC NS-prefixed name must not appear in Swift init call (Swift 6 rename)")
+    assert_match(/let v = OperationQueue\(\)/, out,
+                 "T52c: non-failable init must emit 'let v = ...' (no guard)")
+    refute_match(/guard let v = OperationQueue\(\)/, out,
+                 "T52c: non-failable Swift init must not be wrapped in guard let")
+  end
+
   # T52a — () -> Void escaping block (NSBlockOperation の +blockOperationWithBlock:)。
   # 既存 block_persistent は (Arg?) -> Void 形 (BoxedBlockHandle 経由) で、
   # void→void block を直接 emit するパスがなかった。

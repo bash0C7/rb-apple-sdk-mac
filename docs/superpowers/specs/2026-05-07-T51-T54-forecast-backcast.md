@@ -291,6 +291,36 @@ puts "OperationQueue OK"
 
 各 commit 独立。
 
+### 4.5.0 確実発火する延長 task: T52c (Swift 6 ObjC bridge: NS-prefix strip + non-failable init)
+
+**発火条件**: T52 GREEN smoke 起動時に swiftc エラー:
+```
+error: 'NSOperationQueue' has been renamed to 'OperationQueue'
+error: initializer for conditional binding must have Optional type, not 'NSOperationQueue'
+```
+
+ObjC class `NSOperationQueue` / `NSBlockOperation` / `NSThread` 等は Swift 6 で
+NS-prefix が落とされ `OperationQueue` / `BlockOperation` / `Thread` に rename
+されている。さらに `OperationQueue()` は non-failable initializer のため
+`guard let v = OperationQueue() else { return Qnil }` 形は型エラー。
+
+**RED**: template_generator_test.rb に
+- `swift_initializer:` で `klass: "NSOperationQueue"` を渡したら、emit Swift template に
+  - `OperationQueue()` (NS-prefix strip 済) が出る
+  - `let v = OperationQueue()` (non-failable form) が出る (guard let ではない)
+
+の 2 期待 test 追加。
+
+**GREEN**:
+- `emit_swift_init` で
+  - klass 名から先頭 `NS` を strip した Swift bridged name を試行 (`NSOperationQueue` → `OperationQueue`、`NSBlockOperation` → `BlockOperation`、`NSURL` → `URL` 等)
+  - 戻り値が non-optional の Swift class init (e.g. NSObject 系の標準 init) は `let v = Klass()` 形で emit、failable 形は従来通り `guard let v = Klass() else { return Qnil }`
+  - 判定ヒューリスティック: `NS<Klass>()` の no-arg init は基本 non-failable と仮定、`init?(...)` のように引数つきは failable のままとする (Apple SDK convention)。引数あり no-arg ではない場合は引数 label の有無で判定強化
+
+**HEADER 不変** → CACHE_SCHEMA_VERSION bump 不要。
+
+**commit**: `test: T52c RED ...` / `feat: T52c GREEN — Swift 6 NS-prefix strip + non-failable init in emit_swift_init`
+
 ### 4.5.1 確実発火する延長 task: T52b (proxy class instance method receiver)
 
 **発火条件**: T52 GREEN 着手時、`queue.addOperations_waitUntilFinished(ops, true)` 形の receiver 経由 instance method が install_one で透過化されていない (現状 namespace_builder は class singleton method としてのみ install)。 spec § 5.4 の T53b と同等の機構が T52 でも必要であることが GREEN 着手時に判明したため、§ 2.2 の延長手順に従い T52b として先行実装する (T53b は T52b 実装で既存解決済となるため § 5.4 から削除)。
@@ -690,6 +720,7 @@ T54a RED → T54a GREEN     (← 確実発火、T52/T54 共通依存)
 T52a RED → T52a GREEN     (block_persistent void→void kind)
 T52  RED                   (smoke 強化のみ、example 置換は GREEN で)
 T52b RED → T52b GREEN     (proxy class instance method receiver + from_ref)
+T52c RED → T52c GREEN     (Swift 6 NS-prefix strip + non-failable init)
 T52  GREEN                 (NSOperationQueue 経由、Apple.discover のみ)
 T53a RED → T53a GREEN     (block_persistent multi-arg / typed)
 T53  RED → T53 GREEN      (HTTP via WEBrick fixture、file:// 退路廃止)
