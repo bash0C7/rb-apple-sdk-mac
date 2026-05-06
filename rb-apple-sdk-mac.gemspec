@@ -8,8 +8,17 @@ Gem::Specification.new do |spec|
   spec.authors = ["bash0C7"]
   spec.email = ["ksb.4038.nullpointer+github@gmail.com"]
 
-  spec.summary = "Swift-backed native Ruby extension: rb-apple-sdk-mac"
-  spec.description = "rb-apple-sdk-mac wraps a Swift implementation as a Ruby native extension via Swift Package Manager and a thin C bridge. Edit this description before publishing."
+  spec.summary = "Runtime dynamic Ruby ↔ Apple SDK bridge for macOS"
+  spec.description = <<~DESC
+    Call any public Apple framework API from Ruby with no pre-declarations.
+    Apple.discover lazily compiles a Swift glue dylib per symbol via the
+    9-pillar runtime (Ref Table, Marshal, Callback, ARC, Error, Async,
+    Threading, RunLoop, Conformance), backed by an SQLite knowledge cache
+    and an LLM-fallback compiler that synthesizes glue for ObjC / Swift
+    shapes the deterministic template catalog cannot cover. Returns
+    Ruby-native types; out-pointer parameters are auto-allocated; OSStatus
+    / NSError surface as Apple::CallError. macOS 26+ / Ruby 4.x master.
+  DESC
   spec.homepage = "https://github.com/bash0C7/rb-apple-sdk-mac"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 4.0.0"
