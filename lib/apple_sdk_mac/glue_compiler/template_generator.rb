@@ -205,6 +205,9 @@ module AppleSDKMac
       # 形式の場合は `Klass(label: arg)` init form を emit。
       def emit_objc_class_method(framework:, symbol:, glue_id:)
         klass = symbol[:objc_class].to_s
+        # T52e — Swift 6 で ObjC NS-prefix が落とされている class を bridge:
+        # NSBlockOperation → BlockOperation, NSOperationQueue → OperationQueue 等
+        swift_klass = swift_bridged_class_name(klass)
         selector = symbol[:selector].to_s
         params = symbol[:params] || []
         return_kind = (symbol[:return_kind] || :void).to_sym
@@ -212,7 +215,7 @@ module AppleSDKMac
         exported = "glue_#{glue_id}_#{swift_id}"
 
         in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i) }
-        call_expr = swift_call_for_class_method(klass, selector, params)
+        call_expr = swift_call_for_class_method(swift_klass, selector, params)
 
         body = in_loads + ["let raw = #{call_expr}"] + objc_return_lines(return_kind, "raw")
 
@@ -236,6 +239,8 @@ module AppleSDKMac
       # (no receiver) に分岐し、`Klass(label: arg)` を emit する。
       def emit_objc_instance_method(framework:, symbol:, glue_id:)
         klass = symbol[:objc_class].to_s
+        # T52e — Swift 6 NS-prefix bridge (NSOperationQueue → OperationQueue 等)
+        swift_klass = swift_bridged_class_name(klass)
         selector = symbol[:selector].to_s
         params = symbol[:params] || []
         return_kind = (symbol[:return_kind] || :void).to_sym
@@ -246,14 +251,14 @@ module AppleSDKMac
           if selector.start_with?("init")
             # Init form: argv 0..N-1 が引数。receiver なし。
             in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i) }
-            call_expr = swift_init_call(klass, selector, params)
+            call_expr = swift_init_call(swift_klass, selector, params)
             in_loads + ["let raw = #{call_expr}"] + objc_return_lines(return_kind, "raw")
           else
             # Instance method: argv[0] = receiver, argv[1..] が引数。
             receiver_load = <<~SWIFT.chomp
               let receiver = unsafeBitCast(
                   OpaquePointer(bitPattern: UInt(rb_num2ull(argv[0])))!,
-                  to: #{klass}.self
+                  to: #{swift_klass}.self
               )
             SWIFT
             in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i, argv_offset: 1) }
@@ -526,7 +531,13 @@ module AppleSDKMac
         parts = selector.split(":", -1).reject(&:empty?)
         if parts.size == 1
           sole = parts[0]
-          if (m = sole.match(/\A([a-z]+[a-z0-9]*)With([A-Z]\w*)\z/))
+          # T52e — `<verb>With<Type>` shape の verb 部分は lowerCamel (mixed
+          # case) も許容: "blockOperationWithBlock" → m[1] = "blockOperation",
+          # m[2] = "Block" → BlockOperation(block: arg0)。旧 regex は verb 部を
+          # 全 lowercase 限定だったため "stringWithUTF8String" は通るが
+          # "blockOperationWithBlock" が unmatched で class method form に
+          # 落ちていた (Swift 6 で error)。
+          if (m = sole.match(/\A([a-z][a-zA-Z0-9]*?)With([A-Z]\w*)\z/))
             label = lower_first_camel_local(m[2])
             "#{klass}(#{label}: arg0)"
           else
@@ -650,9 +661,16 @@ module AppleSDKMac
       def objc_return_lines(return_kind, var)
         case return_kind.to_sym
         when :opaque_ref
+          # T52e — Swift 6 の Optional? / non-optional Self 両対応。
+          # `#{var} as AnyObject?` で Optional<AnyObject> に強制 upcast し、
+          # if-let で nil-check。これにより:
+          # - 元が non-optional Self (BlockOperation init 等) → 常に non-nil
+          #   AnyObject に bridge され、guard let が成立。
+          # - 元が Optional T? → そのまま Optional<AnyObject> 化、nil 経路で Qnil。
+          # `var!` の force unwrap も `var == nil` の常時 false 警告も避ける。
           [
-            "if #{var} == nil { return Qnil }",
-            "let p = Unmanaged.passRetained(#{var}! as AnyObject).toOpaque()",
+            "guard let __ret = (#{var} as AnyObject?) else { return Qnil }",
+            "let p = Unmanaged.passRetained(__ret).toOpaque()",
             "return rb_ull2inum(UInt64(UInt(bitPattern: p)))"
           ]
         when :int

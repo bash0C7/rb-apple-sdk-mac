@@ -144,8 +144,13 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
 
     out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
     refute_nil out, "T52e: must emit"
-    refute_match(/NSBlockOperation/, out,
-                 "T52e: ObjC NS-prefixed name must not appear in Swift call site")
+    # Swift type 参照 (call site, type 注釈) で NS-prefix が出てはいけない。
+    # export identifier (`glue_abc_NSBlockOperation_blockOperationWithBlock_`)
+    # は SDK 内部の symbol 名なので除外する。
+    refute_match(/NSBlockOperation\(/, out,
+                 "T52e: NS-prefix must not appear in Swift call site")
+    refute_match(/to:\s*NSBlockOperation\b/, out,
+                 "T52e: NS-prefix must not appear in Swift type annotation")
     assert_match(/BlockOperation\(block:\s*arg0\)/, out,
                  "T52e: must call Swift bridged BlockOperation(block: arg0)")
   end
