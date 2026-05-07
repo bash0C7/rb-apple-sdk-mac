@@ -17,6 +17,7 @@
 require "apple_sdk_mac"
 require "apple_sdk_mac/irb/doc_resolver"
 require "apple_sdk_mac/irb/doc_dialog"
+require "apple_sdk_mac/irb/prefetcher"
 
 module AppleSDKMac
   module IRB
@@ -260,7 +261,8 @@ module AppleSDKMac
 
         @apple_provider = provider
         resolver = DocResolver.new(knowledge_cache: knowledge_cache)
-        @apple_doc_dialog = DocDialog.new(resolver: resolver)
+        @apple_prefetcher = Prefetcher.new(discoverer: discoverer)
+        @apple_doc_dialog = DocDialog.new(resolver: resolver, prefetcher: @apple_prefetcher)
 
         # IRB::Context.build_completor を prepend で wrap。 super で base を取って
         # Completor で wrap (Apple:: は provider、 他は base にデリゲート)。
@@ -294,6 +296,7 @@ module AppleSDKMac
         @apple_provider = nil
         @apple_dig_perfect = nil
         @apple_doc_dialog = nil
+        @apple_prefetcher = nil
       end
 
       def installed?
@@ -301,7 +304,7 @@ module AppleSDKMac
       end
 
       # Internal — accessed by ContextOverride / RelineInputMethodOverride.
-      attr_reader :apple_provider, :apple_dig_perfect, :apple_doc_dialog
+      attr_reader :apple_provider, :apple_dig_perfect, :apple_doc_dialog, :apple_prefetcher
     end
 
     module ContextOverride

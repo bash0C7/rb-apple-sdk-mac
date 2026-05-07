@@ -91,4 +91,37 @@ class TestDocDialog < Test::Unit::TestCase
     p = dialog.to_proc
     assert p.is_a?(Proc)
   end
+
+  def test_render_invokes_prefetcher_with_matched
+    received = []
+    pref = Object.new
+    pref.define_singleton_method(:prefetch) { |matched| received << matched }
+    dialog = DocDialog.new(
+      resolver: make_resolver(
+        "Apple::Foundation::URL.appendingPathComponent" => "Doc text."
+      ),
+      prefetcher: pref
+    )
+    dialog.render(
+      matched: "Apple::Foundation::URL.appendingPathComponent",
+      cursor_pos: cursor(0, 0), max_height: 10
+    )
+    assert_equal ["Apple::Foundation::URL.appendingPathComponent"], received
+  end
+
+  def test_render_invokes_prefetcher_even_when_no_doc
+    # Apple SDK symbols that have no documentation populated still
+    # benefit from prefetch (Swift-overlay frameworks return nil from
+    # the resolver but the user is still about to call them).
+    received = []
+    pref = Object.new
+    pref.define_singleton_method(:prefetch) { |matched| received << matched }
+    dialog = DocDialog.new(resolver: make_resolver({}), prefetcher: pref)
+    out = dialog.render(
+      matched: "Apple::Foundation::URL.appendingPathComponent",
+      cursor_pos: cursor(0, 0), max_height: 10
+    )
+    assert_nil out
+    assert_equal ["Apple::Foundation::URL.appendingPathComponent"], received
+  end
 end

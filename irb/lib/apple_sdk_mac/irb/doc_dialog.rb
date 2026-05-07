@@ -14,14 +14,19 @@ module AppleSDKMac
     class DocDialog
       DEFAULT_WIDTH = 60
 
-      def initialize(resolver:, width: DEFAULT_WIDTH)
+      def initialize(resolver:, prefetcher: nil, width: DEFAULT_WIDTH)
         @resolver = resolver
+        @prefetcher = prefetcher
         @width = width
       end
 
       # Pure render entry-point — easy to unit-test without a Reline
       # DialogProcScope. Returns Reline::DialogRenderInfo or nil.
+      # Side-effect: kicks the prefetcher (if injected) regardless of
+      # whether documentation is available, so first-call latency on
+      # an undocumented Apple symbol still gets the prefetch benefit.
       def render(matched:, cursor_pos:, max_height:, autocomplete_dialog: nil, max_width: @width)
+        @prefetcher&.prefetch(matched)
         doc = @resolver.resolve(matched)
         return nil if doc.nil? || doc.to_s.strip.empty?
         contents = wrap_text(doc, max_width).take(max_height)
