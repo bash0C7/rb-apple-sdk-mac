@@ -64,6 +64,21 @@ module AppleSDKMac
       end
     end
 
+    # Children of a class symbol — instance methods, class methods, properties.
+    # IRB completion で `Apple::Foundation::NSData.<TAB>` の候補列挙に使う。
+    def list_klass_methods(framework:, klass:)
+      sql = <<~SQL
+        SELECT s.name, s.kind, s.signature
+        FROM symbols s
+        JOIN symbols p ON s.parent_id = p.id
+        JOIN frameworks f ON s.framework_id = f.id
+        WHERE f.name = ? AND p.name = ?
+      SQL
+      @db.execute(sql, [framework, klass]).map do |r|
+        { name: r[0], kind: r[1], signature: r[2] }
+      end
+    end
+
     def list_frameworks
       @db.execute("SELECT name FROM frameworks ORDER BY name").flatten
     end

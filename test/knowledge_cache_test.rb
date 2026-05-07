@@ -47,9 +47,11 @@ class TestKnowledgeCache < Test::Unit::TestCase
 
   def test_list_klass_methods_returns_methods_with_parent_class
     cache = AppleSDKMac.knowledge_cache
-    rows = cache.list_klass_methods(framework: "Foundation", klass: "NSString")
-    # NSString は instance/class method を多数持つ。 ゼロは異常。
-    assert_operator rows.size, :>=, 1, "NSString must have at least 1 child method"
+    # Foundation.URL (Swift struct) は appendingPathComponent 等の instance_method
+    # を多数持つ。 KB importer が parent_id を populate していない場合 0 で fail。
+    # NSString は ObjC native で swiftinterface 経由の KB には出てこない。
+    rows = cache.list_klass_methods(framework: "Foundation", klass: "URL")
+    assert_operator rows.size, :>=, 1, "Foundation.URL must have at least 1 child method"
     rows.each do |r|
       assert r.key?(:name)
       assert r.key?(:kind)
