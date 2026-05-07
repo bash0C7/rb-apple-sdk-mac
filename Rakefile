@@ -87,17 +87,22 @@ namespace :apple do
       end
     end
 
-    desc "Clear the compiled_glue.sqlite DB for the given SDK version (default: env SDK_VERSION or 26.2)"
+    desc "Clear the glue.sqlite DB for the given SDK version (default: env SDK_VERSION or 26.2)"
     task :clear_db do
       require "fileutils"
       sdk_version = ENV["SDK_VERSION"] || "26.2"
       raise "invalid SDK_VERSION '#{sdk_version}'" unless sdk_version =~ /\A[0-9.]+\z/
       base = File.join(CACHE_ROOT, sdk_version)
       raise "cache base outside CACHE_ROOT: #{base}" unless _safe_inside_cache_root?(base)
-      Dir.glob(File.join(base, "compiled_glue*.sqlite*")).each do |entry|
-        next unless _safe_inside_cache_root?(entry)
-        FileUtils.rm_f(entry)
-        puts "cleared #{entry}"
+      # CompiledGlueCache が実際に使う DB は `glue.sqlite` (compiled_glue_cache.rb
+      # L86)。 古い名前 (compiled_glue.sqlite) も並行して残っていれば一緒に削除。
+      patterns = ["glue*.sqlite*", "compiled_glue*.sqlite*"]
+      patterns.each do |pat|
+        Dir.glob(File.join(base, pat)).each do |entry|
+          next unless _safe_inside_cache_root?(entry)
+          FileUtils.rm_f(entry)
+          puts "cleared #{entry}"
+        end
       end
     end
 
