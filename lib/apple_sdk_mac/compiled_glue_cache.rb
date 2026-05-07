@@ -19,7 +19,10 @@ module AppleSDKMac
     # T53a bump → "1.4": HEADER に runtime_threading_enqueue_3 の @_silgen_name
     # 宣言を追加、 :block_persistent Hash 形 (arity 3, typed) で multi-arg
     # typed escaping block dispatch を emit する経路を追加。
-    CACHE_SCHEMA_VERSION = "1.4"
+    # T54n bump → "1.5": HEADER に rb_ary_new / rb_ary_push 宣言追加、
+    # return_kind Hash 形 (`:array_of_opaque_ref`) で typed Swift array を Ruby
+    # Array に marshal する経路を追加。
+    CACHE_SCHEMA_VERSION = "1.5"
 
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;

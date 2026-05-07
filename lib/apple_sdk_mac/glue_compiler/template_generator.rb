@@ -55,6 +55,10 @@ module AppleSDKMac
         func rb_obj_id(_ v: UInt) -> UInt
         @_silgen_name("rb_ary_entry")
         func rb_ary_entry(_ ary: UInt, _ off: Int) -> UInt
+        @_silgen_name("rb_ary_new")
+        func rb_ary_new() -> UInt
+        @_silgen_name("rb_ary_push")
+        func rb_ary_push(_ ary: UInt, _ val: UInt) -> UInt
         @_silgen_name("runtime_rb_array_len")
         func runtime_rb_array_len(_ ary: UInt) -> Int
         @_silgen_name("runtime_proc_registry_get")
@@ -450,7 +454,9 @@ module AppleSDKMac
         # として有効な場合 (NSError 等) は変化なし。
         klass = swift_bridged_class_name(symbol[:swift_class].to_s)
         prop = symbol[:swift_property].to_s
-        return_kind = (symbol[:return_kind] || :opaque_ref).to_sym
+        # T54n — return_kind は :symbol または Hash 形 (`{kind:, type:, nilable:}`)
+        # の両対応。 swift_init_return_lines が unwrap する。
+        return_kind = symbol[:return_kind] || :opaque_ref
         swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
         exported = "glue_#{glue_id}_#{swift_id}"
 
@@ -529,8 +535,11 @@ module AppleSDKMac
 
       # swift_init の return marshaling。opaque_ref を passRetained して
       # Ruby Integer へ。それ以外は基本 marshaling。
+      # T54n — return_kind が Hash 形 (`{kind:, type:, nilable:}`) なら kind 抽出
+      # して dispatch、 :array_of_opaque_ref など typed array 戻り値を marshal。
       def swift_init_return_lines(return_kind, var)
-        case return_kind.to_sym
+        kind_sym, _meta = unpack_return_kind(return_kind)
+        case kind_sym
         when :opaque_ref
           [
             "let p = Unmanaged.passRetained(#{var} as AnyObject).toOpaque()",
@@ -538,6 +547,16 @@ module AppleSDKMac
           ]
         else
           objc_return_lines(return_kind, var)
+        end
+      end
+
+      # T54n — return_kind を (kind_sym, meta) tuple に分解。 Symbol 形 →
+      # ({kind_sym}, {})、 Hash 形 → ({:kind, type, nilable, ...} 全体保持)。
+      def unpack_return_kind(return_kind)
+        if return_kind.is_a?(Hash)
+          [return_kind[:kind].to_sym, return_kind]
+        else
+          [return_kind.to_sym, {}]
         end
       end
 
@@ -815,8 +834,38 @@ module AppleSDKMac
 
       # synth record の return_kind を Ruby VALUE 化する Swift snippet 列。
       # opaque_ref は ObjC instance を Unmanaged.passRetained で raw pointer 化。
+      # T54n — Hash 形 return_kind 対応 (`:array_of_opaque_ref` 等)。
       def objc_return_lines(return_kind, var)
-        case return_kind.to_sym
+        kind_sym, meta = unpack_return_kind(return_kind)
+        case kind_sym
+        when :array_of_opaque_ref
+          # T54n — Swift typed array (`[VNRecognizedTextObservation]?` 等) を
+          # Ruby Array<Integer> に marshal。 各要素を passRetained で opaque
+          # raw pointer 化、 Ruby Integer として rb_ary_push。
+          element_type = (meta[:type] || "AnyObject").to_s
+          nilable = meta[:nilable] != false  # default true (Apple SDK の results
+                                              # 系は概ね Optional)
+          if nilable
+            [
+              "guard let __arr = (#{var} as? [#{element_type}]) ?? (#{var} as Any as? [#{element_type}]) else { return Qnil }",
+              "let __ary = rb_ary_new()",
+              "for __obj in __arr {",
+              "    let __p = Unmanaged.passRetained(__obj as AnyObject).toOpaque()",
+              "    _ = rb_ary_push(__ary, rb_ull2inum(UInt64(UInt(bitPattern: __p))))",
+              "}",
+              "return __ary"
+            ]
+          else
+            [
+              "let __arr = #{var}",
+              "let __ary = rb_ary_new()",
+              "for __obj in __arr {",
+              "    let __p = Unmanaged.passRetained(__obj as AnyObject).toOpaque()",
+              "    _ = rb_ary_push(__ary, rb_ull2inum(UInt64(UInt(bitPattern: __p))))",
+              "}",
+              "return __ary"
+            ]
+          end
         when :opaque_ref
           # T52e — Swift 6 の Optional? / non-optional Self 両対応。
           # `#{var} as AnyObject?` で Optional<AnyObject> に強制 upcast し、
