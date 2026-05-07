@@ -63,7 +63,8 @@ module AppleSDKKnowledge
               parent_name: nil,
               signature: function_signature(node),
               return_type: node.dig("type", "qualType"),
-              parameters: function_parameters(node)
+              parameters: function_parameters(node),
+              documentation: extract_documentation(node)
             }
           end
         when "RecordDecl"
@@ -84,7 +85,8 @@ module AppleSDKKnowledge
               abi: "c",
               parent_name: nil,
               signature: "struct #{node['name']}",
-              fields: fields
+              fields: fields,
+              documentation: extract_documentation(node)
             }
           end
         when "TypedefDecl"
@@ -97,7 +99,8 @@ module AppleSDKKnowledge
               kind: "struct",
               abi: "c",
               parent_name: nil,
-              signature: "typedef #{underlying} #{name}"
+              signature: "typedef #{underlying} #{name}",
+              documentation: extract_documentation(node)
             }
           end
         when "EnumDecl"
@@ -108,7 +111,8 @@ module AppleSDKKnowledge
                 kind: "global_constant",
                 abi: "c",
                 parent_name: nil,
-                signature: "enum case #{child['name']}"
+                signature: "enum case #{child['name']}",
+                documentation: extract_documentation(child)
               }
             end
           end
@@ -119,10 +123,30 @@ module AppleSDKKnowledge
               kind: "global_constant",
               abi: "c",
               parent_name: nil,
-              signature: "extern #{node.dig('type', 'qualType')} #{node['name']}"
+              signature: "extern #{node.dig('type', 'qualType')} #{node['name']}",
+              documentation: extract_documentation(node)
             }
           end
         end
+      end
+
+      # Flattens clang's FullComment subtree into a single doc string.
+      # Returns nil when the declaration carries no doc comment.
+      def extract_documentation(node)
+        full = (node["inner"] || []).find { |c| c.is_a?(Hash) && c["kind"] == "FullComment" }
+        return nil unless full
+        texts = []
+        collect_text_nodes(full, texts)
+        flattened = texts.map(&:strip).reject(&:empty?).join(" ").strip
+        flattened.empty? ? nil : flattened
+      end
+
+      def collect_text_nodes(node, accum)
+        return unless node.is_a?(Hash)
+        if node["kind"] == "TextComment" && node["text"]
+          accum << node["text"]
+        end
+        (node["inner"] || []).each { |child| collect_text_nodes(child, accum) }
       end
 
       def function_signature(node)
