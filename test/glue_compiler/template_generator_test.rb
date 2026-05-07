@@ -387,4 +387,29 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/rb_hash_aset\(runtime_proc_registry_get\(\)/, out,
                  "T53a: must pin Ruby Proc in proc_registry (lifecycle)")
   end
+
+  # T53b — swift_call_for_class_method の `<verb>With<Type>:` regex は
+  # 小文字始まり verb (`stringWith...`) のみ match する。 Apple SDK には
+  # `+URLWithString:` (NSURL)、 `+UUID` (NSUUID class method 系)、 `+UTF8String`
+  # 系 (NSString) のように大文字 acronym で始まる verb も多く存在し、 これらが
+  # init bridge (`URL(string:)`) に変換されない bug がある。 regex を `[A-Za-z]`
+  # 始まり許容に拡張し、 NSURL の URLWithString が `URL(string: arg0)` 形を
+  # 出すようにする。
+  def test_emit_objc_class_method_supports_uppercase_acronym_verb
+    s = sym(name: "NSURL.URLWithString:",
+            kind: "objc_method_class",
+            signature: "+ (instancetype)URLWithString:(NSString *)str",
+            parameters: [])
+    s[:objc_class] = "NSURL"
+    s[:selector] = "URLWithString:"
+    s[:params] = [:string]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T53b: must emit"
+    assert_match(/URL\(string:\s*arg0\)/, out,
+                 "T53b: NSURL の URLWithString は init(string:) bridge に変換")
+    refute_match(/URL\.URLWithString\(/, out,
+                 "T53b: 旧 ObjC method form は禁止 (Swift 6 has no URLWithString member)")
+  end
 end
