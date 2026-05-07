@@ -24,7 +24,10 @@ Apple.discover(
 puts "discover OK"
 
 result = Apple::Foundation::NSString.stringWithUTF8String(input)
-puts "result=#{result}"
-raise "expected non-zero NSString pointer" unless result.is_a?(Integer) && result > 0
+# T52b — opaque_ref 戻り値は proxy instance に auto-wrap される。 raw pointer
+# を取得するには __opaque_ref。
+raw = result.respond_to?(:__opaque_ref) ? result.__opaque_ref : result
+puts "result=#{raw}"
+raise "expected non-zero NSString pointer" unless raw.is_a?(Integer) && raw > 0
 
 puts "objc class method OK"

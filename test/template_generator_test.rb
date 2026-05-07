@@ -393,8 +393,10 @@ class TestTemplateGenerator < Test::Unit::TestCase
     }
     swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "ocm1")
     refute_nil swift
-    assert_match(/NSString\(utf8String:\s*arg0\)/, swift,
-      "T43: <verb>With<Type>: → init(<type>:) Swift bridging form")
+    # T53c — utf8String は historically raw cstr を取る init bridge なので
+    # Swift String 化された arg0 ではなく cstr 補助名 arg0_cstr を渡す。
+    assert_match(/NSString\(utf8String:\s*arg0_cstr\)/, swift,
+      "T43+T53c: <verb>With<Type>: → init(<type>: arg0_cstr) Swift bridging form")
   end
 
   # T43 — class method で init-bridge に当てはまらないものは class method form。
@@ -410,8 +412,9 @@ class TestTemplateGenerator < Test::Unit::TestCase
     }
     swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "ocm3")
     refute_nil swift
-    assert_match(/NSDate\.date\(\)/, swift,
-      "T43: non-bridged class methods keep Klass.swiftMethod form")
+    # T52e — NSDate は Swift 6 で Date に rename (NS-strip)。
+    assert_match(/Date\.date\(\)/, swift,
+      "T43+T52e: non-bridged class methods keep Klass.swiftMethod form (NS-stripped)")
   end
 
   # T42 — int param marshaling は kind=int で rb_num2ll 経由。
@@ -449,8 +452,10 @@ class TestTemplateGenerator < Test::Unit::TestCase
       "T44: receiver は argv[0] から OpaquePointer + bitCast で取得")
     assert_match(/to:\s*NSString\.self/, swift,
       "T44: bitCast ターゲットは objc_class の Swift 名")
-    # 呼び出しは receiver.length()
-    assert_match(/receiver\.length\(\)/, swift)
+    # T53g — zero-arg + non-void return は ObjC property bridge form (parens なし)。
+    assert_match(/receiver\.length\b/, swift)
+    refute_match(/receiver\.length\(\)/, swift,
+      "T53g: zero-arg property bridge は parens なし")
     # int 戻り値
     assert_match(/rb_ll2inum/, swift)
   end
@@ -520,7 +525,9 @@ class TestTemplateGenerator < Test::Unit::TestCase
       name: "URL.init(string:)",
       kind: "swift_init",
       swift_class: "URL",
-      swift_initializer: "init(string:)",
+      # T54t — failable init は initializer 文字列に `?` を含めて指定。
+      # URL.init?(string:) は failable なので `init?(string:)` で渡す。
+      swift_initializer: "init?(string:)",
       params: [:string], return_kind: :opaque_ref,
       signature: nil, abi: nil, parameters_json: "[]"
     }
@@ -529,7 +536,7 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/URL\(string:\s*arg0\)/, swift,
       "T45: init(string:) → URL(string: arg0)")
     assert_match(/guard let v = URL\(.*\) else \{ return Qnil \}/, swift,
-      "T45: failable init は guard let で nil 時に Qnil 返す")
+      "T45+T54t: failable init (?) は guard let で nil 時に Qnil 返す")
   end
 
   def test_swift_init_multi_label_emits_each_label
@@ -562,8 +569,9 @@ class TestTemplateGenerator < Test::Unit::TestCase
     swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "swp1")
     refute_nil swift, "T46: swift_property must produce template glue"
     assert_match(/import Foundation/, swift)
-    assert_match(/let raw = NSURLSession\.shared/, swift,
-      "T46: static property access form `Klass.prop`")
+    # T53d — NSURLSession は Swift 6 で URLSession に rename (NS-strip)。
+    assert_match(/let raw = URLSession\.shared/, swift,
+      "T46+T53d: static property access form `Klass.prop` (NS-stripped)")
     assert_match(/Unmanaged\.passRetained/, swift,
       "T46: opaque_ref 戻り値は passRetained で raw pointer")
   end

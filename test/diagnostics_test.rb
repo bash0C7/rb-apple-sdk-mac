@@ -59,7 +59,9 @@ class TestDiagnostics < Test::Unit::TestCase
     h = AppleSDKMac::Diagnostics.dump(cache: @cache)
     assert h.key?(:cache), "diagnostics must include :cache key"
     assert_equal 3, h[:cache][:compiled_glue_count]
-    assert_equal "1.0", h[:cache][:schema_version]
+    assert_equal AppleSDKMac::CompiledGlueCache::CACHE_SCHEMA_VERSION,
+                 h[:cache][:schema_version],
+                 "schema_version は CompiledGlueCache::CACHE_SCHEMA_VERSION と一致"
     assert_equal "26.0", h[:cache][:sdk_version]
   end
 

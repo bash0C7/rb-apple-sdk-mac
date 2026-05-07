@@ -504,7 +504,8 @@ module AppleSDKMac
       # `init(label1:label2:)` から ["label1", "label2"] を抜き出す。
       # `init()` → []。
       def swift_init_labels(initializer)
-        m = initializer.match(/\Ainit\((.*)\)\z/)
+        # T54t — `init?(...)` (failable) も受ける regex に拡張。
+        m = initializer.match(/\Ainit\??\((.*)\)\z/)
         return [] unless m
         m[1].split(":", -1).reject(&:empty?)
       end
