@@ -477,4 +477,27 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     refute_match(/NSURLSession\.shared/, out,
                  "T53d: ObjC NS-prefixed name must not appear (Swift 6 rename)")
   end
+
+  # T53f — NS-strip 対象外: NSData / NSString / NSArray / NSDictionary / NSSet /
+  # NSError は Swift bridge で value type (Data, String, ...) に struct rename
+  # されているが API divergent (NSData.length vs Data.count 等)。 ユーザが明示
+  # `klass: :NSData` で discover した場合はその ObjC class semantics を期待して
+  # いるので NS-strip しない。
+  def test_swift_bridged_class_name_preserves_value_type_ns_classes
+    s = sym(name: "NSData.length",
+            kind: "objc_method_instance",
+            signature: "- (NSUInteger)length",
+            parameters: [])
+    s[:objc_class] = "NSData"
+    s[:selector] = "length"
+    s[:params] = []
+    s[:return_kind] = :int
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T53f: must emit"
+    assert_match(/to:\s*NSData\.self/, out,
+                 "T53f: NSData は NS-strip しない (Swift bridge Data struct は length 未定義)")
+    refute_match(/to:\s*Data\.self/, out,
+                 "T53f: NSData NS-strip 禁止 (value-type bridge は API divergent)")
+  end
 end
