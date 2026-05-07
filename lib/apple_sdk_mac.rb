@@ -41,6 +41,12 @@ end
 
 # IRB session detected → enable autocomplete. Plain script use (no IRB)
 # is unaffected; lib/apple_sdk_mac/irb_completion.rb is not even required.
+#
+# install! は IRB::Context#build_completor / IRB::RelineInputMethod を prepend
+# で wrap して、 Apple:: 始まりの input のみ補完候補を返す。 Apple:: 以外で
+# IRB::RegexpCompletor が走ると Ruby 4.0 + RUBY_BOX=1 で SEGV する
+# (`BUG: Local ep without cme/box` — Box フレーム越境のVM bug) ため、 標準補完
+# にはデリゲートしない (補完は Apple SDK 探索専用)。
 if defined?(IRB)
   require_relative "apple_sdk_mac/irb_completion"
   AppleSDKMac::IRBCompletion.install!

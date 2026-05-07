@@ -168,14 +168,44 @@ module AppleSDKMac
       end
     end
 
+    # IRB::Context#build_completor が返す completor を差し替える形で
+    # IRB の completion 経路に乗る。 Reline.completion_proc 直 wrap は
+    # IRB::RelineInputMethod#initialize で必ず上書きされるので機能しない。
+    #
+    # Apple:: 始まりは Apple Provider 、 それ以外は base (TypeCompletor) に
+    # delegate して **標準補完と両立**。 標準の RegexpCompletor は Ruby 4 +
+    # RUBY_BOX=1 で `bind.eval_class_constants` が Apple Box フレームと衝突
+    # して SEGV するため使えないが、 TypeCompletor (repl_type_completor 経由
+    # の AST/RBS ベース推論) は constant enumerate しないので安全。
+    class Completor
+      def initialize(provider:, base: nil)
+        @provider = provider
+        @base = base
+      end
+
+      def completion_candidates(preposing, target, postposing, bind:)
+        input = "#{preposing}#{target}"
+        context = Context.parse(input)
+        return @provider.call(context) if context
+        @base ? @base.completion_candidates(preposing, target, postposing, bind: bind) : []
+      end
+
+      def doc_namespace(preposing, target, postposing, bind:)
+        @base&.doc_namespace(preposing, target, postposing, bind: bind)
+      end
+
+      def inspect
+        base_info = @base ? @base.inspect : "no-base"
+        "AppleCompletor(base=#{base_info})"
+      end
+    end
+
     @installed = false
-    @saved_completion_proc = nil
-    @saved_dig_perfect_match_proc = nil
 
     class << self
       def install!(knowledge_cache: nil, discover_proc: nil, spinner_io: $stderr)
         return if @installed
-        require "reline"
+        require "irb"
         knowledge_cache ||= AppleSDKMac.knowledge_cache
         provider = CandidateProvider.new(knowledge_cache: knowledge_cache)
         discoverer = AutoDiscoverer.new(
@@ -184,21 +214,28 @@ module AppleSDKMac
         )
         spinner = Spinner.new(io: spinner_io)
 
-        @saved_completion_proc = Reline.completion_proc
-        @saved_dig_perfect_match_proc = Reline.dig_perfect_match_proc
-        original = @saved_completion_proc
+        # 標準補完経路を TypeCompletor (AST/RBS, constant enumerate 無し) に切替。
+        # repl_type_completor が無ければ IRB は warn して RegexpCompletor に
+        # fallback するが、 RegexpCompletor は SEGV するので Completor base には
+        # 渡さず @base = nil にする。
+        IRB.conf[:COMPLETOR] = :type
 
-        Reline.completion_proc = lambda do |input|
-          context = Context.parse(input)
-          if context
-            provider.call(context)
-          else
-            original ? original.call(input) : []
-          end
+        @apple_provider = provider
+
+        # IRB::Context.build_completor を prepend で wrap。 super で base を取って
+        # Completor で wrap (Apple:: は provider、 他は base にデリゲート)。
+        unless IRB::Context.include?(ContextOverride)
+          IRB::Context.prepend(ContextOverride)
         end
 
-        Reline.dig_perfect_match_proc = lambda do |target|
-          context = Context.parse(target)
+        # IRB::RelineInputMethod#run_for_first_step (or 同等) で input-method
+        # init される時、 Reline.dig_perfect_match_proc は IRB が上書きする。
+        # IRB::RelineInputMethod#initialize の super 後に再 wrap する prepend。
+        unless IRB::RelineInputMethod.include?(RelineInputMethodOverride)
+          IRB::RelineInputMethod.prepend(RelineInputMethodOverride)
+        end
+        @apple_dig_perfect = lambda do |matched|
+          context = Context.parse(matched)
           next unless context && context.receiver_kind == :class
           message = "discovering #{context.framework}::#{context.klass}.#{context.prefix}..."
           spinner.start(message)
@@ -213,16 +250,43 @@ module AppleSDKMac
       end
 
       def uninstall!
-        return unless @installed
-        Reline.completion_proc = @saved_completion_proc
-        Reline.dig_perfect_match_proc = @saved_dig_perfect_match_proc
-        @saved_completion_proc = nil
-        @saved_dig_perfect_match_proc = nil
         @installed = false
+        @apple_provider = nil
+        @apple_dig_perfect = nil
       end
 
       def installed?
         @installed
+      end
+
+      # Internal — accessed by ContextOverride / RelineInputMethodOverride.
+      attr_reader :apple_provider, :apple_dig_perfect
+    end
+
+    module ContextOverride
+      def build_completor
+        if AppleSDKMac::IRBCompletion.installed? && AppleSDKMac::IRBCompletion.apple_provider
+          base = super
+          # super may return RegexpCompletor (TypeCompletor unavailable, fallback);
+          # do not wrap it — Apple-only mode (RegexpCompletor would SEGV under Box).
+          if base.is_a?(IRB::RegexpCompletor)
+            Completor.new(provider: AppleSDKMac::IRBCompletion.apple_provider, base: nil)
+          else
+            Completor.new(provider: AppleSDKMac::IRBCompletion.apple_provider, base: base)
+          end
+        else
+          super
+        end
+      end
+    end
+
+    module RelineInputMethodOverride
+      def initialize(*args, **kwargs)
+        super
+        if AppleSDKMac::IRBCompletion.installed? && AppleSDKMac::IRBCompletion.apple_dig_perfect
+          require "reline"
+          Reline.dig_perfect_match_proc = AppleSDKMac::IRBCompletion.apple_dig_perfect
+        end
       end
     end
   end
