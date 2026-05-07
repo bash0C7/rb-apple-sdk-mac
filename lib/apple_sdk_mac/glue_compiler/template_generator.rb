@@ -886,6 +886,17 @@ module AppleSDKMac
           ]
         when :int
           ["return rb_ll2inum(Int64(#{var}))"]
+        when :string
+          # T54p — Swift String? を Ruby String VALUE に marshal。
+          # VNRecognizedText.string 等 Swift bridged String property 用。
+          # Optional? を一旦 String? に upcast して if-let、 nil なら Qnil、
+          # non-nil なら withCString 経由で rb_str_new_cstr に渡す。
+          [
+            "if let __s = (#{var} as String?) {",
+            "    return __s.withCString { rb_str_new_cstr($0) }",
+            "}",
+            "return Qnil"
+          ]
         when :raw_ptr
           # T53h — UnsafeRawPointer? / UnsafePointer<T>? 等 raw pointer の
           # raw bit pattern を Ruby Integer に。 Data 内部 buffer (`bytes`) や
