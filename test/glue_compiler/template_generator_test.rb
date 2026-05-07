@@ -564,4 +564,30 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     refute_match(/Unmanaged\.passRetained/, out,
                  "T53h: :raw_ptr は retain しない (data 内部 buffer は NSObject ではない)")
   end
+
+  # T53i — :opaque_ref Hash 形で type が value-type (URL/Data/String/Array 等)
+  # の場合、 unsafeBitCast(ptr, to: <Type>.self) は struct に対する未定義動作で
+  # SIGTRAP になる。 NS-class (NSURL/NSData/...) 経由で bridge する必要がある:
+  # `unsafeBitCast(ptr, to: NSURL.self) as URL`
+  # URLSession.dataTask(with: URL) のような Swift bridged API に Ruby から
+  # NSURL pointer を渡せるようにする必須機構。
+  def test_emit_objc_in_load_opaque_ref_value_type_bridges_via_ns_class
+    s = sym(name: "NSURLSession.dataTaskWithURL:completionHandler:",
+            kind: "objc_method_instance",
+            signature: "- (NSURLSessionDataTask *)dataTaskWithURL:(NSURL *)url completionHandler:(void(^)(NSData*, NSURLResponse*, NSError*))h",
+            parameters: [])
+    s[:objc_class] = "NSURLSession"
+    s[:selector] = "dataTaskWithURL:completionHandler:"
+    s[:params] = [{kind: :opaque_ref, type: "URL"},
+                  {kind: :block_persistent, arity: 3,
+                   types: ["Data?", "URLResponse?", "Error?"]}]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T53i: must emit"
+    assert_match(/unsafeBitCast\([^)]+,\s*to:\s*NSURL\.self\)\s*as\s*URL/, out,
+                 "T53i: value-type URL は NSURL 経由で bridge")
+    refute_match(/unsafeBitCast\([^)]+,\s*to:\s*URL\.self\)/, out,
+                 "T53i: URL struct への直接 unsafeBitCast は SIGTRAP リスク、 emit しない")
+  end
 end
