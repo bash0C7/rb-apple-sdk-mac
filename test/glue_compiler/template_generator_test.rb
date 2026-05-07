@@ -412,4 +412,48 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     refute_match(/URL\.URLWithString\(/, out,
                  "T53b: 旧 ObjC method form は禁止 (Swift 6 has no URLWithString member)")
   end
+
+  # T53c — objc_in_load の :string が UnsafePointer<CChar> 直渡しのため、 Swift
+  # String を期待する init / method 引数 (URL.init(string:) 等) で compile error
+  # になる。 Apple SDK の大半の ObjC string 引数は Swift bridge で String を
+  # expect するので、 in_load は Swift String を emit すべき。 ただし
+  # `+stringWithUTF8String:` のように raw cstr が必要な特殊 init は依然存在する
+  # ため、 cstr 参照は `argN_cstr` 補助名で残す。
+  def test_emit_objc_in_load_string_emits_swift_string_for_url_init
+    s = sym(name: "NSURL.URLWithString:",
+            kind: "objc_method_class",
+            signature: "+ (instancetype)URLWithString:(NSString *)str",
+            parameters: [])
+    s[:objc_class] = "NSURL"
+    s[:selector] = "URLWithString:"
+    s[:params] = [:string]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T53c: must emit"
+    assert_match(/let arg0\s*=\s*String\(cString:/, out,
+                 "T53c: :string in objc_in_load must convert to Swift String")
+    assert_match(/URL\(string:\s*arg0\)/, out,
+                 "T53c: URL init must receive Swift String arg0 (not raw cstr)")
+  end
+
+  # T53c 補完 — `+stringWithUTF8String:` は historically raw cstr を取る init
+  # bridge (`String(utf8String: <UnsafePointer<CChar>>)`)。 in_load 変更後も
+  # この init bridge が成立するよう、 cstr 補助名 `argN_cstr` を経由した
+  # emit に切り替える。
+  def test_emit_objc_class_method_string_with_utf8_string_uses_cstr_aux
+    s = sym(name: "NSString.stringWithUTF8String:",
+            kind: "objc_method_class",
+            signature: "+ (instancetype)stringWithUTF8String:(const char *)str",
+            parameters: [])
+    s[:objc_class] = "NSString"
+    s[:selector] = "stringWithUTF8String:"
+    s[:params] = [:string]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T53c: must emit"
+    assert_match(/String\(utf8String:\s*arg0_cstr\)/, out,
+                 "T53c: stringWithUTF8String は raw cstr 補助名 (arg0_cstr) を使う")
+  end
 end
