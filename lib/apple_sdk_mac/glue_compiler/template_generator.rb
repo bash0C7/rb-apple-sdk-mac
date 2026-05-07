@@ -771,6 +771,12 @@ module AppleSDKMac
           ]
         when :int
           ["return rb_ll2inum(Int64(#{var}))"]
+        when :raw_ptr
+          # T53h — UnsafeRawPointer? / UnsafePointer<T>? 等 raw pointer の
+          # raw bit pattern を Ruby Integer に。 Data 内部 buffer (`bytes`) や
+          # その他 const void* 戻り値で使う。 Unmanaged.passRetained は呼ばない
+          # (raw pointer は NSObject ではない)。
+          ["return rb_ull2inum(UInt64(UInt(bitPattern: #{var})))"]
         when :bool
           ["return #{var} ? Qtrue : Qfalse"]
         when :float
