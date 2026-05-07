@@ -249,6 +249,13 @@ module AppleSDKMac
         swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
         exported = "glue_#{glue_id}_#{swift_id}"
 
+        # T54m — selector 末尾 `:error:` は Swift throws bridge に変換。
+        # ObjC `- (BOOL)method:(...)error:(NSError **)err` → Swift
+        # `func method(...) throws`。 emit は do/catch で包み、 success →
+        # Qtrue、 throw → Qfalse。 user 側 params 配列に error_out は含めない。
+        throws_bridge = selector.end_with?(":error:")
+        effective_selector = throws_bridge ? selector.sub(/:error:\z/, ":") : selector
+
         body =
           if selector.start_with?("init")
             # Init form: argv 0..N-1 が引数。receiver なし。
@@ -264,15 +271,28 @@ module AppleSDKMac
               )
             SWIFT
             in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i, argv_offset: 1) }
-            call_expr = swift_call_for_instance_method(selector, params)
-            # T53g — zero-arg + non-void return は ObjC property bridge form
-            # (parens なし)。 NSData.length / NSArray.count 等の property は
-            # Swift で `obj.length` 形式 (method call は compile error)。
-            # void return は引き続き method call form 維持 (resume() 等)。
-            if params.empty? && return_kind != :void
-              call_expr = call_expr.sub(/\(\s*\)\z/, "")
+            call_expr = swift_call_for_instance_method(effective_selector, params)
+            if throws_bridge
+              # T54m — try call を do/catch で包む。 :bool return は success
+              # → Qtrue / throw → Qfalse 固定。 他 return kind は将来実装。
+              [receiver_load] + in_loads + [
+                "do {",
+                "    try #{call_expr}",
+                "    return Qtrue",
+                "} catch {",
+                "    return Qfalse",
+                "}"
+              ]
+            else
+              # T53g — zero-arg + non-void return は ObjC property bridge form
+              # (parens なし)。 NSData.length / NSArray.count 等の property は
+              # Swift で `obj.length` 形式 (method call は compile error)。
+              # void return は引き続き method call form 維持 (resume() 等)。
+              if params.empty? && return_kind != :void
+                call_expr = call_expr.sub(/\(\s*\)\z/, "")
+              end
+              [receiver_load] + in_loads + ["let raw = #{call_expr}"] + objc_return_lines(return_kind, "raw")
             end
-            [receiver_load] + in_loads + ["let raw = #{call_expr}"] + objc_return_lines(return_kind, "raw")
           end
 
         <<~SWIFT
