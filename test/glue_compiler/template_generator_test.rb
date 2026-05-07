@@ -730,4 +730,24 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/rb_str_new_cstr/, out,
                  "T54p: Ruby String VALUE 化は rb_str_new_cstr 経由")
   end
+
+  # T54q — objc_in_load の :int を Swift Int に emit。 Apple SDK の Swift
+  # bridged API (`topCandidates(_ maxCount: Int)` 等) は Int 期待が標準で、
+  # Int64 直渡しは Swift 6 で型 mismatch error になる。 KB-stored C function
+  # path (IntMarshaller) は引き続き Int64 を emit (regression なし)。
+  def test_emit_objc_in_load_int_kind_emits_swift_int_for_apple_bridged_api
+    s = sym(name: "VNRecognizedTextObservation.topCandidates:",
+            kind: "objc_method_instance",
+            signature: "- (NSArray *)topCandidates:(NSUInteger)maxCount",
+            parameters: [])
+    s[:objc_class] = "VNRecognizedTextObservation"
+    s[:selector] = "topCandidates:"
+    s[:params] = [:int]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54q: must emit"
+    assert_match(/let arg0:\s*Int\s*=\s*Int\(rb_num2ll\(argv\[1\]\)\)/, out,
+                 "T54q: objc_in_load :int は Swift Int で emit (Apple SDK 互換)")
+  end
 end
