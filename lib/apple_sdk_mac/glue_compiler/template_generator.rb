@@ -488,6 +488,20 @@ module AppleSDKMac
                                   NSMutableArray NSMutableDictionary NSMutableSet
                                   NSMutableString NSError].freeze
 
+      # T53i — Swift value-type ↔ NSObject class bridge map。 Hash 形
+      # `:opaque_ref` で type に value-type 名 (URL 等) を渡された場合、 raw
+      # pointer は NS-class に向けて unsafeBitCast し、 末尾に `as <ValueType>`
+      # で bridge する。
+      VALUE_TYPE_NS_BRIDGES = {
+        "URL"        => "NSURL",
+        "Data"       => "NSData",
+        "String"     => "NSString",
+        "Array"      => "NSArray",
+        "Dictionary" => "NSDictionary",
+        "Set"        => "NSSet",
+        "Date"       => "NSDate"
+      }.freeze
+
       def swift_bridged_class_name(klass)
         return klass.to_s if NS_STRIP_PRESERVE_LIST.include?(klass.to_s)
         klass.to_s.sub(/\ANS([A-Z])/, '\1')
@@ -664,11 +678,17 @@ module AppleSDKMac
           # T52j — Hash 形 type ヒント (`{kind: :opaque_ref, type: "Operation"}`)
           # 指定時は Swift class 型に unsafeBitCast、 raw OpaquePointer を期待
           # する一般 C ABI 経路 (CoreMIDI 等) は type_hint 不在で従来挙動。
+          # T53i — type が value-type (URL/Data/String/Array/Dict/Set/Date) の
+          # 場合、 struct に対する unsafeBitCast は SIGTRAP のため、 NS-class
+          # 経由で bridge: `unsafeBitCast(ptr, to: NSURL.self) as URL`。
           if type_hint
+            ns_bridge = VALUE_TYPE_NS_BRIDGES[type_hint.to_s]
+            cast_type = ns_bridge || type_hint
+            tail_bridge = ns_bridge ? " as #{type_hint}" : ""
             <<~SWIFT.chomp
               let arg#{index}_raw_v = UInt(rb_num2ull(argv[#{ai}]))
                   guard let arg#{index}_ptr_v = OpaquePointer(bitPattern: arg#{index}_raw_v) else { return Qnil }
-                  let arg#{index} = unsafeBitCast(arg#{index}_ptr_v, to: #{type_hint}.self)
+                  let arg#{index} = unsafeBitCast(arg#{index}_ptr_v, to: #{cast_type}.self)#{tail_bridge}
             SWIFT
           else
             "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{ai}])))"
