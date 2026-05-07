@@ -10,10 +10,13 @@ require "apple_sdk_mac/irb/doc_resolver"
 class TestDocResolver < Test::Unit::TestCase
   Resolver = AppleSDKMac::IRB::DocResolver
 
-  def make_cache(records)
+  def make_cache(records, framework_records = {})
     cache = Object.new
     cache.define_singleton_method(:lookup_documentation) do |framework:, name:, klass: nil|
       records[[framework, klass, name]]
+    end
+    cache.define_singleton_method(:lookup_framework_documentation) do |name:|
+      framework_records[name]
     end
     cache
   end
@@ -39,10 +42,15 @@ class TestDocResolver < Test::Unit::TestCase
     assert_nil Resolver.new(knowledge_cache: cache).resolve("String.length")
   end
 
-  def test_returns_nil_for_apple_root_only
-    cache = make_cache({})
-    # `Apple::Foundation` is a framework name, not a symbol — skip.
-    assert_nil Resolver.new(knowledge_cache: cache).resolve("Apple::Foundation")
+  def test_returns_framework_doc_for_apple_root
+    cache = make_cache({}, { "ARKit" => "ARKit framework. 302 symbols indexed." })
+    out = Resolver.new(knowledge_cache: cache).resolve("Apple::ARKit")
+    assert_equal "ARKit framework. 302 symbols indexed.", out
+  end
+
+  def test_returns_nil_for_apple_root_when_unknown_framework
+    cache = make_cache({}, {})
+    assert_nil Resolver.new(knowledge_cache: cache).resolve("Apple::ZzNoSuchFw")
   end
 
   def test_returns_nil_when_kb_has_no_doc

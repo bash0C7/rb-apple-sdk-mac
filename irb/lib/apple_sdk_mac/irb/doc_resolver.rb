@@ -24,9 +24,14 @@ module AppleSDKMac
           # `Apple::Foundation::URL` — the type itself is a top-level
           # symbol within its framework; lookup with no klass.
           @cache.lookup_documentation(framework: ctx.framework, name: ctx.prefix)
-        else
-          # :apple_root → framework name only, no symbol to look up.
-          nil
+        when :apple_root
+          # `Apple::ARKit` — popup is hovering a framework name.
+          # Synthesize a description from frameworks + symbol-count.
+          # ctx.prefix is the typed-so-far framework name; only resolve
+          # when the user landed on an exact framework match.
+          if @cache.respond_to?(:lookup_framework_documentation)
+            @cache.lookup_framework_documentation(name: ctx.prefix)
+          end
         end
       end
     end
