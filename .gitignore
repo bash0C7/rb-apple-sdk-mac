@@ -20,3 +20,6 @@ ext/**/*-Swift.h
 lib/**/*.bundle
 lib/**/*.bundle.dSYM/
 /tmp/
+
+# Claude Code runtime files
+.claude/scheduled_tasks.lock
