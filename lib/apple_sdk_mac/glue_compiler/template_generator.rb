@@ -877,7 +877,7 @@ module AppleSDKMac
           # User is responsible for CFRelease (no ARC bridging in Phase 7).
           "rb_ull2inum(UInt64(UInt(bitPattern: unsafeBitCast(#{swift_var}, to: OpaquePointer.self))))"
         when "opaque_ref"
-          if signature.match?(/\A(?:UInt|uint)/)
+          if signature && signature.match?(/\A(?:UInt|uint)/)
             "rb_ull2inum(UInt64(#{swift_var}))"
           else
             "rb_ll2inum(Int64(#{swift_var}))"

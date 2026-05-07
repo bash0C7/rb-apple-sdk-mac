@@ -201,17 +201,24 @@ module AppleSDKMac
           if entry.is_a?(Hash)
             kind_sym = (entry[:kind] || entry["kind"]).to_sym
             type     = entry[:type] || entry["type"] || KIND_SYM_TO_TYPE.fetch(kind_sym, "void *")
+            # T54 — Hash 形で nilable: false を指定すると Marshaller 側で
+            # force-unwrap (`arg!`)。 Swift bridge で T (non-Optional) 必須の
+            # API (CGImageSourceCreateWithURL の CFURL 等) で使う。
+            nilable = entry.key?(:nilable) ? entry[:nilable] : (entry.key?("nilable") ? entry["nilable"] : nil)
           else
             kind_sym = entry.to_sym
             type     = KIND_SYM_TO_TYPE.fetch(kind_sym, "void *")
+            nilable  = nil
           end
-          {
+          rec = {
             name: "arg#{i}",
             type: type,
             kind: kind_sym.to_s,
             is_out_param: false,
             nullability: "unspecified"
           }
+          rec[:nilable] = nilable unless nilable.nil?
+          rec
         end
         sym_meta = sym_meta.merge(parameters_json: JSON.dump(new_params))
       end

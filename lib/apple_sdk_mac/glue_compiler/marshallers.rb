@@ -187,7 +187,13 @@ module AppleSDKMac
       end
 
       def call_arg
-        @param[:is_out_param] ? "&#{@param[:name]}" : @param[:name]
+        # CFTypeRef in_load は Optional<T> 形 (Qnil → nil branch)。 既定では
+        # Optional のまま渡す (Apple SDK の多くの CF API は Optional 受け付け)。
+        # T54 — Swift bridge で T (non-Optional) 必須の関数は param に
+        # `nilable: false` を指定して force-unwrap (arg!) させる。
+        return "&#{@param[:name]}" if @param[:is_out_param]
+        return "#{@param[:name]}!" if @param[:nilable] == false
+        @param[:name]
       end
 
       def out_init
