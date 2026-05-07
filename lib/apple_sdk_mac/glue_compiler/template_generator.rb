@@ -563,7 +563,7 @@ module AppleSDKMac
           #    (class method bridge) → `<klass>.<verb>(<prepositionWithType>: arg0)`
           #    label は lowerCamel(<Preposition><Type>)。e.g. sleepForTimeInterval
           #    → Thread.sleep(forTimeInterval: arg0).
-          if (m = sole.match(/\A([a-z][a-zA-Z0-9]*?)With([A-Z]\w*)\z/))
+          if (m = sole.match(/\A([A-Za-z][a-zA-Z0-9]*?)With([A-Z]\w*)\z/))
             label = lower_first_camel_local(m[2])
             "#{klass}(#{label}: arg0)"
           elsif (verb_label = split_preposition_verb(sole))
