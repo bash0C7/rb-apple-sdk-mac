@@ -750,4 +750,27 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/let arg0:\s*Int\s*=\s*Int\(rb_num2ll\(argv\[1\]\)\)/, out,
                  "T54q: objc_in_load :int は Swift Int で emit (Apple SDK 互換)")
   end
+
+  # T54r — :cftype_ref Hash 形は autoarc box pointer も受ける必要がある。
+  # CGImageSourceCreateImageAtIndex 等 CF*Create* 関数の戻り値は box pointer
+  # (autoarc) であり、 次の Apple.discover (VNImageRequestHandler.init(cgImage:))
+  # に渡す時に runtime_arc_unbox_cftype で内部 CGImage pointer に unwrap が
+  # 必要。 T54k 初版は box unwrap せず直接 unsafeBitCast していたため box
+  # pointer を CGImage と誤解してクラッシュしていた。
+  def test_emit_objc_in_load_cftype_ref_hash_form_unwraps_autoarc_box
+    s = sym(name: "VNImageRequestHandler.initWithCGImage:options:",
+            kind: "objc_method_instance",
+            signature: "- (instancetype)initWithCGImage:(CGImageRef)img options:(NSDictionary*)opts",
+            parameters: [])
+    s[:objc_class] = "VNImageRequestHandler"
+    s[:selector] = "initWithCGImage:options:"
+    s[:params] = [{kind: :cftype_ref, type: "CGImage"},
+                  {kind: :nil_literal, type: "[VNImageOption: Any]"}]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54r: must emit"
+    assert_match(/runtime_arc_unbox_cftype/, out,
+                 "T54r: :cftype_ref Hash 形は autoarc box を unwrap して内部 CF pointer を取り出す")
+  end
 end
