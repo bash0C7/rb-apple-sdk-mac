@@ -473,7 +473,16 @@ module AppleSDKMac
       # 例外 (NSError, NSObject 等) は v1.0 範囲外、必要時に skip リストを
       # 追加する。`NS<lowercase>` (NSObject ではなく ns_object_t 系) は
       # 大文字で始まる NS<UpperCase> パターンのみ strip。
+      # T53f — NS-strip 対象外。 これらの class は Swift bridge で value type
+      # (struct) に rename されるが API divergent (NSData.length vs Data.count、
+      # NSString.UTF8String vs String 系等) なので、 user 明示 discover (klass:
+      # :NSData 等) の semantics は ObjC class form を保つ必要がある。
+      NS_STRIP_PRESERVE_LIST = %w[NSData NSString NSArray NSDictionary NSSet
+                                  NSMutableArray NSMutableDictionary NSMutableSet
+                                  NSMutableString NSError].freeze
+
       def swift_bridged_class_name(klass)
+        return klass.to_s if NS_STRIP_PRESERVE_LIST.include?(klass.to_s)
         klass.to_s.sub(/\ANS([A-Z])/, '\1')
       end
 
