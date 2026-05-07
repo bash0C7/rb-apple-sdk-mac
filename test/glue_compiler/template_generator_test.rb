@@ -819,4 +819,30 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     refute_match(/guard let v = VNImageRequestHandler\(/, out,
                  "T54t: non-failable init は guard let を出さない")
   end
+
+  # T54u — swift_property の instance: true で receiver argv[0] を取る instance
+  # property emit。 既存 (instance: false / 不在) は class static property
+  # (T53d の URLSession.shared 互換)。 Apple SDK の Swift property は instance
+  # property が majority (Vision の VNRecognizeTextRequest.results 等)。
+  def test_emit_swift_property_instance_takes_receiver_from_argv0
+    s = sym(name: "VNRecognizeTextRequest.results",
+            kind: "swift_property",
+            signature: nil,
+            parameters: [])
+    s[:swift_class] = "VNRecognizeTextRequest"
+    s[:swift_property] = "results"
+    s[:instance] = true
+    s[:return_kind] = {kind: :array_of_opaque_ref,
+                      type: "VNRecognizedTextObservation",
+                      nilable: true}
+
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54u: must emit"
+    assert_match(/let receiver = unsafeBitCast/, out,
+                 "T54u: instance property は argv[0] receiver を取る")
+    assert_match(/to: VNRecognizeTextRequest\.self/, out,
+                 "T54u: receiver は typed Swift class に cast")
+    assert_match(/let raw = receiver\.results/, out,
+                 "T54u: receiver.prop で instance property をアクセス")
+  end
 end
