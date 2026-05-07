@@ -113,17 +113,72 @@ class TestExamplesSmoke < Test::Unit::TestCase
       "expected near max(input)=30 + overhead"
   end
 
-  # Phase 7 T9 — NSURLSession + escaping completion block (LLM
-  # Worked Example G). Spec §3.4 BlockPersistentMarshaller path. The
-  # LLM-fallback compile is anchored but the v1.0 prompt budget defers
-  # production glue; example exits 0 either way (success line or
-  # DEFERRED line both accepted).
-  def test_urlsession_download_runs_or_defers
-    res = run_example("urlsession_download.rb")
-    assert_equal 0, res[:exitstatus],
-      "urlsession_download.rb exited #{res[:exitstatus]}; stderr:\n#{res[:stderr]}"
-    assert_match(/^urlsession download (OK|DEFERRED)$/, res[:stdout],
-      "expected urlsession download OK or DEFERRED line; got:\n#{res[:stdout]}")
+  # T53 — URLSession 実 HTTP download。release 水準 README L3 を直接満たす
+  # example の 1 つ。 spec § 5.6 acceptance:
+  # - file:// 退路完全廃止 (HTTP/HTTPS スキームのみ)
+  # - bytes=<N> が fixture body のバイト数と完全一致
+  # - sha256=<64hex> が fixture body の SHA256 と完全一致
+  # - DEFERRED 句不在
+  # - WEBrick fixture を smoke 内で起動 (外部 network 依存ゼロ)
+  #
+  # 簡易 HTTP fixture: stdlib (TCPServer + Socket) で localhost に固定 body を
+  # 配信、example に URL を ENV["T53_FIXTURE_URL"] で渡す。webrick gem 依存ゼロ。
+  T53_FIXTURE_BODY = ("T53 fixture payload v1\n" * 10).freeze
+
+  def start_t53_fixture_server
+    require "socket"
+    require "digest"
+    server = TCPServer.new("127.0.0.1", 0)
+    port = server.addr[1]
+    body = T53_FIXTURE_BODY
+    thread = Thread.new do
+      loop do
+        client = begin
+          server.accept
+        rescue
+          break
+        end
+        begin
+          while (line = client.gets)
+            break if line.strip.empty?
+          end
+          resp = "HTTP/1.1 200 OK\r\n" \
+                 "Content-Type: application/octet-stream\r\n" \
+                 "Content-Length: #{body.bytesize}\r\n" \
+                 "Connection: close\r\n\r\n#{body}"
+          client.write(resp)
+        ensure
+          client.close rescue nil
+        end
+      end
+    end
+    [server, port, thread]
+  end
+
+  def test_urlsession_download_real_http_bytes_match
+    require "digest"
+    server, port, thread = start_t53_fixture_server
+    begin
+      url = "http://127.0.0.1:#{port}/t53"
+      res = run_example("urlsession_download.rb",
+                        env: { "T53_FIXTURE_URL" => url })
+      assert_equal 0, res[:exitstatus],
+        "urlsession_download.rb exited #{res[:exitstatus]}; stderr:\n#{res[:stderr]}"
+      refute_match(/DEFERRED/, res[:stdout],
+        "T53: DEFERRED 退路は禁止 (release_quality 命題)")
+      refute_match(/file:\/\//, res[:stdout],
+        "T53: file:// scheme は disqualified (HTTP 必須)")
+      assert_match(/scheme=http/, res[:stdout],
+        "T53: must perform real HTTP via URLSession")
+      assert_match(/bytes=#{T53_FIXTURE_BODY.bytesize}/, res[:stdout],
+        "T53: byte count must match fixture exactly (#{T53_FIXTURE_BODY.bytesize})")
+      expected_sha = Digest::SHA256.hexdigest(T53_FIXTURE_BODY)
+      assert_match(/sha256=#{expected_sha}/, res[:stdout],
+        "T53: sha256 of received body must equal fixture sha256")
+    ensure
+      server.close rescue nil
+      thread.kill rescue nil
+    end
   end
 
   # T43 — ObjC class method via Apple.discover(class_method:) は実呼び出しで
