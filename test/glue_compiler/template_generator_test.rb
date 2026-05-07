@@ -710,4 +710,24 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/Unmanaged\.passRetained/, out,
                  "T54o: 各要素を opaque ref として retain")
   end
+
+  # T54p — return_kind :string を swift_init_return_lines / objc_return_lines に
+  # 追加。 Swift String? property (`VNRecognizedText.string` 等) を Ruby String
+  # VALUE に marshal。 nil → Qnil、 non-nil → withCString → rb_str_new_cstr。
+  def test_emit_swift_property_string_return_marshals_to_ruby_string
+    s = sym(name: "VNRecognizedText.string",
+            kind: "swift_property",
+            signature: nil,
+            parameters: [])
+    s[:swift_class] = "VNRecognizedText"
+    s[:swift_property] = "string"
+    s[:return_kind] = :string
+
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54p: must emit"
+    assert_match(/withCString/, out,
+                 "T54p: Swift String を CString 経由で marshal")
+    assert_match(/rb_str_new_cstr/, out,
+                 "T54p: Ruby String VALUE 化は rb_str_new_cstr 経由")
+  end
 end
