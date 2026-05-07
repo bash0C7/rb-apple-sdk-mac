@@ -762,6 +762,14 @@ module AppleSDKMac
                     runtime_threading_enqueue(arg#{index}_pid_u, 0)
                 }
           SWIFT
+        when :nil_literal
+          # T54l — Swift native 型 (Dict / Set / クラス struct 等) で raw pointer
+          # から復元できない引数を nil 固定で渡す経路。 Apple SDK で options
+          # 引数等が `[VNImageOption: Any]?` のように Optional な場合、
+          # `Apple.discover(... params: [..., {kind: :nil_literal, type: "[VNImageOption: Any]"}])`
+          # で Ruby 引数を無視して Swift `nil` を渡す。 type_hint は Swift 型注釈。
+          swift_type = (type_hint || "AnyObject").to_s
+          "let arg#{index}: #{swift_type}? = nil"
         when :array_of_opaque_ref
           # T54a/T52d — Ruby Array<opaque ref Integer> → Swift [<Type>]。
           # Hash 形の :type を cast 先 type として使う。NSMutableArray を
