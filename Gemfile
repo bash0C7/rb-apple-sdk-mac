@@ -23,4 +23,5 @@ gem "fiddle"  # Test-only: MIDIPacketList byte-packing in test_send_packet_via_m
 group :development do
   gem "apple_sdk_mac-irb", path: "irb"
   gem "rb-translation-mac", path: "../rb-translation-mac"
+  gem "translation_mac-locale", path: "../rb-translation-mac/locale"
 end

@@ -18,7 +18,6 @@ require "apple_sdk_mac"
 require "apple_sdk_mac/irb/doc_resolver"
 require "apple_sdk_mac/irb/doc_dialog"
 require "apple_sdk_mac/irb/prefetcher"
-require "apple_sdk_mac/irb/translator"
 
 module AppleSDKMac
   module IRB
@@ -318,23 +317,21 @@ module AppleSDKMac
 
       private
 
-      # LANG → BCP-47 normalization + soft-load rb-translation-mac. When
-      # the user is in an English locale, when LANG is C / POSIX / unset,
-      # or when the translation gem is not installed, returns a sentinel
-      # Translator with target_lang nil so doc_transform stays identity.
+      # LANG → BCP-47 normalization + soft-load translation_mac/locale
+      # (sibling sub-gem inside rb-translation-mac). When the user is in
+      # an English locale, when LANG is C / POSIX / unset, or when the
+      # translation gem is not installed, returns nil so doc_transform
+      # stays identity.
       def build_translator
-        target = Translator.detect_target_lang(ENV["LANG"])
-        return nil unless target
         begin
-          require "translation_mac"
+          require "translation_mac/locale"
         rescue LoadError => e
-          warn "[apple-sdk-mac irb] LANG=#{ENV['LANG'].inspect} but translation_mac unavailable: #{e.message}" if ENV["APPLE_IRB_DEBUG"]
+          warn "[apple-sdk-mac irb] translation_mac/locale unavailable: #{e.message}" if ENV["APPLE_IRB_DEBUG"]
           return nil
         end
-        Translator.new(
-          target_lang: target,
-          translate_proc: ->(text, from:, to:) { ::TranslationMac.translate(text, from: from, to: to) }
-        )
+        target = ::TranslationMac::Locale::Translator.detect_target_lang(ENV["LANG"])
+        return nil unless target
+        ::TranslationMac::Locale::Translator.new(target_lang: target)
       end
     end
 
