@@ -8,4 +8,5 @@ gemspec
 gem "rb-apple-sdk-mac", path: ".."
 gem "rb-foundation-model-mac", path: "../../rb-foundation-model-mac"
 gem "rb-apple-sdk-knowledge", path: "../../rb-apple-sdk-knowledge"
+gem "rb-translation-mac", path: "../../rb-translation-mac"
 gem "swift_gem", git: "https://github.com/bash0C7/swift_gem"

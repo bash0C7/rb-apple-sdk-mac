@@ -18,6 +18,7 @@ require "apple_sdk_mac"
 require "apple_sdk_mac/irb/doc_resolver"
 require "apple_sdk_mac/irb/doc_dialog"
 require "apple_sdk_mac/irb/prefetcher"
+require "apple_sdk_mac/irb/translator"
 
 module AppleSDKMac
   module IRB
@@ -260,7 +261,14 @@ module AppleSDKMac
         ::IRB.conf[:COMPLETOR] = :type
 
         @apple_provider = provider
-        resolver = DocResolver.new(knowledge_cache: knowledge_cache)
+        @apple_translator = build_translator
+        doc_transform = if @apple_translator&.active?
+          translator = @apple_translator
+          ->(doc, _ctx) { translator.translate(doc) }
+        else
+          DocResolver::IDENTITY_TRANSFORM
+        end
+        resolver = DocResolver.new(knowledge_cache: knowledge_cache, doc_transform: doc_transform)
         @apple_prefetcher = Prefetcher.new(discoverer: discoverer)
         @apple_doc_dialog = DocDialog.new(resolver: resolver, prefetcher: @apple_prefetcher)
 
@@ -297,6 +305,7 @@ module AppleSDKMac
         @apple_dig_perfect = nil
         @apple_doc_dialog = nil
         @apple_prefetcher = nil
+        @apple_translator = nil
       end
 
       def installed?
@@ -304,7 +313,29 @@ module AppleSDKMac
       end
 
       # Internal — accessed by ContextOverride / RelineInputMethodOverride.
-      attr_reader :apple_provider, :apple_dig_perfect, :apple_doc_dialog, :apple_prefetcher
+      attr_reader :apple_provider, :apple_dig_perfect, :apple_doc_dialog,
+                  :apple_prefetcher, :apple_translator
+
+      private
+
+      # LANG → BCP-47 normalization + soft-load rb-translation-mac. When
+      # the user is in an English locale, when LANG is C / POSIX / unset,
+      # or when the translation gem is not installed, returns a sentinel
+      # Translator with target_lang nil so doc_transform stays identity.
+      def build_translator
+        target = Translator.detect_target_lang(ENV["LANG"])
+        return nil unless target
+        begin
+          require "translation_mac"
+        rescue LoadError => e
+          warn "[apple-sdk-mac irb] LANG=#{ENV['LANG'].inspect} but translation_mac unavailable: #{e.message}" if ENV["APPLE_IRB_DEBUG"]
+          return nil
+        end
+        Translator.new(
+          target_lang: target,
+          translate_proc: ->(text, from:, to:) { ::TranslationMac.translate(text, from: from, to: to) }
+        )
+      end
     end
 
     module ContextOverride

@@ -18,8 +18,9 @@ gem "fiddle"  # Test-only: MIDIPacketList byte-packing in test_send_packet_via_m
 
 # Logical sub-gem inside this repo (irb/). Path-loaded so users developing
 # the IRB autocomplete + LLM doc preview features get the dependency tree
-# (irb / reline / repl_type_completor / foundation_model_mac) without
-# polluting the main gemspec.
+# (irb / reline / repl_type_completor / foundation_model_mac /
+#  rb-translation-mac) without polluting the main gemspec.
 group :development do
   gem "apple_sdk_mac-irb", path: "irb"
+  gem "rb-translation-mac", path: "../rb-translation-mac"
 end
