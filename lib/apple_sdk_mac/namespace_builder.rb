@@ -110,12 +110,15 @@ module AppleSDKMac
 
       dispatcher = @dispatcher
       wrap_proxy = opaque_ref_return?(sym)
+      # T53j — return_klass: で wrap 先 class を override (受信 class と異なる
+      # 戻り値型の場合)。 未指定なら従来通り receiver の proxy class で wrap。
+      wrap_class = wrap_class_for(mod, framework, sym, default_proxy: proxy_class)
       builder = self
       proxy_class.singleton_class.send(:define_method, ruby_method) do |*args|
         unwrapped = builder.send(:unwrap_proxy_args, args)
         result = dispatcher.call(framework: framework, symbol: canonical, args: unwrapped)
         if wrap_proxy && result.is_a?(Integer)
-          proxy_class.from_ref(result)
+          wrap_class.from_ref(result)
         else
           result
         end
@@ -141,6 +144,8 @@ module AppleSDKMac
 
       dispatcher = @dispatcher
       wrap_proxy = opaque_ref_return?(sym)
+      # T53j — return_klass: で wrap 先 class を override
+      wrap_class = wrap_class_for(mod, framework, sym, default_proxy: proxy_class)
       builder = self
       proxy_class.send(:define_method, ruby_method) do |*args|
         unwrapped = builder.send(:unwrap_proxy_args, args)
@@ -149,7 +154,7 @@ module AppleSDKMac
           args: [@__opaque_ref, *unwrapped]
         )
         if wrap_proxy && result.is_a?(Integer)
-          proxy_class.from_ref(result)
+          wrap_class.from_ref(result)
         else
           result
         end
@@ -177,6 +182,16 @@ module AppleSDKMac
     def init_form_selector?(selector)
       return false if selector.nil?
       selector.to_s.start_with?("init")
+    end
+
+    # T53j — proxy auto-wrap 先 class を decide。 sym[:return_klass] が指定されて
+    # いればその class の proxy を ensure、 そうでなければ default (受信 class
+    # の proxy) を使う。 NSURLSession#dataTask が NSURLSessionDataTask を返す
+    # ようなケースで wrap class を receiver と分離する。
+    def wrap_class_for(mod, framework, sym, default_proxy:)
+      rk = sym[:return_klass]
+      return default_proxy if rk.nil? || rk.to_s.empty?
+      ensure_proxy_class(mod, framework, rk.to_s)
     end
 
     # T52b — opaque_ref / cftype_ref return_kind 判定。

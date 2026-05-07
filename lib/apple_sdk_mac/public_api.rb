@@ -129,14 +129,16 @@ module AppleSDKMac
           name: "#{opts[:klass]}.#{_canonical_method_name(opts[:class_method])}",
           kind: "objc_method_class",
           objc_class: opts[:klass].to_s, selector: opts[:class_method].to_s,
-          params: opts[:params], return_kind: opts[:return_kind]
+          params: opts[:params], return_kind: opts[:return_kind],
+          return_klass: opts[:return_klass]
         )
       when opts.key?(:selector)
         base.merge(
           name: "#{opts[:klass]}.#{_canonical_method_name(opts[:selector])}",
           kind: "objc_method_instance",
           objc_class: opts[:klass].to_s, selector: opts[:selector].to_s,
-          params: opts[:params], return_kind: opts[:return_kind]
+          params: opts[:params], return_kind: opts[:return_kind],
+          return_klass: opts[:return_klass]
         )
       when opts.key?(:swift_initializer)
         base.merge(
