@@ -626,7 +626,18 @@ module AppleSDKMac
         when :float
           "let arg#{index}: Double = rb_num2dbl(argv[#{ai}])"
         when :opaque_ref
-          "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{ai}])))"
+          # T52j — Hash 形 type ヒント (`{kind: :opaque_ref, type: "Operation"}`)
+          # 指定時は Swift class 型に unsafeBitCast、 raw OpaquePointer を期待
+          # する一般 C ABI 経路 (CoreMIDI 等) は type_hint 不在で従来挙動。
+          if type_hint
+            <<~SWIFT.chomp
+              let arg#{index}_raw_v = UInt(rb_num2ull(argv[#{ai}]))
+                  guard let arg#{index}_ptr_v = OpaquePointer(bitPattern: arg#{index}_raw_v) else { return Qnil }
+                  let arg#{index} = unsafeBitCast(arg#{index}_ptr_v, to: #{type_hint}.self)
+            SWIFT
+          else
+            "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{ai}])))"
+          end
         when :cftype_ref
           "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{ai}])))"
         when :void_ptr_nilable
