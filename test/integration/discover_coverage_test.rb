@@ -18,7 +18,7 @@ class TestDiscoverCoverage < Test::Unit::TestCase
     function global_constant enum_case struct class_method instance_method
     instance_property protocol enum_module class typealias initializer
     swift_func swift_init swift_property objc_method_class objc_method_instance
-    block_nilable block_persistent cftype_ref_autoarc
+    block_nilable block_persistent cftype_ref_autoarc actor
   ].freeze
 
   SAMPLE_SIZE = Integer(ENV["DISCOVER_COVERAGE_SAMPLE"] || 1000)
