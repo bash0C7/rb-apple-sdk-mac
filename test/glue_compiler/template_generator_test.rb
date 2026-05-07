@@ -773,4 +773,26 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/runtime_arc_unbox_cftype/, out,
                  "T54r: :cftype_ref Hash 形は autoarc box を unwrap して内部 CF pointer を取り出す")
   end
+
+  # T54s — :nil_literal Hash 形に :value 指定を追加。 Apple SDK の non-Optional
+  # native Swift type (`[VNImageOption: Any]` default `[:]`) を埋める path。
+  # value: 指定時は Optional? を付けず value 直 literal を emit する。
+  def test_emit_objc_in_load_nil_literal_value_override_emits_concrete_literal
+    s = sym(name: "VNImageRequestHandler.initWithCGImage:options:",
+            kind: "objc_method_instance",
+            signature: "- (instancetype)initWithCGImage:(CGImageRef)img options:(NSDictionary*)opts",
+            parameters: [])
+    s[:objc_class] = "VNImageRequestHandler"
+    s[:selector] = "initWithCGImage:options:"
+    s[:params] = [{kind: :cftype_ref, type: "CGImage"},
+                  {kind: :nil_literal, type: "[VNImageOption: Any]", value: "[:]"}]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54s: must emit"
+    assert_match(/let arg1:\s*\[VNImageOption: Any\]\s*=\s*\[:\]/, out,
+                 "T54s: value 指定で Optional? なし non-nil literal を emit")
+    refute_match(/\[VNImageOption: Any\]\?\s*=\s*nil/, out,
+                 "T54s: value 指定では nil literal は emit しない")
+  end
 end
