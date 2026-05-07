@@ -346,4 +346,45 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/as!\s*\[VNRequest\]|as\s+\[VNRequest\]/, out,
                  "T54a: must cast NSMutableArray to Swift [VNRequest]")
   end
+
+  # T53a — :block_persistent Hash 形 (arity, types) で URLSession completion
+  # handler のような multi-arg typed escaping block を emit する。 既存の
+  # :block_persistent (Symbol 形) は (Data?, URLResponse?, Error?) -> Void に
+  # 固定で、 Ruby callback には err 単一 Int64 (nil → 0, non-nil → -1) しか
+  # 渡らない。 spec § 5.4 acceptance では data_ref / response_ref / error_ref
+  # 3 個を Ruby block の引数に渡すため、 N-arg dispatch が必須。
+  #
+  # Hash 形 spec:
+  #   {kind: :block_persistent, arity: 3, types: ["NSData?", "NSURLResponse?", "NSError?"]}
+  #
+  # 期待 emit:
+  #   - Swift closure signature が `(NSData?, NSURLResponse?, NSError?) -> Void`
+  #     形 (Hash :types を反映)
+  #   - 内部で 3 個の Optional を Int64 raw pointer に変換 (nil → 0)
+  #   - runtime_threading_enqueue_3 を呼び 3 つの Int64 を main thread に dispatch
+  def test_emits_block_persistent_hash_form_arity_3_typed_dispatch
+    s = sym(name: "NSURLSession.dataTaskWithURL:completionHandler:",
+            kind: "objc_method_instance",
+            signature: "- (NSURLSessionDataTask *)dataTaskWithURL:(NSURL *)url completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))h",
+            parameters: [])
+    s[:objc_class] = "NSURLSession"
+    s[:selector] = "dataTaskWithURL:completionHandler:"
+    s[:params] = [:opaque_ref,
+                  {kind: :block_persistent, arity: 3,
+                   types: ["NSData?", "NSURLResponse?", "NSError?"]}]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T53a: block_persistent Hash 形 (arity 3) must emit"
+    assert_match(/runtime_threading_enqueue_3/, out,
+                 "T53a: arity 3 must dispatch via runtime_threading_enqueue_3 (3 Int64 args)")
+    assert_match(/NSData\?/, out,
+                 "T53a: typed Swift signature must include NSData?")
+    assert_match(/NSURLResponse\?/, out,
+                 "T53a: typed Swift signature must include NSURLResponse?")
+    assert_match(/NSError\?/, out,
+                 "T53a: typed Swift signature must include NSError?")
+    assert_match(/rb_hash_aset\(runtime_proc_registry_get\(\)/, out,
+                 "T53a: must pin Ruby Proc in proc_registry (lifecycle)")
+  end
 end
