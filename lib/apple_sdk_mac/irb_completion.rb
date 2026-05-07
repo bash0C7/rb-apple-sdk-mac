@@ -303,9 +303,16 @@ module AppleSDKMac
     module RelineInputMethodOverride
       def initialize(*args, **kwargs)
         super
-        if AppleSDKMac::IRBCompletion.installed? && AppleSDKMac::IRBCompletion.apple_dig_perfect
+        if AppleSDKMac::IRBCompletion.installed?
           require "reline"
-          Reline.dig_perfect_match_proc = AppleSDKMac::IRBCompletion.apple_dig_perfect
+          if AppleSDKMac::IRBCompletion.apple_dig_perfect
+            Reline.dig_perfect_match_proc = AppleSDKMac::IRBCompletion.apple_dig_perfect
+          end
+          # Disable IRB's :show_doc dialog. RDoc 7.2 + Ruby 4.0 の Marshal
+          # 非互換で `RDoc::Store#load_class_data` が `undefined class/module
+          # RDoc::` で落ちる (popup 表示の度に exception が prompt に流出)。
+          # autocomplete dialog (候補 selection) は別 dialog なので影響なし。
+          Reline.add_dialog_proc(:show_doc, ->{ nil }, Reline::DEFAULT_DIALOG_CONTEXT)
         end
       end
     end
