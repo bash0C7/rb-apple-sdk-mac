@@ -718,9 +718,9 @@ module AppleSDKMac
                   rb_hash_aset(runtime_proc_registry_get(), arg#{index}_pid_v, argv[#{ai}])
                   let arg#{index}_pid_u = rb_num2ull(arg#{index}_pid_v)
                   let arg#{index}: @convention(block) (#{t0}, #{t1}, #{t2}) -> Void = { (a0, a1, a2) in
-                      let p0: Int64 = (a0 as AnyObject?).map { Int64(UInt(bitPattern: Unmanaged.passUnretained($0).toOpaque())) } ?? 0
-                      let p1: Int64 = (a1 as AnyObject?).map { Int64(UInt(bitPattern: Unmanaged.passUnretained($0).toOpaque())) } ?? 0
-                      let p2: Int64 = (a2 as AnyObject?).map { Int64(UInt(bitPattern: Unmanaged.passUnretained($0).toOpaque())) } ?? 0
+                      let p0: Int64 = (a0 as AnyObject?).map { Int64(UInt(bitPattern: Unmanaged.passRetained($0).toOpaque())) } ?? 0
+                      let p1: Int64 = (a1 as AnyObject?).map { Int64(UInt(bitPattern: Unmanaged.passRetained($0).toOpaque())) } ?? 0
+                      let p2: Int64 = (a2 as AnyObject?).map { Int64(UInt(bitPattern: Unmanaged.passRetained($0).toOpaque())) } ?? 0
                       runtime_threading_enqueue_3(arg#{index}_pid_u, p0, p1, p2)
                   }
             SWIFT
