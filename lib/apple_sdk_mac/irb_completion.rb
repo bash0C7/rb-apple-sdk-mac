@@ -25,5 +25,58 @@ module AppleSDKMac
         nil
       end
     end
+
+    SELECTOR_RE = /\A([A-Za-z_][A-Za-z0-9_]*).*/.freeze
+
+    MODULE_KINDS = %w[
+      class struct protocol enum_module function swift_func global_constant actor
+    ].freeze
+
+    KLASS_METHOD_KINDS = %w[
+      objc_method_instance objc_method_class swift_init swift_property
+      class_method instance_method instance_property enum_case
+    ].freeze
+
+    CAP = 100
+
+    class CandidateProvider
+      def initialize(knowledge_cache:)
+        @cache = knowledge_cache
+      end
+
+      def call(context)
+        return [] unless context
+        case context.receiver_kind
+        when :apple_root
+          @cache.list_frameworks
+            .select { |f| f =~ /\A[A-Z]/ && f.start_with?(context.prefix) }
+            .first(CAP)
+        when :module
+          @cache.list_framework_symbols(
+            framework: context.framework, kinds: MODULE_KINDS
+          ).map { |r| r[:name] }
+            .select { |n| n.start_with?(context.prefix) }
+            .first(CAP)
+        when :class
+          @cache.list_klass_methods(
+            framework: context.framework, klass: context.klass
+          )
+            .select { |r| KLASS_METHOD_KINDS.include?(r[:kind]) }
+            .map { |r| ruby_method_name(r[:name]) }
+            .uniq
+            .select { |n| n.start_with?(context.prefix) }
+            .first(CAP)
+        else
+          []
+        end
+      end
+
+      private
+
+      def ruby_method_name(symbol_name)
+        m = symbol_name.match(SELECTOR_RE)
+        m ? m[1] : symbol_name
+      end
+    end
   end
 end
