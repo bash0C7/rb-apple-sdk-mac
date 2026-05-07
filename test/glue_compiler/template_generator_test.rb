@@ -456,4 +456,25 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/String\(utf8String:\s*arg0_cstr\)/, out,
                  "T53c: stringWithUTF8String は raw cstr 補助名 (arg0_cstr) を使う")
   end
+
+  # T53d — emit_swift_property の klass は ObjC 名 (NSURLSession 等) のまま emit
+  # されており、 Swift 6 の NS-rename (URLSession) に対応していない。
+  # T52c の emit_swift_init / T52e の emit_objc_*_method と同様、
+  # swift_bridged_class_name で NS-prefix を strip する。
+  def test_emit_swift_property_strips_ns_prefix_for_url_session_shared
+    s = sym(name: "NSURLSession.shared",
+            kind: "swift_property",
+            signature: "var shared: URLSession",
+            parameters: [])
+    s[:swift_class] = "NSURLSession"
+    s[:swift_property] = "shared"
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T53d: must emit"
+    assert_match(/URLSession\.shared/, out,
+                 "T53d: NS-prefix must be stripped (URLSession.shared)")
+    refute_match(/NSURLSession\.shared/, out,
+                 "T53d: ObjC NS-prefixed name must not appear (Swift 6 rename)")
+  end
 end
