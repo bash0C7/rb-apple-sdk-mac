@@ -16,7 +16,10 @@ module AppleSDKMac
     # @_silgen_name 宣言を追加、ArrayOfOpaqueRefMarshaller を新規追加 (Ruby
     # Array<opaque ref> → Swift [<OpaqueType>] 変換、NSMutableArray + unsafeBitCast
     # 経由)。
-    CACHE_SCHEMA_VERSION = "1.3"
+    # T53a bump → "1.4": HEADER に runtime_threading_enqueue_3 の @_silgen_name
+    # 宣言を追加、 :block_persistent Hash 形 (arity 3, typed) で multi-arg
+    # typed escaping block dispatch を emit する経路を追加。
+    CACHE_SCHEMA_VERSION = "1.4"
 
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;

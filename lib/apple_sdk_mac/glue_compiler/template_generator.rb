@@ -65,6 +65,8 @@ module AppleSDKMac
         func runtime_arc_unbox_cftype(_ raw: UInt) -> UInt
         @_silgen_name("runtime_threading_enqueue")
         func runtime_threading_enqueue(_ procId: UInt64, _ arg: Int64)
+        @_silgen_name("runtime_threading_enqueue_3")
+        func runtime_threading_enqueue_3(_ procId: UInt64, _ a: Int64, _ b: Int64, _ c: Int64)
         @_silgen_name("runtime_callback_register_block_persistent")
         func runtime_callback_register_block_persistent(_ procId: UInt64) -> UInt64
         #{CALLBACK_BRIDGE_DECLS}
@@ -643,21 +645,44 @@ module AppleSDKMac
         when :void_ptr_nilable
           "let arg#{index}: UnsafeMutableRawPointer? = (argv[#{ai}] == Qnil) ? nil : UnsafeMutableRawPointer(bitPattern: Int(rb_num2ll(argv[#{ai}])))"
         when :block_persistent
-          # T48 — escaping completion block。Ruby Proc を proc_registry に pin、
-          # persistent slot register、そして @convention(block) closure を組む。
-          # closure は runtime_threading_enqueue 経由で Ruby callback を起動。
-          # signature は v1.0 では URLSession の `(Data?, URLResponse?, Error?)
-          # -> Void` を default。将来的に :block_signature opt 化。
-          <<~SWIFT.chomp
-            let arg#{index}_pid_v = rb_obj_id(argv[#{ai}])
-                rb_hash_aset(runtime_proc_registry_get(), arg#{index}_pid_v, argv[#{ai}])
-                let arg#{index}_pid_u = rb_num2ull(arg#{index}_pid_v)
-                let arg#{index}_slot_id = runtime_callback_register_block_persistent(arg#{index}_pid_u)
-                _ = arg#{index}_slot_id
-                let arg#{index}: (Data?, URLResponse?, Error?) -> Void = { (data, resp, err) in
-                    runtime_threading_enqueue(arg#{index}_pid_u, err == nil ? 0 : -1)
-                }
-          SWIFT
+          # T48/T53a — escaping completion block。Ruby Proc を proc_registry に
+          # pin、 @convention(block) closure を組み、 N-arg dispatch 経由で Ruby
+          # callback を起動する。
+          #
+          # Hash 形 (T53a): `{kind: :block_persistent, arity: 3, types: ["NSData?",
+          # "NSURLResponse?", "NSError?"]}` で typed signature + multi-arg
+          # dispatch。 各 Optional は AnyObject? 経由 OpaquePointer に変換し
+          # Int64 raw pointer (nil → 0) として runtime_threading_enqueue_3 で
+          # main thread queue に積む。
+          #
+          # Symbol 形 (T48 既存): single-arg `(Error?) -> Void` 互換、
+          # 1-arg `runtime_threading_enqueue` (err == nil ? 0 : -1) 経路維持。
+          if kind_sym.is_a?(Hash) && kind_sym[:arity] == 3
+            types = kind_sym[:types] || ["NSData?", "NSURLResponse?", "NSError?"]
+            t0, t1, t2 = types
+            <<~SWIFT.chomp
+              let arg#{index}_pid_v = rb_obj_id(argv[#{ai}])
+                  rb_hash_aset(runtime_proc_registry_get(), arg#{index}_pid_v, argv[#{ai}])
+                  let arg#{index}_pid_u = rb_num2ull(arg#{index}_pid_v)
+                  let arg#{index}: @convention(block) (#{t0}, #{t1}, #{t2}) -> Void = { (a0, a1, a2) in
+                      let p0: Int64 = (a0 as AnyObject?).map { Int64(UInt(bitPattern: Unmanaged.passUnretained($0).toOpaque())) } ?? 0
+                      let p1: Int64 = (a1 as AnyObject?).map { Int64(UInt(bitPattern: Unmanaged.passUnretained($0).toOpaque())) } ?? 0
+                      let p2: Int64 = (a2 as AnyObject?).map { Int64(UInt(bitPattern: Unmanaged.passUnretained($0).toOpaque())) } ?? 0
+                      runtime_threading_enqueue_3(arg#{index}_pid_u, p0, p1, p2)
+                  }
+            SWIFT
+          else
+            <<~SWIFT.chomp
+              let arg#{index}_pid_v = rb_obj_id(argv[#{ai}])
+                  rb_hash_aset(runtime_proc_registry_get(), arg#{index}_pid_v, argv[#{ai}])
+                  let arg#{index}_pid_u = rb_num2ull(arg#{index}_pid_v)
+                  let arg#{index}_slot_id = runtime_callback_register_block_persistent(arg#{index}_pid_u)
+                  _ = arg#{index}_slot_id
+                  let arg#{index}: (Data?, URLResponse?, Error?) -> Void = { (data, resp, err) in
+                      runtime_threading_enqueue(arg#{index}_pid_u, err == nil ? 0 : -1)
+                  }
+            SWIFT
+          end
         when :block_persistent_void
           # T52a/T52d — () -> Void escaping block (NSBlockOperation の
           # +blockOperationWithBlock:)。Ruby Proc を proc_registry に pin、

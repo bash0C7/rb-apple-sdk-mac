@@ -44,6 +44,20 @@ static void ruby_callback_dispatcher(uint64_t proc_id, int64_t arg) {
     rb_proc_call_with_block(proc, 1, args, Qnil);
 }
 
+// T53a — N-arg dispatcher path. Multi-arg typed escaping blocks (URLSession
+// completion handler 等) は ThreadingBridge.enqueueFromAppleThread3 経由で
+// (procId, count, args[]) 形で main thread queue に積まれ、 ここで Ruby Array
+// 引数に展開して proc を invoke する。 1-arg path との backward compat 維持。
+static void ruby_callback_dispatcher_n(uint64_t proc_id, int32_t count, const int64_t *args) {
+    VALUE pid = ULL2NUM(proc_id);
+    VALUE proc = rb_hash_lookup(proc_registry, pid);
+    if (NIL_P(proc)) return;
+    if (count < 0 || count > 8) return;
+    VALUE rargs[8];
+    for (int32_t i = 0; i < count; i++) rargs[i] = LL2NUM(args[i]);
+    rb_proc_call_with_block(proc, count, rargs, Qnil);
+}
+
 static VALUE rb_callback_register_test(VALUE self) {
     VALUE block = rb_block_proc();
     VALUE pid = ULL2NUM((uint64_t)NUM2ULL(rb_obj_id(block)));
@@ -201,6 +215,7 @@ static VALUE rb_callback_pillar_release_auto_block(VALUE self, VALUE slot_id) {
 void Init_apple_sdk_mac_runtime(void) {
     runtime_proc_registry_init();
     runtime_callback_set_dispatcher(ruby_callback_dispatcher);
+    runtime_callback_set_dispatcher_n(ruby_callback_dispatcher_n);
     VALUE module = rb_define_module("AppleSDKMacRuntime");
     rb_define_singleton_method(module, "dlopen_glue", rb_dlopen_glue, 1);
     rb_define_singleton_method(module, "dlsym_glue", rb_dlsym_glue, 2);

@@ -82,6 +82,13 @@ public func runtime_threading_enqueue(_ procId: UInt64, _ arg: Int64) {
     ThreadingBridge.enqueueFromAppleThread(procId: procId, arg: arg)
 }
 
+// T53a — typed multi-arg escaping block dispatch (URLSession completionHandler 等)。
+// 3 個の Int64 raw pointer を main thread queue 経由で Ruby に届ける。
+@c
+public func runtime_threading_enqueue_3(_ procId: UInt64, _ a: Int64, _ b: Int64, _ c: Int64) {
+    ThreadingBridge.enqueueFromAppleThread3(procId: procId, a, b, c)
+}
+
 @c
 public func runtime_threading_poll(_ timeoutSeconds: Double) -> Int64 {
     return Int64(ThreadingBridge.drain(timeoutSeconds: timeoutSeconds))
@@ -92,6 +99,15 @@ public func runtime_callback_set_dispatcher(
     _ fn: @convention(c) (UInt64, Int64) -> Void
 ) {
     CallbackBridge.rubyDispatcher = fn
+}
+
+// T53a — register the N-arg dispatcher path. Ruby C ext provides
+// ruby_callback_dispatcher_n which builds a VALUE[count] and rb_proc_call.
+@c
+public func runtime_callback_set_dispatcher_n(
+    _ fn: @convention(c) (UInt64, Int32, UnsafePointer<Int64>) -> Void
+) {
+    CallbackBridge.rubyDispatcherN = fn
 }
 
 @c
