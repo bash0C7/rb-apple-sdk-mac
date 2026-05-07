@@ -332,17 +332,29 @@ module AppleSDKMac
           if AppleSDKMac::IRB.apple_dig_perfect
             Reline.dig_perfect_match_proc = AppleSDKMac::IRB.apple_dig_perfect
           end
-          # Replace IRB's default :show_doc proc (which calls into RDoc
-          # and crashes on Ruby 4 + rdoc 7.2 Marshal) with our DocDialog.
-          # Apple SDK candidates render KB-sourced documentation; non-Apple
-          # candidates fall through to nil so the popup stays empty rather
-          # than triggering RDoc.
+          # Chain :show_doc — Apple SDK doc first, IRB RDoc fallback.
+          # Apple's DocDialog renders KB-sourced text + fires prefetch.
+          # When that returns nil (non-Apple input), we restore the
+          # popped Reline context and re-run IRB's original show_doc
+          # under a StandardError rescue so RDoc 7.2 Marshal mismatches
+          # are swallowed (the popup stays empty rather than leaking
+          # RDoc::Store#load_class_data into the prompt).
           if AppleSDKMac::IRB.apple_doc_dialog
-            Reline.add_dialog_proc(
-              :show_doc,
-              AppleSDKMac::IRB.apple_doc_dialog.to_proc,
-              Reline::DEFAULT_DIALOG_CONTEXT
-            )
+            irb_proc   = show_doc_dialog_proc
+            apple_proc = AppleSDKMac::IRB.apple_doc_dialog.to_proc
+            chained = ->() {
+              saved = context.dup
+              apple_result = instance_exec(&apple_proc)
+              return apple_result if apple_result
+              context.replace(saved)
+              begin
+                instance_exec(&irb_proc)
+              rescue StandardError => e
+                warn "[apple-sdk-mac show_doc fallback] #{e.class}: #{e.message}" if ENV["APPLE_IRB_DEBUG"]
+                nil
+              end
+            }
+            Reline.add_dialog_proc(:show_doc, chained, Reline::DEFAULT_DIALOG_CONTEXT)
           end
         end
       end
