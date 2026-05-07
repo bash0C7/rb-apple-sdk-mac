@@ -661,4 +661,28 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/return Qfalse/, out,
                  "T54m: throw path で Qfalse 返却")
   end
+
+  # T54n — return_kind に :array_of_opaque_ref Hash 形を新設。 Swift typed
+  # array 戻り値 (`[VNRecognizedTextObservation]?` 等) を Ruby Array<Integer>
+  # に marshal する。 各要素は Unmanaged.passRetained で raw pointer 化、
+  # Ruby Integer として Array に push。 nilable: true なら nil → Qnil。
+  def test_emit_swift_property_array_of_opaque_ref_marshals_to_ruby_array
+    s = sym(name: "VNRecognizeTextRequest.results",
+            kind: "swift_property",
+            signature: nil,
+            parameters: [])
+    s[:swift_class] = "VNRecognizeTextRequest"
+    s[:swift_property] = "results"
+    s[:return_kind] = {kind: :array_of_opaque_ref,
+                      type: "VNRecognizedTextObservation",
+                      nilable: true}
+
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54n: must emit"
+    assert_match(/rb_ary_new/, out, "T54n: 新規 Ruby Array を構築")
+    assert_match(/rb_ary_push/, out, "T54n: 各要素を Array に push")
+    assert_match(/Unmanaged\.passRetained/, out,
+                 "T54n: 各要素を opaque ref として retain")
+    assert_match(/return Qnil/, out, "T54n: nilable nil 時は Qnil")
+  end
 end
