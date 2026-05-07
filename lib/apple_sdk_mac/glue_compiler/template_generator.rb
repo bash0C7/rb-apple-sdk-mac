@@ -216,7 +216,10 @@ module AppleSDKMac
         swift_klass = swift_bridged_class_name(klass)
         selector = symbol[:selector].to_s
         params = symbol[:params] || []
-        return_kind = (symbol[:return_kind] || :void).to_sym
+        # T54o — return_kind は Hash 形 (`{kind: :array_of_opaque_ref, ...}`) も
+        # 受ける。 unpack_return_kind で kind_sym と meta を分離し、 marshal は
+        # objc_return_lines 経由で raw 通す。
+        return_kind = symbol[:return_kind] || :void
         swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
         exported = "glue_#{glue_id}_#{swift_id}"
 
@@ -249,7 +252,9 @@ module AppleSDKMac
         swift_klass = swift_bridged_class_name(klass)
         selector = symbol[:selector].to_s
         params = symbol[:params] || []
-        return_kind = (symbol[:return_kind] || :void).to_sym
+        # T54o — return_kind Hash 形対応。
+        return_kind = symbol[:return_kind] || :void
+        return_kind_sym = unpack_return_kind(return_kind)[0]
         swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
         exported = "glue_#{glue_id}_#{swift_id}"
 
@@ -292,7 +297,7 @@ module AppleSDKMac
               # (parens なし)。 NSData.length / NSArray.count 等の property は
               # Swift で `obj.length` 形式 (method call は compile error)。
               # void return は引き続き method call form 維持 (resume() 等)。
-              if params.empty? && return_kind != :void
+              if params.empty? && return_kind_sym != :void
                 call_expr = call_expr.sub(/\(\s*\)\z/, "")
               end
               [receiver_load] + in_loads + ["let raw = #{call_expr}"] + objc_return_lines(return_kind, "raw")
