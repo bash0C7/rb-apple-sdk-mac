@@ -1,30 +1,31 @@
 # frozen_string_literal: true
-# IRB autocomplete demo. Reline session を直接 simulate せず、 install! 後に
-# Reline.completion_proc を直接呼んで補完候補を、 Reline.dig_perfect_match_proc
-# 経由で auto-discover trigger を確認する (release-quality demo: ヘッドレスで
-# 動く)。
+# IRB autocomplete headless demo. IRB::Context#build_completor を実際に
+# 走らせる代わりに、 sub-gem の Completor を直接呼んで Apple SDK 補完経路
+# (apple_root / module / class) が機能していることを検証。
 #
 # Usage:
 #   RUBY_BOX=1 bundle exec ruby examples/irb_completion_demo.rb
 require "apple_sdk_mac"
-require "apple_sdk_mac/irb_completion"
-require "reline"
+require "apple_sdk_mac/irb"
+require "irb"
 
-AppleSDKMac::IRBCompletion.install!
+AppleSDKMac::IRB.install!
+provider = AppleSDKMac::IRB.apple_provider
+completor = AppleSDKMac::IRB::Completor.new(provider: provider, base: nil)
 
 # Phase 1: framework 列挙
-out = Reline.completion_proc.call("Apple::")
+out = completor.completion_candidates("", "Apple::", "", bind: binding)
 raise "Phase 1: no frameworks listed" if out.empty?
 puts "Phase 1: Apple:: TAB → #{out.first(5).inspect} ... (#{out.size} total)"
 
 # Phase 2: framework 内の class / type 列挙 (Swift import で ObjC prefix は
 # strip されるため、 NSURL は URL、 NSData は Data として登録)
-out = Reline.completion_proc.call("Apple::Foundation::U")
+out = completor.completion_candidates("", "Apple::Foundation::U", "", bind: binding)
 raise "Phase 2: U prefix returned no candidates" if out.empty?
 puts "Phase 2: Apple::Foundation::U TAB → #{out.first(5).inspect} ... (#{out.size} total)"
 
 # Phase 3: class の method 列挙 (URL struct の instance_method)
-out = Reline.completion_proc.call("Apple::Foundation::URL.")
+out = completor.completion_candidates("", "Apple::Foundation::URL.", "", bind: binding)
 raise "Phase 3: URL. returned no candidates" if out.empty?
 puts "Phase 3: Apple::Foundation::URL. TAB → #{out.first(5).inspect} ... (#{out.size} total)"
 

@@ -6,6 +6,9 @@
 #   RUBY_BOX=1 bundle exec ruby examples/irb_completion_try.rb
 require "irb"
 require "apple_sdk_mac"
+require "apple_sdk_mac/irb"
+
+AppleSDKMac::IRB.install!
 
 puts <<~GUIDE
 

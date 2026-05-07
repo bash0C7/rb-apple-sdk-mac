@@ -37,24 +37,34 @@ See `examples/` for more.
 
 ## IRB autocomplete
 
-When loaded inside an IRB session, the gem installs a Reline completion
-hook that lists Apple SDK frameworks, types, and methods, and auto-runs
-`Apple.discover` (with LLM-inferred parameter shape) when you confirm a
-method name with TAB.
+IRB / autocomplete / LLM doc preview / auto-discover prefetch features
+live in the **logical sub-gem `apple_sdk_mac-irb`** under `irb/` (same
+repo, separate gemspec). The main gem stays free of IRB / Reline /
+foundation_model_mac dependencies.
+
+```ruby
+require "apple_sdk_mac"
+require "apple_sdk_mac/irb"
+AppleSDKMac::IRB.install!
+```
+
+After `install!`, a Reline completion hook lists Apple SDK frameworks,
+types, and methods inside any IRB session:
 
 ```
-$ irb -r apple_sdk_mac
+$ irb -r apple_sdk_mac -r apple_sdk_mac/irb
+> AppleSDKMac::IRB.install!
 > Apple::<TAB>
   → ARKit, AVFAudio, AVFoundation, AVKit, AVRouting, ... (100 frameworks)
 > Apple::Foundation::U<TAB>
   → URL, URLComponents, URLError, URLQueryItem, URLRequest, ... (8 types)
 > Apple::Foundation::URL.<TAB>
   → appendingPathComponent, appendingPathExtension, fragment, ... (15 methods)
-> Apple::Foundation::URL.appendingPathComponent<TAB>
-  * discovering Foundation::URL.appendingPathComponent...
-  + discovering Foundation::URL.appendingPathComponent...
-  (cursor returns once swiftc + LLM inference complete)
 ```
+
+LLM-backed doc preview (popup right side, sourced from the Apple SDK
+KB) and silent background prefetch on hover are tracked in
+`docs/superpowers/specs/2026-05-08-irb-subgem-and-doc-discover-design.md`.
 
 Note that the knowledge base ingests Swift framework interfaces (`*.swiftinterface`),
 so types appear under their Swift import names (`URL` rather than `NSURL`,
