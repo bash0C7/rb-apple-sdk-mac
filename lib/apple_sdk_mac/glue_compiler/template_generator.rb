@@ -418,7 +418,10 @@ module AppleSDKMac
       # ProcessInfo.processInfo etc. instance property は将来対応 (receiver-form)。
       # 戻り値は return_kind に従って marshal。
       def emit_swift_property(framework:, symbol:, glue_id:)
-        klass = symbol[:swift_class].to_s
+        # T53d — Swift 6 の NS-prefix rename (NSURLSession → URLSession 等) に
+        # 対応するため klass を bridged 名に変換。 ObjC 名がそのまま Swift type
+        # として有効な場合 (NSError 等) は変化なし。
+        klass = swift_bridged_class_name(symbol[:swift_class].to_s)
         prop = symbol[:swift_property].to_s
         return_kind = (symbol[:return_kind] || :opaque_ref).to_sym
         swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
