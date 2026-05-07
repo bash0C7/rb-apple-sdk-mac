@@ -8,13 +8,24 @@ module AppleSDKMac
     # input, framework-level matches (no symbol), and symbols whose KB
     # row has no doc-comment populated.
     class DocResolver
-      def initialize(knowledge_cache:)
+      IDENTITY_TRANSFORM = ->(doc, _ctx) { doc }
+
+      def initialize(knowledge_cache:, doc_transform: IDENTITY_TRANSFORM)
         @cache = knowledge_cache
+        @doc_transform = doc_transform
       end
 
       def resolve(matched)
         ctx = AppleSDKMac::IRB::Context.parse(matched)
         return nil if ctx.nil?
+        raw = lookup_raw(ctx)
+        return nil if raw.nil?
+        @doc_transform.call(raw, ctx)
+      end
+
+      private
+
+      def lookup_raw(ctx)
         case ctx.receiver_kind
         when :class
           @cache.lookup_documentation(
@@ -27,8 +38,6 @@ module AppleSDKMac
         when :apple_root
           # `Apple::ARKit` — popup is hovering a framework name.
           # Synthesize a description from frameworks + symbol-count.
-          # ctx.prefix is the typed-so-far framework name; only resolve
-          # when the user landed on an exact framework match.
           if @cache.respond_to?(:lookup_framework_documentation)
             @cache.lookup_framework_documentation(name: ctx.prefix)
           end
