@@ -35,6 +35,32 @@ client = Apple::CoreMIDI.MIDIClientCreate("MyClient", nil, nil)
 
 See `examples/` for more.
 
+## IRB autocomplete
+
+When loaded inside an IRB session, the gem installs a Reline completion
+hook that lists Apple SDK frameworks, types, and methods, and auto-runs
+`Apple.discover` (with LLM-inferred parameter shape) when you confirm a
+method name with TAB.
+
+```
+$ irb -r apple_sdk_mac
+> Apple::<TAB>
+  → ARKit, AVFAudio, AVFoundation, AVKit, AVRouting, ... (100 frameworks)
+> Apple::Foundation::U<TAB>
+  → URL, URLComponents, URLError, URLQueryItem, URLRequest, ... (8 types)
+> Apple::Foundation::URL.<TAB>
+  → appendingPathComponent, appendingPathExtension, fragment, ... (15 methods)
+> Apple::Foundation::URL.appendingPathComponent<TAB>
+  * discovering Foundation::URL.appendingPathComponent...
+  + discovering Foundation::URL.appendingPathComponent...
+  (cursor returns once swiftc + LLM inference complete)
+```
+
+Note that the knowledge base ingests Swift framework interfaces (`*.swiftinterface`),
+so types appear under their Swift import names (`URL` rather than `NSURL`,
+`Data` rather than `NSData`). ObjC-only types still need explicit `Apple.discover`
+with `klass:` and `selector:`/`class_method:`.
+
 ## Architecture
 
 See `docs/superpowers/specs/2026-05-04-rb-apple-sdk-mac-design.md` in the swift_gem repo.
