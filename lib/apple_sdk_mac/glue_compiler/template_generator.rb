@@ -565,7 +565,11 @@ module AppleSDKMac
           #    → Thread.sleep(forTimeInterval: arg0).
           if (m = sole.match(/\A([A-Za-z][a-zA-Z0-9]*?)With([A-Z]\w*)\z/))
             label = lower_first_camel_local(m[2])
-            "#{klass}(#{label}: arg0)"
+            # T53c — utf8String / cString init bridges は raw UnsafePointer<CChar>
+            # を expect (deprecated だが Swift 6 でも残存)。 :string in_load の
+            # Swift String 化に伴い、 これらの label の場合は cstr 補助名を渡す。
+            arg0_expr = %w[utf8String cString].include?(label) ? "arg0_cstr" : "arg0"
+            "#{klass}(#{label}: #{arg0_expr})"
           elsif (verb_label = split_preposition_verb(sole))
             verb, label = verb_label
             "#{klass}.#{verb}(#{label}: arg0)"
@@ -620,7 +624,17 @@ module AppleSDKMac
         type_hint = kind_sym.is_a?(Hash) ? kind_sym[:type] : nil
         case kind_actual.to_sym
         when :string
-          "var v#{index} = argv[#{ai}]; let arg#{index} = rb_string_value_cstr(&v#{index})"
+          # T53c — Apple SDK の ObjC string 引数は Swift bridge で String を
+          # expect する (URL.init(string:), NSString instance methods 等)。
+          # `:string` in_load は Swift String を emit。 ただし
+          # `+stringWithUTF8String:` のように historically raw cstr を取る
+          # init bridge は依然必要なので、 cstr ポインタは `argN_cstr` 補助
+          # 名で参照可能にする。
+          <<~SWIFT.chomp
+            var v#{index} = argv[#{ai}]
+                let arg#{index}_cstr = rb_string_value_cstr(&v#{index})
+                let arg#{index} = String(cString: arg#{index}_cstr)
+          SWIFT
         when :int
           "let arg#{index}: Int64 = rb_num2ll(argv[#{ai}])"
         when :bool
