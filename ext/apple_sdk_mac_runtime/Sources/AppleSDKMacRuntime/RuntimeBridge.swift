@@ -126,6 +126,27 @@ public func runtime_async_test_sleep_and_double(_ millis: Int64) -> Int64 {
     }
 }
 
+// T54a — Ruby Array length wrapper for ArrayOfOpaqueRefMarshaller.
+// CRuby の RARRAY_LEN は static inline macro で symbol export されない、
+// rb_array_len も同様。 C ext bundle に置いた wrapper は two-level namespace
+// で dlopen された glue dylib の flat-namespace lookup から見えなかったため、
+// Swift runtime dylib 側に rb_funcallv("length") 経由で実装する。
+@_silgen_name("rb_funcallv")
+private func _rb_funcallv(_ recv: UInt, _ mid: Int, _ argc: Int32, _ argv: UnsafePointer<UInt>?) -> UInt
+
+@_silgen_name("rb_intern")
+private func _rb_intern(_ name: UnsafePointer<CChar>) -> Int
+
+@_silgen_name("rb_num2ll")
+private func _rb_num2ll(_ v: UInt) -> Int64
+
+@c
+public func runtime_rb_array_len(_ ary: UInt) -> Int {
+    let len_id = "length".withCString { _rb_intern($0) }
+    let len_v = _rb_funcallv(ary, len_id, 0, nil)
+    return Int(_rb_num2ll(len_v))
+}
+
 @c
 public func runtime_async_test_taskgroup_double(_ msA: Int64, _ msB: Int64, _ msC: Int64) -> Int64 {
     do {

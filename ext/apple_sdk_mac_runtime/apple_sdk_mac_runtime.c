@@ -119,14 +119,12 @@ static VALUE rb_async_taskgroup_double(VALUE self, VALUE a, VALUE b, VALUE c) {
     return LL2NUM(runtime_async_test_taskgroup_double(NUM2LL(a), NUM2LL(b), NUM2LL(c)));
 }
 
-// T54a — Swift glue is unable to resolve `rb_array_len` directly because it's
-// a `static inline` function in CRuby's rarray.h (no symbol exported). Expose
-// a non-inline wrapper here so the array_of_opaque_ref Marshaller can call it
-// via @_silgen_name. `rb_ary_entry` is already a real exported function, so
-// Swift glue can reach it without a wrapper.
-long runtime_rb_array_len(VALUE ary) {
-    return RARRAY_LEN(ary);
-}
+// T54a — `runtime_rb_array_len` の wrapper は当初 C ext bundle 側に置いた
+// (RARRAY_LEN macro 直呼出ができるため) が、 mkmf がコンパイルする C ext
+// bundle は two-level namespace で linked されるため、 dlopen された glue
+// dylib の flat-namespace lookup から見えない。 そのため Swift dylib 側に
+// 移動した (RuntimeBridge.swift)。 そこから rb_funcallv("length") + rb_num2ll
+// で同等の動作を実現している。
 
 static VALUE rb_runloop_pump(VALUE self, VALUE timeout) {
     runtime_runloop_pump(NUM2DBL(timeout));
