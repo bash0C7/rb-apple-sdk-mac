@@ -83,6 +83,32 @@ module AppleSDKMac
       @db.execute("SELECT name FROM frameworks ORDER BY name").flatten
     end
 
+    # Apple SDK doc-comment text for a single symbol, or nil when none.
+    # `klass:` is optional — pass it for instance/class methods (parent_id
+    # JOIN), omit for top-level functions/structs/constants. Empty stored
+    # documentation is normalized to nil so callers can short-circuit on
+    # "no doc available" without an extra empty-string check.
+    def lookup_documentation(framework:, name:, klass: nil)
+      row = if klass
+              @db.execute(<<~SQL, [framework, klass, name])
+                SELECT s.documentation FROM symbols s
+                JOIN symbols p     ON s.parent_id = p.id
+                JOIN frameworks f  ON s.framework_id = f.id
+                WHERE f.name = ? AND p.name = ? AND s.name = ?
+                LIMIT 1
+              SQL
+            else
+              @db.execute(<<~SQL, [framework, name])
+                SELECT s.documentation FROM symbols s
+                JOIN frameworks f  ON s.framework_id = f.id
+                WHERE f.name = ? AND s.parent_id IS NULL AND s.name = ?
+                LIMIT 1
+              SQL
+            end.first
+      doc = row && row[0]
+      doc.is_a?(String) && !doc.empty? ? doc : nil
+    end
+
     def search(framework:, query:, limit: 5)
       AppleSDKKnowledge::Search.new(@store).lexical(
         framework: framework, query: query, limit: limit
