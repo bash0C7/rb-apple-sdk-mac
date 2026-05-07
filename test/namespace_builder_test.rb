@@ -342,6 +342,39 @@ class TestNamespaceBuilder < Test::Unit::TestCase
       "T52h: Array of proxy instances must be unwrapped element-wise to raw Integer Array"
   end
 
+  # T54w — C function path も proxy unwrap を適用。 Apple.discover(:symbol)
+  # 経由で discover した C 関数 (`CGImageSourceCreateWithURL` 等) の引数列に
+  # Apple proxy instance (`Apple::Foundation::NSURL.urlWithString(...)` の戻り
+  # 値) を渡すケースで、 dispatcher.call の args が raw Integer に unwrap
+  # されている必要がある。
+  def test_dispatcher_args_unwrap_proxy_instance_for_c_function_path
+    box = Module.new
+    calls = []
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(framework:, symbol:, args:) {
+        calls << args; :ok
+      }
+    )
+    # まず NSURL proxy class を ensure するため class_method を install
+    rec_init = { name: "NSURL.URLWithString:",
+                 kind: "objc_method_class",
+                 objc_class: "NSURL",
+                 selector: "URLWithString:",
+                 return_kind: :opaque_ref }
+    builder.install_one("Foundation", rec_init)
+    # C function (ImageIO の CGImageSourceCreateWithURL を模す)
+    rec_cf = { name: "CGImageSourceCreateWithURL", kind: "function" }
+    builder.install_one("ImageIO", rec_cf)
+
+    nsurl = box.const_get(:Foundation).const_get(:NSURL)
+    url_proxy = nsurl.from_ref(0xDEAD)
+    box.const_get(:ImageIO).CGImageSourceCreateWithURL(url_proxy, nil)
+
+    assert_equal [[0xDEAD, nil]], calls,
+      "T54w: C function 経路でも proxy instance arg は raw Integer に unwrap"
+  end
+
   # T41 — swift_func (top-level / static) maps to :method on the framework
   # module, NOT under a klass. canonical_name has no dot for top-level.
   def test_install_one_swift_func_top_level_installs_on_framework_module

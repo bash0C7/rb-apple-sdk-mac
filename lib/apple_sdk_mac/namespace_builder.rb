@@ -93,8 +93,14 @@ module AppleSDKMac
 
     def define_function_method(mod, framework, symbol_name)
       dispatcher = @dispatcher
+      builder = self
       mod.singleton_class.send(:define_method, symbol_name) do |*args|
-        dispatcher.call(framework: framework, symbol: symbol_name, args: args)
+        # T54w — C function (`Apple::ImageIO.CGImageSourceCreateWithURL` 等) の
+        # 引数列に Apple proxy instance (NSURL 等) が含まれる場合、 raw opaque
+        # ref Integer に再帰 unwrap (T52h と同 path、 instance method 以外でも
+        # 適用)。
+        unwrapped = builder.send(:unwrap_proxy_args, args)
+        dispatcher.call(framework: framework, symbol: symbol_name, args: unwrapped)
       end
     end
 
