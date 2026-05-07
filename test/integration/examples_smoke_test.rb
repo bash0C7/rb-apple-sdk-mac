@@ -17,15 +17,29 @@ class TestExamplesSmoke < Test::Unit::TestCase
     { stdout: out, stderr: err, exitstatus: status.exitstatus }
   end
 
-  def test_vision_ocr_runs_or_falls_back_to_namespace_smoke
+  # T54 — Vision OCR 実 recognition。release 水準 README L3 を直接満たす
+  # example の 1 つ。 spec § 6 acceptance:
+  # - examples/fixtures/ocr_hello.png コミット済 (再生成 Swift script 同梱)
+  # - 出力 ocr=HELLO RUBY 完全一致 (case + spacing)
+  # - 出力 observations=<N> (N ≥ 1)
+  # - 出力 confidence=0.<dd> (confidence > 0)
+  # - DEFERRED literal 不在
+  T54_FIXTURE_TEXT = "HELLO RUBY"
+  T54_FIXTURE_PATH = File.expand_path("../../examples/fixtures/ocr_hello.png", __dir__)
+
+  def test_vision_ocr_recognizes_fixture_text_exactly
+    skip "T54 fixture missing" unless File.exist?(T54_FIXTURE_PATH)
     res = run_example("vision_ocr.rb")
     assert_equal 0, res[:exitstatus],
       "vision_ocr.rb exited #{res[:exitstatus]}; stderr:\n#{res[:stderr]}"
-    # Either the LLM-fallback path produced glue ("vision_ocr OK") or
-    # the bootstrap smoke ran ("vision_ocr DEFERRED..."). Both are
-    # acceptable v1.0 outcomes; what's tested is exit 0 + clean output.
-    assert_match(/^vision_ocr (OK|DEFERRED)/, res[:stdout],
-      "expected vision_ocr OK or DEFERRED line; got:\n#{res[:stdout]}")
+    refute_match(/DEFERRED/, res[:stdout],
+      "T54: DEFERRED 退路は禁止 (release_quality 命題)")
+    assert_match(/ocr=#{Regexp.escape(T54_FIXTURE_TEXT)}/, res[:stdout],
+      "T54: OCR result must equal fixture text exactly")
+    assert_match(/observations=\d+/, res[:stdout],
+      "T54: must report observation count")
+    assert_match(/confidence=0?\.\d+|confidence=1\.0/, res[:stdout],
+      "T54: must report top candidate confidence")
   end
 
   # T50 — CFStringCreateWithCString → CFStringGetLength → CFStringGetCString
