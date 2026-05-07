@@ -26,6 +26,42 @@ class TestImporterIntegration < Test::Unit::TestCase
     end
   end
 
+  def test_parent_id_populated_for_class_members
+    omit "Xcode SDK not present" unless system("xcrun --show-sdk-path > /dev/null 2>&1")
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "kb.sqlite")
+      ENV["RB_APPLE_SDK_KNOWLEDGE_FAST"] = "1"
+      AppleSDKKnowledge::Importer::Pipeline.new(store_path: path).run
+      ENV.delete("RB_APPLE_SDK_KNOWLEDGE_FAST")
+
+      store = AppleSDKKnowledge::Store.open(path)
+
+      # IRB autocomplete needs class→member linkage. parent_id must be
+      # populated for instance_method / instance_property / enum_case
+      # rows whose parser-side parent_name was non-nil.
+      methods_with_parent = store.db.execute(
+        "SELECT COUNT(*) FROM symbols WHERE kind = 'instance_method' AND parent_id IS NOT NULL"
+      ).flatten.first
+      assert methods_with_parent > 100,
+        "expected >100 instance_methods with parent_id, got #{methods_with_parent}"
+
+      # And the parent must resolve back to a class/struct/protocol/enum_module/actor row.
+      orphans = store.db.execute(<<~SQL).flatten.first
+        SELECT COUNT(*) FROM symbols c
+        WHERE c.kind = 'instance_method'
+          AND c.parent_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM symbols p
+            WHERE p.id = c.parent_id
+              AND p.kind IN ('class', 'struct', 'protocol', 'enum_module', 'actor')
+          )
+      SQL
+      assert_equal 0, orphans, "instance_method.parent_id must reference a real type row"
+
+      store.close
+    end
+  end
+
   def test_rerun_on_existing_store_does_not_raise
     omit "Xcode SDK not present" unless system("xcrun --show-sdk-path > /dev/null 2>&1")
     Dir.mktmpdir do |dir|
