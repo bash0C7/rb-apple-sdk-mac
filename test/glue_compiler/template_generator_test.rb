@@ -541,4 +541,27 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/receiver\.resume\(\)/, out,
                  "T53g: zero-arg + void return は method call (parens あり) 形")
   end
+
+  # T53h — `:raw_ptr` return kind を追加。 NSData.bytes / その他 const void* /
+  # UnsafeRawPointer 系 ObjC method の戻り値を Ruby Integer (raw bit pattern)
+  # に marshal する。 Ruby 側で Fiddle::Pointer.new(int, len) で読み出す。
+  # `:opaque_ref` と違い retain しない (raw pointer は dataの内部 buffer 等で
+  # NSObject ではなく Unmanaged.passRetained を呼んではいけない)。
+  def test_emit_objc_instance_method_raw_ptr_return_for_data_bytes
+    s = sym(name: "NSData.bytes",
+            kind: "objc_method_instance",
+            signature: "- (const void *)bytes",
+            parameters: [])
+    s[:objc_class] = "NSData"
+    s[:selector] = "bytes"
+    s[:params] = []
+    s[:return_kind] = :raw_ptr
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T53h: must emit"
+    assert_match(/return rb_ull2inum\(UInt64\(UInt\(bitPattern:\s*raw\)\)\)/, out,
+                 "T53h: :raw_ptr return は raw bit pattern を Ruby Integer に")
+    refute_match(/Unmanaged\.passRetained/, out,
+                 "T53h: :raw_ptr は retain しない (data 内部 buffer は NSObject ではない)")
+  end
 end
