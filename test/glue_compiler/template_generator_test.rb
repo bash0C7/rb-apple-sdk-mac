@@ -845,4 +845,23 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/let raw = receiver\.results/, out,
                  "T54u: receiver.prop で instance property をアクセス")
   end
+
+  # T54v — :float return kind の Swift Float (= VNConfidence) を Double に明示
+  # 変換して rb_float_new に渡す。 Swift 6 は Float → Double の暗黙変換を行わず
+  # `cannot convert value of type 'Float' to expected argument type 'Double'`
+  # で compile error。
+  def test_emit_swift_property_float_return_casts_to_double_for_rb_float_new
+    s = sym(name: "VNRecognizedText.confidence",
+            kind: "swift_property",
+            signature: nil, parameters: [])
+    s[:swift_class] = "VNRecognizedText"
+    s[:swift_property] = "confidence"
+    s[:instance] = true
+    s[:return_kind] = :float
+
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54v: must emit"
+    assert_match(/rb_float_new\(Double\(raw\)\)/, out,
+                 "T54v: :float return は Double に明示 cast (Swift 6 互換)")
+  end
 end
