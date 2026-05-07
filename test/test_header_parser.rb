@@ -168,4 +168,33 @@ class TestHeaderParser < Test::Unit::TestCase
       assert_equal "callback_non_nil", cb_param[:kind]
     end
   end
+
+  # Doc-comment capture (Step 2.2 RED). clang's AST already attaches a
+  # FullComment subtree to declarations whose preceding /** ... */ or ///
+  # block survives the lexer; the parser should flatten its TextComments
+  # into the symbol's :documentation field so KnowledgeCache.list_*
+  # downstream consumers (irb sub-gem doc preview, LLMGenerator prompt
+  # context) see Apple's official doc text instead of an empty string.
+  def test_extracts_doxygen_block_comment
+    fn = @symbols.find { |s| s[:name] == "MiniCreate" && s[:kind] == "function" }
+    assert_not_nil fn
+    assert fn[:documentation].is_a?(String) && !fn[:documentation].empty?,
+      "MiniCreate must carry a non-empty :documentation derived from its /** */ block"
+    assert_match(/Creates a new Mini client/, fn[:documentation])
+  end
+
+  def test_extracts_triple_slash_comment
+    fn = @symbols.find { |s| s[:name] == "MiniDispose" && s[:kind] == "function" }
+    assert_not_nil fn
+    assert fn[:documentation].is_a?(String) && !fn[:documentation].empty?,
+      "MiniDispose must carry a non-empty :documentation derived from its /// line"
+    assert_match(/Disposes the client/, fn[:documentation])
+  end
+
+  def test_undocumented_symbol_has_no_documentation
+    fn = @symbols.find { |s| s[:name] == "MiniGetRatio" && s[:kind] == "function" }
+    assert_not_nil fn
+    assert(fn[:documentation].nil? || fn[:documentation].empty?,
+      "MiniGetRatio has no doc-comment in fixture, :documentation should be nil/empty")
+  end
 end

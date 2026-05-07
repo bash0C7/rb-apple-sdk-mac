@@ -17,7 +17,14 @@ typedef enum {
 
 extern const char *kMiniDefaultName;
 
+/** Creates a new Mini client.
+ * @param name  optional client name, may be NULL
+ * @param outClient receives the newly created client handle
+ * @return kMiniErrorNone on success
+ */
 MiniStatus MiniCreate(const char *name, MiniClientRef *outClient);
+
+/// Disposes the client and releases all resources.
 MiniStatus MiniDispose(MiniClientRef client);
 
 typedef uint32_t MiniNodeRef;
