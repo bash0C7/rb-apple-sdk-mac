@@ -590,4 +590,26 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     refute_match(/unsafeBitCast\([^)]+,\s*to:\s*URL\.self\)/, out,
                  "T53i: URL struct への直接 unsafeBitCast は SIGTRAP リスク、 emit しない")
   end
+
+  # T54k — :cftype_ref Hash 形 (`{kind: :cftype_ref, type: "CGImage"}`) で
+  # typed Swift CFType reference に unsafeBitCast する emit。 Vision の
+  # `VNImageRequestHandler.init(cgImage: CGImage, options:)` 等、 Swift bridged
+  # CFType class 引数を expect する path で必須。 現実装の :cftype_ref は
+  # OpaquePointer に bitPattern で復元するだけで、 typed cast を emit せず
+  # type mismatch error になっていた。
+  def test_emit_objc_in_load_cftype_ref_hash_form_emits_typed_unsafe_bitcast
+    s = sym(name: "VNImageRequestHandler.initWithCGImage:options:",
+            kind: "objc_method_instance",
+            signature: "- (instancetype)initWithCGImage:(CGImageRef)img options:(NSDictionary*)opts",
+            parameters: [])
+    s[:objc_class] = "VNImageRequestHandler"
+    s[:selector] = "initWithCGImage:options:"
+    s[:params] = [{kind: :cftype_ref, type: "CGImage"}, :opaque_ref]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54k: must emit"
+    assert_match(/unsafeBitCast\([^)]+,\s*to:\s*CGImage\.self\)/, out,
+                 "T54k: :cftype_ref Hash 形 type=CGImage は unsafeBitCast(ptr, to: CGImage.self) で typed cast")
+  end
 end
