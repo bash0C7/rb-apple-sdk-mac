@@ -291,6 +291,70 @@ puts "OperationQueue OK"
 
 各 commit 独立。
 
+### 4.5.-7 確実発火する延長 task: T52j (objc_in_load :opaque_ref に Hash 形 type ヒント対応)
+
+**発火条件**: `addOperation:` (single Operation 引数) を NSOperationQueue
+instance method として discover し呼ぶと swiftc エラー:
+```
+note: candidate expects value of type 'Operation' for parameter #1 (got 'OpaquePointer?')
+```
+
+T52d で `objc_in_load` の `:array_of_opaque_ref` kind 用 Hash 形 type
+ヒント (`{kind: :array_of_opaque_ref, type: "Operation"}`) は実装したが、
+`:opaque_ref` (single value) 経路の Hash 形対応は未実装。 現実装は
+`OpaquePointer?` を渡すだけで、 Apple SDK の `addOperation(_ op: Operation)`
+等が期待する Swift class 型に cast されない。
+
+**RED**: template_generator_test に
+- `:opaque_ref` Hash 形 (`{kind: :opaque_ref, type: "Operation"}`) の
+  objc_method_instance emit が `unsafeBitCast(... to: Operation.self)` 形を出す
+
+の期待 test 追加。
+
+**GREEN**: objc_in_load の `:opaque_ref` case を Hash 形対応に拡張:
+- `type_hint` 指定時 → `unsafeBitCast(OpaquePointer, to: <type>.self)` で typed
+  reference に変換
+- 未指定時 → 既存 `OpaquePointer(bitPattern: ...)` 動作維持 (CoreMIDI 系の
+  raw pointer 渡しを壊さない)
+
+**HEADER 不変** → CACHE_SCHEMA_VERSION bump 不要。
+
+**commit**: `test: T52j RED ...` / `feat: T52j GREEN — :opaque_ref Hash type hint で typed Swift cast を emit`
+
+### 4.5.-6 確実発火する延長 task: T52i (NSOperationQueue + Ruby callback bridge への async pattern 適用)
+
+**発火条件**: T52 GREEN smoke で
+```
+RuntimeError: expected [20, 40, 60], got [nil, nil, nil]
+```
+
+NSBlockOperation の block 内 (Apple background thread) で
+`runtime_threading_enqueue` を呼んで Ruby Proc を Ruby main thread の
+queue に push、Ruby main thread で `runtime_threading_poll` 経由で drain
+して実行するのが既存の Ruby↔Apple thread bridge。 ただし
+`addOperations:waitUntilFinished: true` で main thread が wait 中は
+poll が走らないため、 Ruby callback (`results[i] = ms*2` への mutate) が
+permanently enqueued のまま終了 → results は nil のまま。
+
+**RED**: smoke test に
+- async_taskgroup.rb の出力 results=[20, 40, 60] が現状 [nil, nil, nil] で
+  fail することを確認 (T52 RED smoke test に既包含、別 RED 不要)
+
+の確認のみ。 別途 RED test 追加なし。
+
+**GREEN**: example file を `waitUntilFinished: false` + 明示 polling pattern に変更:
+- `queue.addOperations_waitUntilFinished(ops, false)` で main thread を block しない
+- Ruby main thread で `AppleSDKMacRuntime.threading_poll(timeout)` を呼ぶ
+  loop。drained sum が inputs.size に達するまで or timeout
+- timeout は `(inputs.max + 200) ms`、 timeout で fail 報告
+
+並列性証跡 (elapsed_ms < max(input)+80) は polling 完了までの時間で計測。
+DEFERRED 退路ではない (Apple Foundation NSOperationQueue が並列実行する事実は変わらない)。
+
+**HEADER 不変** → CACHE_SCHEMA_VERSION bump 不要。
+
+**commit**: `feat: T52i GREEN — async_taskgroup.rb を waitUntilFinished:false + threading_poll pattern に変更`
+
 ### 4.5.-5 確実発火する延長 task: T52h (proxy instance → raw int unwrap on dispatch)
 
 **発火条件**: T52 GREEN smoke リトライで
@@ -892,6 +956,8 @@ T52e RED → T52e GREEN     (emit_objc_*_method の NS-strip + non-optional retu
 T52f RED → T52f GREEN     (multi-segment instance method first-arg unlabeled bridge)
 T52g RED → T52g GREEN     (single-segment class method preposition-aware bridge)
 T52h RED → T52h GREEN     (proxy instance arg unwrap → raw opaque ref Integer)
+T52i GREEN                 (waitUntilFinished:false + threading_poll pattern; RED は T52 RED smoke に内包)
+T52j RED → T52j GREEN     (objc_in_load :opaque_ref に Hash 形 type ヒント対応)
 T52  GREEN                 (NSOperationQueue 経由、Apple.discover のみ)
 T53a RED → T53a GREEN     (block_persistent multi-arg / typed)
 T53  RED → T53 GREEN      (HTTP via WEBrick fixture、file:// 退路廃止)

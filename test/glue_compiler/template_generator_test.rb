@@ -149,6 +149,26 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
                  "T52g: must not emit obsoleted ObjC method form")
   end
 
+  # T52j — objc_in_load :opaque_ref に Hash 形 type ヒント対応。
+  # NSOperationQueue.addOperation(_ op: Operation) 等の typed Swift instance
+  # method に opaque ref を渡すには、 OpaquePointer から typed reference へ
+  # unsafeBitCast する必要がある。
+  def test_emit_objc_in_load_opaque_ref_hash_type_hint_emits_unsafe_bitcast
+    s = sym(name: "NSOperationQueue.addOperation:",
+            kind: "objc_method_instance",
+            signature: "- (void)addOperation:(NSOperation *)op",
+            parameters: [])
+    s[:objc_class] = "NSOperationQueue"
+    s[:selector] = "addOperation:"
+    s[:params] = [{kind: :opaque_ref, type: "Operation"}]
+    s[:return_kind] = :void
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T52j: must emit"
+    assert_match(/unsafeBitCast\([^)]+,\s*to:\s*Operation\.self\)/, out,
+                 "T52j: typed Swift cast (unsafeBitCast to: Operation.self) must be emitted")
+  end
+
   # T52f — multi-segment instance method (verb-with-type pattern 非該当) の
   # first-arg unlabeled bridge。
   # ObjC selector `addOperations:waitUntilFinished:` の Swift bridged signature
