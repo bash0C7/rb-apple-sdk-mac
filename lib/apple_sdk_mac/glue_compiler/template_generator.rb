@@ -822,8 +822,16 @@ module AppleSDKMac
           # 引数等が `[VNImageOption: Any]?` のように Optional な場合、
           # `Apple.discover(... params: [..., {kind: :nil_literal, type: "[VNImageOption: Any]"}])`
           # で Ruby 引数を無視して Swift `nil` を渡す。 type_hint は Swift 型注釈。
+          # T54s — `:value` 指定時は Optional? を付けず concrete literal を emit
+          # (Vision の `init(cgImage:, options: [:])` のように non-Optional default
+          # 値を取る API 用)。 default は従来通り `nil`。
           swift_type = (type_hint || "AnyObject").to_s
-          "let arg#{index}: #{swift_type}? = nil"
+          value_override = kind_sym.is_a?(Hash) ? kind_sym[:value] : nil
+          if value_override
+            "let arg#{index}: #{swift_type} = #{value_override}"
+          else
+            "let arg#{index}: #{swift_type}? = nil"
+          end
         when :array_of_opaque_ref
           # T54a/T52d — Ruby Array<opaque ref Integer> → Swift [<Type>]。
           # Hash 形の :type を cast 先 type として使う。NSMutableArray を
