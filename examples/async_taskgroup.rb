@@ -10,12 +10,16 @@
 #
 # Apple.discover 経由のみで discovery (事前宣言ファイル禁止)。
 #
-# T52i — addOperations:waitUntilFinished:false + ThreadingBridge.poll
-# pattern。NSOperationQueue は別 Apple thread で block を並列実行し、
-# block 内の `runtime_threading_enqueue` は Ruby callback を main thread の
-# queue に積む。Ruby main thread が threading_poll 経由で drain して
-# results を mutate する。waitUntilFinished:true で main thread が wait
-# 中は drain できないため false にする。
+# 実行モデル: addOperations:waitUntilFinished:false で Apple OperationQueue
+# 内部の concurrent worker pool が 3 個の BlockOperation を並列実行する。
+# 各 block 内で NSThread.sleepForTimeInterval した後 Ruby callback を
+# ThreadingBridge 経由で main thread queue に enqueue。Ruby main は
+# threading_poll で drain して results を埋める。
+#
+# 並列性証跡: addOperations の return 後 (= block 投入完了) を t0 とし、
+# 全 callback が drain されるまでの elapsed を計測。 longest sleep + buffer
+# 以下なら parallel 実行されている。 first-call の Apple.discover 起因の
+# swiftc compile cost は warmup phase で先払いし、 timing path に乗らない。
 #
 # Usage:
 #   RUBY_BOX=1 bundle exec ruby examples/async_taskgroup.rb
@@ -29,14 +33,22 @@ Apple.discover(framework: :Foundation, klass: :NSOperationQueue,
 Apple.discover(framework: :Foundation, klass: :NSBlockOperation,
   class_method: "blockOperationWithBlock:",
   params: [:block_persistent_void], return_kind: :opaque_ref)
-# T52 — addOperations:waitUntilFinished: より単純で安定な addOperation: を 3 回。
-# Foundation NSOperationQueue は default で NSOperationQueueDefaultMaxConcurrentOperationCount
-# = system 決定 (通常 core 数ベース) で並列実行する。
 Apple.discover(framework: :Foundation, klass: :NSOperationQueue,
-  selector: "addOperation:",
-  params: [{kind: :opaque_ref, type: "Operation"}], return_kind: :void)
+  selector: "addOperations:waitUntilFinished:",
+  params: [{kind: :array_of_opaque_ref, type: "Operation"}, :bool],
+  return_kind: :void)
 Apple.discover(framework: :Foundation, klass: :NSThread,
   class_method: "sleepForTimeInterval:", params: [:float], return_kind: :void)
+
+# Warmup — Apple.discover は dispatcher 初回 invoke 時に dlopen + symbol
+# resolve を実行する。第一発の overhead を timing path から除外するため
+# 全 4 method を no-op で 1 度ずつ呼んでおく (block も 1 個 enqueue して
+# OperationQueue の thread pool warmup も兼ねる)。
+warmup_queue = Apple::Foundation::NSOperationQueue.init
+warmup_op = Apple::Foundation::NSBlockOperation.blockOperationWithBlock(lambda { |_| })
+Apple::Foundation::NSThread.sleepForTimeInterval(0.001)
+warmup_queue.addOperations_waitUntilFinished([warmup_op], false)
+# warmup の callback drain は気にしない (timing path 外)
 
 queue = Apple::Foundation::NSOperationQueue.init
 results = Array.new(inputs.size)
@@ -45,8 +57,6 @@ done_count = 0
 
 ops = inputs.each_with_index.map do |ms, i|
   Apple::Foundation::NSBlockOperation.blockOperationWithBlock(lambda { |_unused|
-    # ThreadingBridge dispatcher が Ruby Proc に Int64 (=0) を 1 つ渡す
-    # convention のため、 () -> Void ブロックでも引数を受ける形にする。
     Apple::Foundation::NSThread.sleepForTimeInterval(ms / 1000.0)
     mutex.synchronize do
       results[i] = ms * 2
@@ -56,14 +66,9 @@ ops = inputs.each_with_index.map do |ms, i|
 end
 
 t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-ops.each { |op| queue.addOperation(op) }
+queue.addOperations_waitUntilFinished(ops, false)
 
-# T52i — Ruby callbacks are enqueued on the main-thread queue from the Apple
-# background threads via ThreadingBridge. Tight-polling drain (timeout=0.002s
-# per poll, 1ms sleep when empty) until all expected callbacks fire or budget
-# expires. parallel=true budget は elapsed_ms < max(inputs)+80 なので余裕は
-# 約 80ms。 drain overhead を小さく保つために poll timeout を非常に短く。
-poll_budget = (inputs.max + 200) / 1000.0  # 200ms 余裕 (timeout 用)
+poll_budget = (inputs.max + 200) / 1000.0
 deadline = t0 + poll_budget
 while mutex.synchronize { done_count } < inputs.size
   AppleSDKMacRuntime.threading_poll(0.002)
