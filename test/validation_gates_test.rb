@@ -40,6 +40,31 @@ class TestValidationGates < Test::Unit::TestCase
     assert result.errors.any? { |e| e.include?("Network") }
   end
 
+  # T53e — BANNED API check は LLM が任意に持ち込む URLSession を弾くのが
+  # 目的。 user が `Apple.discover(klass: :NSURLSession, ...)` で明示 discover
+  # した場合、 target_symbol は `NSURLSession_<prop>` 形になる。 これは
+  # 正当な discover なので URLSession 文字列 を含む glue を ban から除外する。
+  # 既存の MIDIDispose 等 unrelated symbol で URLSession を持ち込む LLM 経路は
+  # 引き続き ban される。
+  def test_allows_url_session_when_symbol_targets_ns_url_session
+    swift = <<~SWIFT
+      import Foundation
+      import AppleSDKMacRuntime
+
+      @c
+      public func glue_abc_NSURLSession_shared(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt {
+          let raw = URLSession.shared
+          let p = Unmanaged.passRetained(raw as AnyObject).toOpaque()
+          return rb_ull2inum(UInt64(UInt(bitPattern: p)))
+      }
+    SWIFT
+    result = @gates.validate(swift, framework: "Foundation", glue_id: "abc",
+                              symbol: "NSURLSession_shared")
+    # GATE 4 banned-API check は通る (URLSession は user-discovered の中心 class)。
+    refute result.errors.any? { |e| e.include?("GATE 4") && e.include?("URLSession") },
+      "T53e: NSURLSession discover で URLSession を含む template を ban しない"
+  end
+
   def test_rejects_url_session_call_in_body_for_unrelated_symbol
     swift = <<~SWIFT
       import CoreMIDI
