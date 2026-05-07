@@ -233,6 +233,35 @@ class TestNamespaceBuilder < Test::Unit::TestCase
       "T52b: receiver opaque ref must be prepended to dispatcher args"
   end
 
+  # T53j — Apple.discover の return_klass: opt で proxy auto-wrap class を
+  # 受信側 (klass:) と異なる class に明示指定可能にする。 NSURLSession#dataTask
+  # は NSURLSessionDataTask を返すため、 receiver class (NSURLSession) で wrap
+  # すると NSURLSessionDataTask の instance method (resume 等) が見えない。
+  def test_instance_method_return_klass_overrides_proxy_wrap_class
+    box = Module.new
+    raw = 0xCAFEBABE
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(*) { raw }
+    )
+    rec = { name: "NSURLSession.dataTaskWithURL_completionHandler",
+            kind: "objc_method_instance",
+            objc_class: "NSURLSession",
+            selector: "dataTaskWithURL:completionHandler:",
+            return_kind: :opaque_ref,
+            return_klass: "NSURLSessionDataTask" }
+    builder.install_one("Foundation", rec)
+
+    fw = box.const_get(:Foundation)
+    session_klass = fw.const_get(:NSURLSession)
+    session = session_klass.from_ref(0x1234)
+    result = session.dataTaskWithURL_completionHandler(0x0, nil)
+    task_klass = fw.const_get(:NSURLSessionDataTask)
+    assert_kind_of task_klass, result,
+      "T53j: return_klass: で指定した class の proxy instance が返るべき"
+    assert_equal raw, result.__opaque_ref
+  end
+
   def test_swift_init_opaque_ref_return_auto_wraps_to_proxy_instance
     box = Module.new
     raw = 0xDEADBEEF
