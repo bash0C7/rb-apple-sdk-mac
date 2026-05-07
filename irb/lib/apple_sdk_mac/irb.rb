@@ -15,6 +15,8 @@
 # `module AppleSDKMac::IRB` resolves to self (this module), not the stdlib.
 
 require "apple_sdk_mac"
+require "apple_sdk_mac/irb/doc_resolver"
+require "apple_sdk_mac/irb/doc_dialog"
 
 module AppleSDKMac
   module IRB
@@ -257,6 +259,8 @@ module AppleSDKMac
         ::IRB.conf[:COMPLETOR] = :type
 
         @apple_provider = provider
+        resolver = DocResolver.new(knowledge_cache: knowledge_cache)
+        @apple_doc_dialog = DocDialog.new(resolver: resolver)
 
         # IRB::Context.build_completor を prepend で wrap。 super で base を取って
         # Completor で wrap (Apple:: は provider、 他は base にデリゲート)。
@@ -289,6 +293,7 @@ module AppleSDKMac
         @installed = false
         @apple_provider = nil
         @apple_dig_perfect = nil
+        @apple_doc_dialog = nil
       end
 
       def installed?
@@ -296,7 +301,7 @@ module AppleSDKMac
       end
 
       # Internal — accessed by ContextOverride / RelineInputMethodOverride.
-      attr_reader :apple_provider, :apple_dig_perfect
+      attr_reader :apple_provider, :apple_dig_perfect, :apple_doc_dialog
     end
 
     module ContextOverride
@@ -324,11 +329,18 @@ module AppleSDKMac
           if AppleSDKMac::IRB.apple_dig_perfect
             Reline.dig_perfect_match_proc = AppleSDKMac::IRB.apple_dig_perfect
           end
-          # Disable IRB's :show_doc dialog. RDoc 7.2 + Ruby 4.0 の Marshal
-          # 非互換で `RDoc::Store#load_class_data` が `undefined class/module
-          # RDoc::` で落ちる (popup 表示の度に exception が prompt に流出)。
-          # autocomplete dialog (候補 selection) は別 dialog なので影響なし。
-          Reline.add_dialog_proc(:show_doc, ->{ nil }, Reline::DEFAULT_DIALOG_CONTEXT)
+          # Replace IRB's default :show_doc proc (which calls into RDoc
+          # and crashes on Ruby 4 + rdoc 7.2 Marshal) with our DocDialog.
+          # Apple SDK candidates render KB-sourced documentation; non-Apple
+          # candidates fall through to nil so the popup stays empty rather
+          # than triggering RDoc.
+          if AppleSDKMac::IRB.apple_doc_dialog
+            Reline.add_dialog_proc(
+              :show_doc,
+              AppleSDKMac::IRB.apple_doc_dialog.to_proc,
+              Reline::DEFAULT_DIALOG_CONTEXT
+            )
+          end
         end
       end
     end

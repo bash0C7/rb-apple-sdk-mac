@@ -66,6 +66,19 @@ class TestIRBInstall < Test::Unit::TestCase
     AppleSDKMac::IRB.uninstall!
     refute AppleSDKMac::IRB.installed?
     assert_nil AppleSDKMac::IRB.apple_provider
+    assert_nil AppleSDKMac::IRB.apple_doc_dialog
+  end
+
+  def test_install_provides_doc_dialog
+    fake_cache = Object.new
+    fake_cache.define_singleton_method(:list_frameworks) { [] }
+    fake_cache.define_singleton_method(:list_framework_symbols) { |**| [] }
+    fake_cache.define_singleton_method(:list_klass_methods) { |**| [] }
+    fake_cache.define_singleton_method(:lookup_documentation) { |**| nil }
+
+    AppleSDKMac::IRB.install!(knowledge_cache: fake_cache)
+    assert AppleSDKMac::IRB.apple_doc_dialog.is_a?(AppleSDKMac::IRB::DocDialog),
+      "install! must produce a DocDialog instance for the :show_doc proc"
   end
 
   def test_install_prepends_context_override
