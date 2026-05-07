@@ -36,7 +36,14 @@ namespace :apple do
       # missing at dlopen. (debug config is built incidentally by swift_gem
       # tooling; we build release ourselves here.)
       sh "swift", "build", "-c", "release", "--package-path", ext_dir
-      generated = Dir.glob(File.join(ext_dir, ".build", "**", "AppleSDKMacRuntime-Swift.h")).first
+      # 明示的に release configuration の生成 header を選ぶ。Dir.glob の
+      # alphabetical 順だと debug header (incidentally 生成されたもの) が先に
+      # 取れ、 release config で追加した新 export の宣言を含まない header が
+      # ext/ にコピーされてしまう (= rake compile の C ext が新 export を
+      # 解決できない)。
+      release_glob = File.join(ext_dir, ".build", "**", "release", "**", "AppleSDKMacRuntime-Swift.h")
+      generated = Dir.glob(release_glob).first
+      generated ||= Dir.glob(File.join(ext_dir, ".build", "**", "AppleSDKMacRuntime-Swift.h")).first
       raise "AppleSDKMacRuntime-Swift.h not produced by swift build" unless generated
       target = File.join(ext_dir, "AppleSDKMacRuntime-Swift.h")
       require "fileutils"
