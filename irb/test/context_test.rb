@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 require "test_helper"
-require "apple_sdk_mac/irb_completion"
+require "apple_sdk_mac/irb"
 
-class TestIRBCompletionContext < Test::Unit::TestCase
-  Context = AppleSDKMac::IRBCompletion::Context
+class TestIRBContext < Test::Unit::TestCase
+  Context = AppleSDKMac::IRB::Context
 
   def test_apple_root_empty
     c = Context.parse("Apple::")

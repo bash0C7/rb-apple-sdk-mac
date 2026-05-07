@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require "test_helper"
 require "irb"
-require "apple_sdk_mac/irb_completion"
+require "apple_sdk_mac/irb"
 
 # Reline は target (= preposing+target) を candidate の prefix に対して match する。
 # IRB の BASIC_WORD_BREAK_CHARACTERS には `:` も `.` も入らんので、
@@ -14,7 +14,7 @@ class TestCompletorPrefixMatch < Test::Unit::TestCase
   end
 
   def make_completor(provider)
-    AppleSDKMac::IRBCompletion::Completor.new(provider: provider, base: nil)
+    AppleSDKMac::IRB::Completor.new(provider: provider, base: nil)
   end
 
   def test_apple_root_candidates_carry_apple_prefix

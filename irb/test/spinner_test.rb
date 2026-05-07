@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 require "test_helper"
-require "apple_sdk_mac/irb_completion"
+require "apple_sdk_mac/irb"
 require "stringio"
 
-class TestIRBCompletionSpinner < Test::Unit::TestCase
-  Spinner = AppleSDKMac::IRBCompletion::Spinner
+class TestIRBSpinner < Test::Unit::TestCase
+  Spinner = AppleSDKMac::IRB::Spinner
 
   class FakeTTY < StringIO
     def tty?

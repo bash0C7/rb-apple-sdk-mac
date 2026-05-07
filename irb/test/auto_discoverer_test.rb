@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 require "test_helper"
-require "apple_sdk_mac/irb_completion"
+require "apple_sdk_mac/irb"
 
-class TestIRBCompletionAutoDiscoverer < Test::Unit::TestCase
-  Context = AppleSDKMac::IRBCompletion::Context
-  AutoDiscoverer = AppleSDKMac::IRBCompletion::AutoDiscoverer
+class TestIRBAutoDiscoverer < Test::Unit::TestCase
+  Context = AppleSDKMac::IRB::Context
+  AutoDiscoverer = AppleSDKMac::IRB::AutoDiscoverer
 
   class FakeKnowledgeCache
     def initialize(klass_methods: {})
