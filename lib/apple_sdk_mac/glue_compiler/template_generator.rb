@@ -344,11 +344,15 @@ module AppleSDKMac
             "#{swift_klass}(" + labels.zip(args).map { |l, a| "#{l}: #{a}" }.join(", ") + ")"
           end
 
-        # T52c — no-arg init は Apple SDK convention で non-failable と仮定し
-        # `let v = ...` を emit。引数つき init は failable のままで `guard let`
-        # → Qnil branch を維持 (NSURL.URLWithString: などの failable bridge 用)。
+        # T52c — no-arg init は Apple SDK convention で non-failable と仮定。
+        # T54t — 引数つき init の failability は initializer 文字列内の `?` で
+        # 判定: `init?(label:)` (with ?) → failable / `init(label:)` (no ?) →
+        # non-failable。 Apple SDK の majority は non-failable のため default は
+        # `let v = ...`、 user が `swift_initializer: "init?(string:)"` のように
+        # `?` を含めて指定したときのみ `guard let v = ... else { Qnil }`。
+        failable = initializer.to_s.include?("?")
         init_binding =
-          if labels.empty?
+          if labels.empty? || !failable
             "let v = #{call_expr}"
           else
             "guard let v = #{call_expr} else { return Qnil }"
