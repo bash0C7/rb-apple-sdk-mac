@@ -685,4 +685,29 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
                  "T54n: 各要素を opaque ref として retain")
     assert_match(/return Qnil/, out, "T54n: nilable nil 時は Qnil")
   end
+
+  # T54o — single-segment instance method `topCandidates(_:)` で :int arg を
+  # 取り、 :array_of_opaque_ref Hash 形 return_kind で typed Swift array を
+  # 返す。 emit_objc_instance_method の return_kind が Hash 形でも crash せず
+  # array marshal を出すこと。 加えて :int arg を Swift bridged Int 期待 API
+  # と互換に emit する (Int64 直渡しは Swift 6 で型 mismatch リスク)。
+  def test_emit_objc_instance_method_array_of_opaque_ref_return_with_int_arg
+    s = sym(name: "VNRecognizedTextObservation.topCandidates:",
+            kind: "objc_method_instance",
+            signature: "- (NSArray<VNRecognizedText *> *)topCandidates:(NSUInteger)maxCount",
+            parameters: [])
+    s[:objc_class] = "VNRecognizedTextObservation"
+    s[:selector] = "topCandidates:"
+    s[:params] = [:int]
+    s[:return_kind] = {kind: :array_of_opaque_ref, type: "VNRecognizedText",
+                      nilable: false}
+
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54o: must emit"
+    assert_match(/receiver\.topCandidates\(arg0\)/, out,
+                 "T54o: single-segment selector で label なし call")
+    assert_match(/rb_ary_new/, out, "T54o: array return marshal")
+    assert_match(/Unmanaged\.passRetained/, out,
+                 "T54o: 各要素を opaque ref として retain")
+  end
 end
