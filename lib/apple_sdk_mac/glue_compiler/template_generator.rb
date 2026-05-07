@@ -713,7 +713,12 @@ module AppleSDKMac
                 let arg#{index} = String(cString: arg#{index}_cstr)
           SWIFT
         when :int
-          "let arg#{index}: Int64 = rb_num2ll(argv[#{ai}])"
+          # T54q — Apple SDK の Swift bridged API は概ね Int 期待 (Vision の
+          # topCandidates(_ maxCount: Int) 等)。 Int64 直渡しは Swift 6 で型
+          # mismatch error になるため、 objc_in_load 経路 (objc_method_*/
+          # swift_init/swift_property) では Int で emit。 KB-stored C function
+          # path (IntMarshaller 経路) は引き続き Int64 を emit。
+          "let arg#{index}: Int = Int(rb_num2ll(argv[#{ai}]))"
         when :bool
           "let arg#{index}: Bool = (argv[#{ai}] != Qfalse && argv[#{ai}] != Qnil)"
         when :float
