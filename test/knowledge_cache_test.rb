@@ -64,6 +64,39 @@ class TestKnowledgeCache < Test::Unit::TestCase
     assert_equal [], rows
   end
 
+  # Step 3.2 — KnowledgeCache.lookup_documentation for the irb sub-gem
+  # :show_doc dialog. The 2026-05-08 KB rebuild populates symbols.documentation
+  # for ObjC/C frameworks via clang's FullComment AST; CoreFoundation symbols
+  # in particular carry rich docstrings.
+  def test_lookup_documentation_returns_apple_doc_for_top_level_function
+    cache = AppleSDKMac.knowledge_cache
+    doc = cache.lookup_documentation(framework: "CoreFoundation", name: "CFArrayAppendValue")
+    assert doc.is_a?(String) && !doc.empty?,
+      "CFArrayAppendValue should carry a populated documentation field"
+    assert_match(/Adds the value to the array/i, doc)
+  end
+
+  def test_lookup_documentation_returns_nil_for_unknown_symbol
+    cache = AppleSDKMac.knowledge_cache
+    doc = cache.lookup_documentation(framework: "CoreFoundation", name: "NoSuchSymbol__")
+    assert_nil doc
+  end
+
+  def test_lookup_documentation_returns_nil_for_unknown_framework
+    cache = AppleSDKMac.knowledge_cache
+    doc = cache.lookup_documentation(framework: "NoSuchFramework__", name: "anything")
+    assert_nil doc
+  end
+
+  def test_lookup_documentation_returns_nil_for_undocumented_swift_overlay
+    cache = AppleSDKMac.knowledge_cache
+    # Foundation::URL.appendingPathComponent comes from the Swift overlay,
+    # whose *.swiftinterface is stripped of doc-comments by the compiler.
+    # The lookup should return nil rather than an empty string.
+    doc = cache.lookup_documentation(framework: "Foundation", klass: "URL", name: "appendingPathComponent")
+    assert_nil doc
+  end
+
   private
 
   def real_knowledge_built?
