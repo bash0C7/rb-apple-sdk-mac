@@ -795,4 +795,28 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     refute_match(/\[VNImageOption: Any\]\?\s*=\s*nil/, out,
                  "T54s: value 指定では nil literal は emit しない")
   end
+
+  # T54t — 引数つき swift_init の failability は initializer 文字列の `?` で
+  # 判定。 `init(cgImage:options:)` (no ?) は non-failable で `let v = Klass(...)`、
+  # `init?(string:)` (with ?) は failable で `guard let v = ... else { Qnil }`。
+  # Apple SDK の majority の class init は non-failable (Vision の
+  # VNImageRequestHandler 等)、 既存挙動 (引数つき = 強制 failable) は API 互換
+  # 不能で誤誘導の元。
+  def test_emit_swift_init_with_args_uses_non_failable_when_no_question_mark
+    s = sym(name: "VNImageRequestHandler.init(cgImage:options:)",
+            kind: "swift_init",
+            signature: "init(cgImage:options:)", parameters: [])
+    s[:swift_class] = "VNImageRequestHandler"
+    s[:swift_initializer] = "init(cgImage:options:)"
+    s[:params] = [{kind: :cftype_ref, type: "CGImage"},
+                  {kind: :nil_literal, type: "[VNImageOption: Any]", value: "[:]"}]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54t: must emit"
+    assert_match(/let v = VNImageRequestHandler\(cgImage:/, out,
+                 "T54t: ? なし init は non-failable form (`let v = ...`)")
+    refute_match(/guard let v = VNImageRequestHandler\(/, out,
+                 "T54t: non-failable init は guard let を出さない")
+  end
 end
