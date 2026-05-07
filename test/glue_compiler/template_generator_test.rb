@@ -633,4 +633,32 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/let arg1:\s*\[VNImageOption: Any\]\?\s*=\s*nil/, out,
                  "T54l: :nil_literal Hash 形は typed nil literal を emit")
   end
+
+  # T54m — selector 末尾 `:error:` を Swift throws bridge に変換。 ObjC
+  # `- (BOOL)method:(...)error:(NSError **)err` は Swift で
+  # `func method(...) throws` に bridge される。 emit_objc_instance_method は
+  # selector 末尾 `error:` を drop し、 do/catch ブロックで try call を包む。
+  # success → Qtrue、 throw → Qfalse 戻り。 user 側 params 配列に error_out は
+  # 含めない (= ObjC 引数数 - 1 個)。
+  def test_emit_objc_instance_method_strips_error_out_emits_throws_bridge
+    s = sym(name: "VNImageRequestHandler.perform:error:",
+            kind: "objc_method_instance",
+            signature: "- (BOOL)perform:(NSArray *)reqs error:(NSError **)err",
+            parameters: [])
+    s[:objc_class] = "VNImageRequestHandler"
+    s[:selector] = "perform:error:"
+    s[:params] = [{kind: :array_of_opaque_ref, type: "VNRequest"}]
+    s[:return_kind] = :bool
+
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54m: must emit"
+    assert_match(/do\s*\{/, out, "T54m: try call must be wrapped in do/catch")
+    assert_match(/try\s+receiver\.perform\(arg0\)/, out,
+                 "T54m: error: drop し try で throws bridge call (first arg unlabeled)")
+    assert_match(/return Qtrue/, out,
+                 "T54m: success path で Qtrue 返却")
+    assert_match(/catch\b/, out, "T54m: throws をキャッチする catch 節")
+    assert_match(/return Qfalse/, out,
+                 "T54m: throw path で Qfalse 返却")
+  end
 end
