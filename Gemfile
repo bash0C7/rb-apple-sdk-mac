@@ -11,12 +11,15 @@ gem "swift_gem", git: "https://github.com/bash0C7/swift_gem"
 gem "rb-foundation-model-mac", path: "../rb-foundation-model-mac"
 gem "rb-apple-sdk-knowledge", path: "../rb-apple-sdk-knowledge"
 
-gem "irb"
-# Type-based completor: Box constants を enumerate しないため Ruby 4.0 + RUBY_BOX=1
-# でも安全。 Apple:: 以外の input (String. 等) を補完する base として install! が
-# IRB.conf[:COMPLETOR] = :type に切り替えて、 Apple Completor が delegate する。
-gem "repl_type_completor"
 gem "rake", "~> 13.0"
 gem "rake-compiler", "~> 1.2"
 gem "test-unit", "~> 3.0"
 gem "fiddle"  # Test-only: MIDIPacketList byte-packing in test_send_packet_via_midi_received
+
+# Logical sub-gem inside this repo (irb/). Path-loaded so users developing
+# the IRB autocomplete + LLM doc preview features get the dependency tree
+# (irb / reline / repl_type_completor / foundation_model_mac) without
+# polluting the main gemspec.
+group :development do
+  gem "apple_sdk_mac-irb", path: "irb"
+end
