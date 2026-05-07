@@ -45,6 +45,23 @@ class TestKnowledgeCache < Test::Unit::TestCase
     end
   end
 
+  def test_list_klass_methods_returns_methods_with_parent_class
+    cache = AppleSDKMac.knowledge_cache
+    rows = cache.list_klass_methods(framework: "Foundation", klass: "NSString")
+    # NSString は instance/class method を多数持つ。 ゼロは異常。
+    assert_operator rows.size, :>=, 1, "NSString must have at least 1 child method"
+    rows.each do |r|
+      assert r.key?(:name)
+      assert r.key?(:kind)
+    end
+  end
+
+  def test_list_klass_methods_unknown_klass_empty
+    cache = AppleSDKMac.knowledge_cache
+    rows = cache.list_klass_methods(framework: "Foundation", klass: "ClassThatDoesNotExist__")
+    assert_equal [], rows
+  end
+
   private
 
   def real_knowledge_built?
