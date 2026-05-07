@@ -500,4 +500,45 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     refute_match(/to:\s*Data\.self/, out,
                  "T53f: NSData NS-strip 禁止 (value-type bridge は API divergent)")
   end
+
+  # T53g — zero-arg ObjC selector + non-void return は Swift bridge で
+  # property access (parens なし)、 zero-arg + void return は method call
+  # (parens あり) として emit。
+  # Apple ObjC→Swift bridge convention:
+  # - NSData.length / NSData.bytes / NSArray.count → property (`obj.length`)
+  # - NSURLSessionDataTask.resume / .suspend → method (`task.resume()`)
+  # 判定 heuristic: return_kind が :void なら method、 それ以外なら property。
+  def test_emit_objc_instance_method_zero_arg_property_form_for_length
+    s = sym(name: "NSData.length",
+            kind: "objc_method_instance",
+            signature: "- (NSUInteger)length",
+            parameters: [])
+    s[:objc_class] = "NSData"
+    s[:selector] = "length"
+    s[:params] = []
+    s[:return_kind] = :int
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T53g: must emit"
+    assert_match(/let raw = receiver\.length\b/, out,
+                 "T53g: zero-arg + non-void return は property access (parens なし) 形")
+    refute_match(/receiver\.length\(\)/, out,
+                 "T53g: parens 形は method call、 property bridge には不適切")
+  end
+
+  def test_emit_objc_instance_method_zero_arg_method_form_for_resume
+    s = sym(name: "NSURLSessionDataTask.resume",
+            kind: "objc_method_instance",
+            signature: "- (void)resume",
+            parameters: [])
+    s[:objc_class] = "NSURLSessionDataTask"
+    s[:selector] = "resume"
+    s[:params] = []
+    s[:return_kind] = :void
+
+    out = gen.generate(framework: "Foundation", symbol: s, glue_id: "abc")
+    refute_nil out, "T53g: must emit"
+    assert_match(/receiver\.resume\(\)/, out,
+                 "T53g: zero-arg + void return は method call (parens あり) 形")
+  end
 end
