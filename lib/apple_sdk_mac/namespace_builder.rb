@@ -78,6 +78,11 @@ module AppleSDKMac
           # receiver を取らない form を生成するため、class singleton method
           # として install する旧 path を保持する。
           define_instance_method_under_klass(framework_module, framework_name, sym)
+        elsif sym[:kind] == "swift_property" && sym[:instance] == true
+          # T54u — swift_property instance: true は emit が receiver argv[0]
+          # を取る instance property template を出すため、 namespace 側も
+          # proxy instance method として install。
+          define_instance_method_under_klass(framework_module, framework_name, sym)
         else
           define_method_under_klass(framework_module, framework_name, sym)
         end

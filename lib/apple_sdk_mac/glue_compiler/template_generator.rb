@@ -466,10 +466,26 @@ module AppleSDKMac
         # T54n — return_kind は :symbol または Hash 形 (`{kind:, type:, nilable:}`)
         # の両対応。 swift_init_return_lines が unwrap する。
         return_kind = symbol[:return_kind] || :opaque_ref
+        # T54u — instance: true で argv[0] を receiver にとる instance property
+        # 経路。 default false は class static property (T53d 互換)。
+        instance = symbol[:instance] == true
         swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
         exported = "glue_#{glue_id}_#{swift_id}"
 
-        body = ["let raw = #{klass}.#{prop}"] + swift_init_return_lines(return_kind, "raw")
+        body =
+          if instance
+            receiver_load = <<~SWIFT.chomp
+              let receiver = unsafeBitCast(
+                  OpaquePointer(bitPattern: UInt(rb_num2ull(argv[0])))!,
+                  to: #{klass}.self
+              )
+            SWIFT
+            [receiver_load, "let raw = receiver.#{prop}"] +
+              swift_init_return_lines(return_kind, "raw")
+          else
+            ["let raw = #{klass}.#{prop}"] +
+              swift_init_return_lines(return_kind, "raw")
+          end
 
         <<~SWIFT
           import #{framework}

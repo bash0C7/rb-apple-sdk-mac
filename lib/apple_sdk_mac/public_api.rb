@@ -154,7 +154,8 @@ module AppleSDKMac
           kind: "swift_property",
           swift_class: opts[:klass].to_s,
           swift_property: opts[:swift_property].to_s,
-          return_kind: opts[:return_kind]
+          return_kind: opts[:return_kind],
+          instance: opts[:instance] == true
         )
       when opts.key?(:swift_func)
         # T47 — swift_func は klass: で `Klass.func` static method 化、または
