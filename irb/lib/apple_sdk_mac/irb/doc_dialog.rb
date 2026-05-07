@@ -14,9 +14,10 @@ module AppleSDKMac
     class DocDialog
       DEFAULT_WIDTH = 60
 
-      def initialize(resolver:, prefetcher: nil, width: DEFAULT_WIDTH)
+      def initialize(resolver:, prefetcher: nil, llm_resolver: nil, width: DEFAULT_WIDTH)
         @resolver = resolver
         @prefetcher = prefetcher
+        @llm_resolver = llm_resolver
         @width = width
       end
 
@@ -25,9 +26,12 @@ module AppleSDKMac
       # Side-effect: kicks the prefetcher (if injected) regardless of
       # whether documentation is available, so first-call latency on
       # an undocumented Apple symbol still gets the prefetch benefit.
+      # Resolution order: KB-driven primary resolver, then llm_resolver
+      # for Swift-overlay / Ruby stdlib symbols the KB cannot answer.
       def render(matched:, cursor_pos:, max_height:, autocomplete_dialog: nil, max_width: @width)
         @prefetcher&.prefetch(matched)
         doc = @resolver.resolve(matched)
+        doc = @llm_resolver.resolve(matched) if (doc.nil? || doc.to_s.strip.empty?) && @llm_resolver
         return nil if doc.nil? || doc.to_s.strip.empty?
         contents = wrap_text(doc, max_width).take(max_height)
         return nil if contents.empty?
