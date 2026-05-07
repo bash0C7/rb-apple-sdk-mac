@@ -57,4 +57,60 @@ class TestDocResolver < Test::Unit::TestCase
     cache = make_cache({}) # always nil
     assert_nil Resolver.new(knowledge_cache: cache).resolve("Apple::Foundation::URL.appendingPathComponent")
   end
+
+  # doc_transform hook (Step 6.1) — used by install! to inject a
+  # translator that runs the raw KB doc through Apple Intelligence
+  # when LANG ≠ en. The hook is the only point sub-gem code touches
+  # for doc post-processing; the actual translator gem stays optional.
+
+  def test_doc_transform_default_is_identity
+    cache = make_cache(
+      ["Foundation", "URL", "appendingPathComponent"] => "raw doc"
+    )
+    out = Resolver.new(knowledge_cache: cache).resolve("Apple::Foundation::URL.appendingPathComponent")
+    assert_equal "raw doc", out
+  end
+
+  def test_doc_transform_replaces_resolved_doc
+    cache = make_cache(
+      ["Foundation", "URL", "appendingPathComponent"] => "raw doc"
+    )
+    transform = ->(doc, _ctx) { "translated: #{doc}" }
+    out = Resolver.new(knowledge_cache: cache, doc_transform: transform)
+      .resolve("Apple::Foundation::URL.appendingPathComponent")
+    assert_equal "translated: raw doc", out
+  end
+
+  def test_doc_transform_receives_parsed_context
+    cache = make_cache(
+      ["Foundation", "URL", "appendingPathComponent"] => "raw"
+    )
+    seen_ctx = nil
+    transform = ->(doc, ctx) { seen_ctx = ctx; doc }
+    Resolver.new(knowledge_cache: cache, doc_transform: transform)
+      .resolve("Apple::Foundation::URL.appendingPathComponent")
+    assert_equal "Foundation", seen_ctx.framework
+    assert_equal "URL", seen_ctx.klass
+    assert_equal :class, seen_ctx.receiver_kind
+  end
+
+  def test_doc_transform_not_called_when_lookup_misses
+    cache = make_cache({})
+    called = false
+    transform = ->(_doc, _ctx) { called = true; "should not appear" }
+    out = Resolver.new(knowledge_cache: cache, doc_transform: transform)
+      .resolve("Apple::Foundation::URL.appendingPathComponent")
+    assert_nil out
+    refute called
+  end
+
+  def test_doc_transform_can_suppress_via_nil
+    cache = make_cache(
+      ["Foundation", "URL", "appendingPathComponent"] => "raw"
+    )
+    transform = ->(_doc, _ctx) { nil }
+    out = Resolver.new(knowledge_cache: cache, doc_transform: transform)
+      .resolve("Apple::Foundation::URL.appendingPathComponent")
+    assert_nil out
+  end
 end
