@@ -748,10 +748,15 @@ module AppleSDKMac
           # `init(cgImage: CGImage, ...)` 等、 Swift bridged CFType class 引数を
           # expect する path で必須。 type_hint 不在時は raw OpaquePointer 維持
           # (CoreMIDI 系の opaque ref 渡しを壊さない)。
+          # T54r — Apple SDK の CF*Create* 戻り値は box pointer (auto-ARC) で
+          # 来るため、 runtime_arc_unbox_cftype で内部 CF pointer に unwrap する。
+          # box でない raw pointer 直渡しは unbox が 0 を返すので raw に fallback。
           if type_hint
             <<~SWIFT.chomp
               let arg#{index}_raw_v = UInt(rb_num2ull(argv[#{ai}]))
-                  guard let arg#{index}_ptr_v = OpaquePointer(bitPattern: arg#{index}_raw_v) else { return Qnil }
+                  let arg#{index}_unbox_v = runtime_arc_unbox_cftype(arg#{index}_raw_v)
+                  let arg#{index}_actual_v: UInt = (arg#{index}_unbox_v != 0) ? arg#{index}_unbox_v : arg#{index}_raw_v
+                  guard let arg#{index}_ptr_v = OpaquePointer(bitPattern: arg#{index}_actual_v) else { return Qnil }
                   let arg#{index} = unsafeBitCast(arg#{index}_ptr_v, to: #{type_hint}.self)
             SWIFT
           else
