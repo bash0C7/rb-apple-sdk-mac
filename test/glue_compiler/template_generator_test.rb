@@ -612,4 +612,25 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/unsafeBitCast\([^)]+,\s*to:\s*CGImage\.self\)/, out,
                  "T54k: :cftype_ref Hash 形 type=CGImage は unsafeBitCast(ptr, to: CGImage.self) で typed cast")
   end
+
+  # T54l — :nil_literal kind を新設。 Swift native Dict (`[VNImageOption: Any]?`)
+  # 等、 raw pointer から復元できない引数を nil 固定で渡す経路。 Apple SDK で
+  # options 引数のように nil 渡しが許容される API のための emit。 Hash 形
+  # `{kind: :nil_literal, type: "[VNImageOption: Any]"}` で Swift 型注釈を指定。
+  def test_emit_objc_in_load_nil_literal_emits_typed_nil_value
+    s = sym(name: "VNImageRequestHandler.initWithCGImage:options:",
+            kind: "objc_method_instance",
+            signature: "- (instancetype)initWithCGImage:(CGImageRef)img options:(NSDictionary*)opts",
+            parameters: [])
+    s[:objc_class] = "VNImageRequestHandler"
+    s[:selector] = "initWithCGImage:options:"
+    s[:params] = [{kind: :cftype_ref, type: "CGImage"},
+                  {kind: :nil_literal, type: "[VNImageOption: Any]"}]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "Vision", symbol: s, glue_id: "abc")
+    refute_nil out, "T54l: must emit"
+    assert_match(/let arg1:\s*\[VNImageOption: Any\]\?\s*=\s*nil/, out,
+                 "T54l: :nil_literal Hash 形は typed nil literal を emit")
+  end
 end
