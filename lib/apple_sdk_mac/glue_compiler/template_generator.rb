@@ -944,7 +944,9 @@ module AppleSDKMac
         when :bool
           ["return #{var} ? Qtrue : Qfalse"]
         when :float
-          ["return rb_float_new(#{var})"]
+          # T54v — Apple SDK の Float type alias (VNConfidence = Float 等) は
+          # Swift 6 で Double に暗黙変換されないため、 明示 Double() cast。
+          ["return rb_float_new(Double(#{var}))"]
         when :void
           ["return Qnil"]
         else
