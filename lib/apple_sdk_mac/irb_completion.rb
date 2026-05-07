@@ -115,5 +115,57 @@ module AppleSDKMac
         @io.flush if @io.respond_to?(:flush)
       end
     end
+
+    # 補完で確定した method 名を Apple.discover の正しい keyword shape に
+    # マッピングして同期実行する。 parameters / return_kind は明示せず、
+    # TemplateGenerator → LLMGenerator pipeline に shape 推論を任せる。
+    class AutoDiscoverer
+      def initialize(knowledge_cache:, discover_proc: nil)
+        @cache = knowledge_cache
+        @discover = discover_proc || ->(**args) { ::Apple.discover(**args) }
+      end
+
+      def run(context, chosen_name)
+        return if context.nil?
+        return if context.receiver_kind != :class
+
+        record = lookup_method_record(context, chosen_name)
+        return if record.nil?
+
+        kwargs = build_discover_kwargs(context, record, chosen_name)
+        return unless kwargs
+        @discover.call(**kwargs)
+      end
+
+      private
+
+      def lookup_method_record(context, chosen_name)
+        rows = @cache.list_klass_methods(
+          framework: context.framework, klass: context.klass
+        )
+        rows.find { |r| ruby_name(r[:name]) == chosen_name }
+      end
+
+      def ruby_name(symbol_name)
+        m = symbol_name.match(/\A([A-Za-z_][A-Za-z0-9_]*).*/)
+        m ? m[1] : symbol_name
+      end
+
+      def build_discover_kwargs(context, record, chosen_name)
+        base = { framework: context.framework.to_sym, klass: context.klass.to_sym }
+        case record[:kind]
+        when "objc_method_class", "class_method"
+          base.merge(class_method: record[:name])
+        when "objc_method_instance", "instance_method"
+          base.merge(selector: record[:name])
+        when "swift_init"
+          base.merge(swift_initializer: record[:name])
+        when "swift_property"
+          base.merge(swift_property: chosen_name.to_sym, instance: true)
+        else
+          nil
+        end
+      end
+    end
   end
 end
