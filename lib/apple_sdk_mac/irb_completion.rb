@@ -186,8 +186,28 @@ module AppleSDKMac
       def completion_candidates(preposing, target, postposing, bind:)
         input = "#{preposing}#{target}"
         context = Context.parse(input)
-        return @provider.call(context) if context
+        if context
+          raw = @provider.call(context) || []
+          return prefix_candidates(context, raw)
+        end
         @base ? @base.completion_candidates(preposing, target, postposing, bind: bind) : []
+      end
+
+      # Reline matches `target` against candidate prefix. IRB's
+      # BASIC_WORD_BREAK_CHARACTERS excludes `:` and `.`, so target is the
+      # whole `Apple::Foundation::U` chain. Candidates must therefore carry
+      # the full receiver prefix or Reline silently rejects them.
+      private def prefix_candidates(context, raw)
+        case context.receiver_kind
+        when :apple_root
+          raw.map { |c| "Apple::#{c}" }
+        when :module
+          raw.map { |c| "Apple::#{context.framework}::#{c}" }
+        when :class
+          raw.map { |c| "Apple::#{context.framework}::#{context.klass}.#{c}" }
+        else
+          raw
+        end
       end
 
       def doc_namespace(preposing, target, postposing, bind:)

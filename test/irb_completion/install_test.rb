@@ -25,8 +25,8 @@ class TestIRBCompletionInstall < Test::Unit::TestCase
 
     completor = AppleSDKMac::IRBCompletion::Completor.new(provider: provider, base: nil)
     out = completor.completion_candidates("Apple::", "", "", bind: binding)
-    assert_includes out, "Foundation"
-    assert_includes out, "Vision"
+    assert_includes out, "Apple::Foundation"
+    assert_includes out, "Apple::Vision"
   end
 
   def test_completor_delegates_non_apple_to_base
