@@ -694,7 +694,20 @@ module AppleSDKMac
             "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{ai}])))"
           end
         when :cftype_ref
-          "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{ai}])))"
+          # T54k — Hash 形 (`{kind: :cftype_ref, type: "CGImage"}`) で typed
+          # CFType reference に unsafeBitCast。 Vision の
+          # `init(cgImage: CGImage, ...)` 等、 Swift bridged CFType class 引数を
+          # expect する path で必須。 type_hint 不在時は raw OpaquePointer 維持
+          # (CoreMIDI 系の opaque ref 渡しを壊さない)。
+          if type_hint
+            <<~SWIFT.chomp
+              let arg#{index}_raw_v = UInt(rb_num2ull(argv[#{ai}]))
+                  guard let arg#{index}_ptr_v = OpaquePointer(bitPattern: arg#{index}_raw_v) else { return Qnil }
+                  let arg#{index} = unsafeBitCast(arg#{index}_ptr_v, to: #{type_hint}.self)
+            SWIFT
+          else
+            "let arg#{index} = OpaquePointer(bitPattern: UInt(rb_num2ull(argv[#{ai}])))"
+          end
         when :void_ptr_nilable
           "let arg#{index}: UnsafeMutableRawPointer? = (argv[#{ai}] == Qnil) ? nil : UnsafeMutableRawPointer(bitPattern: Int(rb_num2ll(argv[#{ai}])))"
         when :block_persistent
