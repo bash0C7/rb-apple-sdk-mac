@@ -38,3 +38,10 @@ module Apple
     ::AppleSDKMac.bootstrap!
   end
 end
+
+# IRB session detected → enable autocomplete. Plain script use (no IRB)
+# is unaffected; lib/apple_sdk_mac/irb_completion.rb is not even required.
+if defined?(IRB)
+  require_relative "apple_sdk_mac/irb_completion"
+  AppleSDKMac::IRBCompletion.install!
+end

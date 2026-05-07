@@ -167,5 +167,63 @@ module AppleSDKMac
         end
       end
     end
+
+    @installed = false
+    @saved_completion_proc = nil
+    @saved_dig_perfect_match_proc = nil
+
+    class << self
+      def install!(knowledge_cache: nil, discover_proc: nil, spinner_io: $stderr)
+        return if @installed
+        require "reline"
+        knowledge_cache ||= AppleSDKMac.knowledge_cache
+        provider = CandidateProvider.new(knowledge_cache: knowledge_cache)
+        discoverer = AutoDiscoverer.new(
+          knowledge_cache: knowledge_cache,
+          discover_proc: discover_proc
+        )
+        spinner = Spinner.new(io: spinner_io)
+
+        @saved_completion_proc = Reline.completion_proc
+        @saved_dig_perfect_match_proc = Reline.dig_perfect_match_proc
+        original = @saved_completion_proc
+
+        Reline.completion_proc = lambda do |input|
+          context = Context.parse(input)
+          if context
+            provider.call(context)
+          else
+            original ? original.call(input) : []
+          end
+        end
+
+        Reline.dig_perfect_match_proc = lambda do |target|
+          context = Context.parse(target)
+          next unless context && context.receiver_kind == :class
+          message = "discovering #{context.framework}::#{context.klass}.#{context.prefix}..."
+          spinner.start(message)
+          begin
+            discoverer.run(context, context.prefix)
+          ensure
+            spinner.stop
+          end
+        end
+
+        @installed = true
+      end
+
+      def uninstall!
+        return unless @installed
+        Reline.completion_proc = @saved_completion_proc
+        Reline.dig_perfect_match_proc = @saved_dig_perfect_match_proc
+        @saved_completion_proc = nil
+        @saved_dig_perfect_match_proc = nil
+        @installed = false
+      end
+
+      def installed?
+        @installed
+      end
+    end
   end
 end
