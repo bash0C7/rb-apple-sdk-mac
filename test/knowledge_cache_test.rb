@@ -97,6 +97,20 @@ class TestKnowledgeCache < Test::Unit::TestCase
     assert_nil doc
   end
 
+  def test_lookup_framework_documentation_returns_synthesized_doc
+    cache = AppleSDKMac.knowledge_cache
+    doc = cache.lookup_framework_documentation(name: "ARKit")
+    assert doc.is_a?(String) && !doc.empty?,
+      "ARKit framework lookup must return a synthesized description even when frameworks.doc_url is empty"
+    assert_match(/ARKit/i, doc)
+    assert_match(/symbol/i, doc)  # symbol count appears
+  end
+
+  def test_lookup_framework_documentation_returns_nil_for_unknown
+    cache = AppleSDKMac.knowledge_cache
+    assert_nil cache.lookup_framework_documentation(name: "NoSuchFramework__")
+  end
+
   private
 
   def real_knowledge_built?
