@@ -74,4 +74,44 @@ class ValidateCallTest < Test::Unit::TestCase
     assert_empty parsed["issues"]
     assert_equal true, parsed["valid"]
   end
+
+  # Phase C-2 — Apple.discover ブロックでなく、 既に discover 済みの動的メソッドを
+  # `Apple::FW::Klass.method(...)` または `Apple::FW.func(...)` として直接呼び
+  # 出している箇所も regex 抽出 → KB lookup で検証する。
+
+  def test_direct_klass_method_call_known_passes
+    kb = FakeKB.new(Set.new([["Foundation", "URL.appendingPathComponent"]]))
+    tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: kb)
+    code = 'Apple::Foundation::URL.appendingPathComponent("foo")'
+    parsed = JSON.parse(tool.call(ruby_code: code))
+    assert_empty parsed["issues"]
+    assert_equal 1, parsed["checked_count"]
+  end
+
+  def test_direct_klass_method_call_unknown_warns
+    tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: @kb)
+    code = 'Apple::Foundation::URL.noSuchMethod()'
+    parsed = JSON.parse(tool.call(ruby_code: code))
+    assert_operator parsed["issues"].size, :>=, 1
+    assert_match(/URL\.noSuchMethod/, parsed["issues"].first["message"])
+  end
+
+  def test_direct_framework_function_call_known_passes
+    tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: @kb)
+    code = 'Apple::CoreMIDI.MIDIClientCreate("MyClient")'
+    parsed = JSON.parse(tool.call(ruby_code: code))
+    assert_empty parsed["issues"]
+    assert_equal 1, parsed["checked_count"]
+  end
+
+  def test_direct_calls_combine_with_discover_calls
+    tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: @kb)
+    code = <<~RUBY
+      Apple.discover(framework: :Foundation, symbol: :URL)
+      Apple::CoreMIDI.MIDIClientCreate(refnil, out)
+    RUBY
+    parsed = JSON.parse(tool.call(ruby_code: code))
+    assert_empty parsed["issues"]
+    assert_equal 2, parsed["checked_count"]
+  end
 end
