@@ -131,4 +131,56 @@ class SuggestDiscoverCallTest < Test::Unit::TestCase
     assert_kind_of Array, parsed["candidates"]
     assert_operator parsed["candidates"].size, :>=, 2
   end
+
+  # Phase C-1 — accept response の record は lookup_symbol で fetch した
+  # 完全 record (documentation / parameters_json 等込み) に置き換える。
+  # AI agent は record を見て override 判断できるので、 search row では薄すぎる。
+
+  RichKB = Struct.new(:search_fixture, :lookup_fixture) do
+    def search(framework:, query:, limit: 5)
+      search_fixture.select { |r|
+        (framework.nil? || r[:framework] == framework) &&
+        r[:name].downcase.include?(query.downcase)
+      }.first(limit)
+    end
+    def lookup_symbol(framework:, name:)
+      lookup_fixture[[framework, name]]
+    end
+    def list_frameworks
+      search_fixture.map { |r| r[:framework] }.uniq
+    end
+  end
+
+  def test_accept_response_uses_lookup_symbol_for_richer_record
+    search_fix = [{ framework: "CoreMIDI", name: "MIDIClientCreate", kind: "function",
+                    signature: "OSStatus MIDIClientCreate(...)" }]
+    lookup_fix = {
+      ["CoreMIDI", "MIDIClientCreate"] => {
+        framework:       "CoreMIDI",
+        name:            "MIDIClientCreate",
+        kind:            "function",
+        signature:       "OSStatus MIDIClientCreate(...)",
+        documentation:   "Creates a MIDI client object.",
+        parameters_json: "[{\"kind\":\"cstring\"}]"
+      }
+    }
+    kb     = RichKB.new(search_fix, lookup_fix)
+    tool   = AppleSDKMac::MCP::Tools::SuggestDiscoverCall.new(kb: kb)
+    parsed = JSON.parse(tool.call(intent: "MIDIClientCreate", framework: "CoreMIDI", server_context: nil))
+    assert_equal "accept", parsed["action"]
+    assert_equal "Creates a MIDI client object.", parsed["record"]["documentation"]
+    assert_match(/cstring/, parsed["record"]["parameters_json"])
+  end
+
+  def test_accept_falls_back_to_search_row_when_lookup_symbol_returns_nil
+    search_fix = [{ framework: "CoreMIDI", name: "MIDIClientCreate", kind: "function",
+                    signature: "OSStatus MIDIClientCreate(...)" }]
+    lookup_fix = {} # lookup_symbol が nil を返す
+    kb     = RichKB.new(search_fix, lookup_fix)
+    tool   = AppleSDKMac::MCP::Tools::SuggestDiscoverCall.new(kb: kb)
+    parsed = JSON.parse(tool.call(intent: "MIDIClientCreate", framework: "CoreMIDI", server_context: nil))
+    assert_equal "accept", parsed["action"]
+    assert_equal "MIDIClientCreate", parsed["record"]["name"]
+    assert_equal "function", parsed["record"]["kind"]
+  end
 end
