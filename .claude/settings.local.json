@@ -7,7 +7,12 @@
       "Bash(bundle exec *)",
       "Bash(screen -dmS apple-runtime-rebuild-T51 bash -c ' *)",
       "Bash(screen -ls)",
-      "Bash(screen -dmS rb-apple-sdk-reinstall bash -c ' *)"
+      "Bash(screen -dmS rb-apple-sdk-reinstall bash -c ' *)",
+      "Bash(bundle info *)",
+      "Read(//Users/bash/dev/src/github.com/bash0C7/rb-apple-sdk-knowledge/**)",
+      "Bash(ruby -e \"require 'rubygems'; spec = Gem::Specification.load\\('apple_sdk_mac-irb.gemspec'\\); puts %Q[#{spec.name} #{spec.version} files=#{spec.files.size} deps=#{spec.runtime_dependencies.size}]\")",
+      "Read(//Users/bash/dev/src/github.com/bash0C7/chiebukuro-mcp/**)",
+      "mcp__esa__esa_create_post"
     ]
   }
 }
