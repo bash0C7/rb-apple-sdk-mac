@@ -132,4 +132,17 @@ class SearchTest < Test::Unit::TestCase
     assert_match(/session/, received)
     refute_match(/\b(of|a)\b/, received)
   end
+
+  # Phase D — tool_class 経由で .call すると wrap_with_log が動き、 stderr に
+  # JSON ログが 1 行出る。 全 tool に同じ wiring を適用する代表 test。
+
+  def test_tool_call_emits_log_line_to_stderr
+    tool_class = AppleSDKMac::MCP::Tools::Search.tool_class(kb: @kb)
+    log = capture_stderr do
+      tool_class.call(query: "URL", framework: "Foundation")
+    end
+    parsed = JSON.parse(log.strip)
+    assert_equal "tool_call", parsed["kind"]
+    assert_equal "apple_sdk_mac_search", parsed["tool"]
+  end
 end
