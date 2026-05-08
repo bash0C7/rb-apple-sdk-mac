@@ -110,6 +110,7 @@ $ APPLE_SDK_DOC_LANG=ja-JP irb -r apple_sdk_mac -r apple_sdk_mac/irb
 
 # Or, fall back to LANG (POSIX style accepted here):
 $ LANG=ja_JP.UTF-8 irb -r apple_sdk_mac -r apple_sdk_mac/irb
+> AppleSDKMac::IRB.install!
 ```
 
 Design notes and decision log: `docs/superpowers/specs/2026-05-08-irb-subgem-and-doc-discover-design.md`.
