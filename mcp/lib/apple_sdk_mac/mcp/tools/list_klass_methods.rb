@@ -24,8 +24,10 @@ module AppleSDKMac
               required: ["framework", "klass"]
             }
           ) do |framework:, klass:, server_context: nil, **_|
-            text = tool_obj.call(framework: framework, klass: klass)
-            ::MCP::Tool::Response.new([{ type: "text", text: text }])
+            AppleSDKMac::MCP::Server.wrap_with_log(tool_name: "apple_sdk_mac_list_klass_methods") do
+              text = tool_obj.call(framework: framework, klass: klass)
+              ::MCP::Tool::Response.new([{ type: "text", text: text }])
+            end
           end
         end
 

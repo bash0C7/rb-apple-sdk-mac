@@ -45,8 +45,10 @@ module AppleSDKMac
               required: ["query"]
             }
           ) do |query:, framework: nil, kinds: nil, limit: DEFAULT_LIMIT, server_context: nil, **_|
-            text = tool_obj.call(query: query, framework: framework, kinds: kinds, limit: limit)
-            ::MCP::Tool::Response.new([{ type: "text", text: text }])
+            AppleSDKMac::MCP::Server.wrap_with_log(tool_name: "apple_sdk_mac_search") do
+              text = tool_obj.call(query: query, framework: framework, kinds: kinds, limit: limit)
+              ::MCP::Tool::Response.new([{ type: "text", text: text }])
+            end
           end
         end
 

@@ -1,4 +1,6 @@
 # frozen_string_literal: true
+require "json"
+require "time"
 
 # spec §3 — Server / ServerFacade。 chiebukuro-mcp の Server class を rb-apple-sdk-mac
 # 用に最小化。 v0.1 では tools = [probe_capabilities] のみ、 resources = [] (空)。
@@ -8,6 +10,40 @@
 module AppleSDKMac
   module MCP
     class Server
+      # spec §7 — 各 MCP tool 呼び出しを wrap して構造化 JSON ログを stderr に
+      # 1 行吐く。 chiebukuro-mcp の wrap_with_log_proc 同形 (db_name は本 server
+      # では不要なので除去)。 tool 内 block 末尾の Response を return する。
+      class << self
+        def wrap_with_log(tool_name:, &block)
+          t0     = Time.now
+          result = block.call
+          elapsed_ms = ((Time.now - t0) * 1000).to_i
+          entry = {
+            ts:          t0.iso8601,
+            kind:        "tool_call",
+            tool:        tool_name,
+            result_rows: extract_row_count(result),
+            elapsed_ms:  elapsed_ms
+          }
+          warn JSON.generate(entry)
+          result
+        end
+
+        # MCP::Tool::Response から result_rows を best-effort 推定。 Array JSON
+        # は length、 それ以外 (object / scalar / parse 失敗) は 0。 ログの目的は
+        # 偏り観測なので厳密性より頑健性を優先。
+        def extract_row_count(response)
+          return 0 unless response.respond_to?(:content)
+          first = response.content.first
+          text  = first[:text] || first["text"]
+          return 0 unless text.is_a?(String)
+          parsed = JSON.parse(text)
+          parsed.is_a?(Array) ? parsed.length : 0
+        rescue StandardError
+          0
+        end
+      end
+
       def initialize(kb: nil)
         @kb = kb
       end

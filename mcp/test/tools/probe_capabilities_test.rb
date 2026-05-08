@@ -22,24 +22,29 @@ class ProbeCapabilitiesTest < Test::Unit::TestCase
 
   def test_call_with_nil_server_context_returns_error_status
     tool_class = AppleSDKMac::MCP::Tools::ProbeCapabilities.tool_class
-    response = tool_class.call(server_context: nil)
-    parsed   = JSON.parse(extract_text(response))
+    response   = nil
+    capture_stderr { response = tool_class.call(server_context: nil) }
+    parsed     = JSON.parse(extract_text(response))
     assert_equal "error", parsed["status"]
     assert_match(/server_context/, parsed["error"])
   end
 
   def test_supported_when_methods_succeed
-    tool_class    = AppleSDKMac::MCP::Tools::ProbeCapabilities.tool_class
-    fake_context  = SupportedContext.new
-    parsed        = JSON.parse(extract_text(tool_class.call(server_context: fake_context)))
+    tool_class   = AppleSDKMac::MCP::Tools::ProbeCapabilities.tool_class
+    fake_context = SupportedContext.new
+    response     = nil
+    capture_stderr { response = tool_class.call(server_context: fake_context) }
+    parsed       = JSON.parse(extract_text(response))
     assert_equal "supported", parsed["elicitation"]["status"]
     assert_equal "supported", parsed["sampling"]["status"]
   end
 
   def test_unsupported_when_methods_raise
-    tool_class    = AppleSDKMac::MCP::Tools::ProbeCapabilities.tool_class
-    fake_context  = UnsupportedContext.new
-    parsed        = JSON.parse(extract_text(tool_class.call(server_context: fake_context)))
+    tool_class   = AppleSDKMac::MCP::Tools::ProbeCapabilities.tool_class
+    fake_context = UnsupportedContext.new
+    response     = nil
+    capture_stderr { response = tool_class.call(server_context: fake_context) }
+    parsed       = JSON.parse(extract_text(response))
     assert_equal "unsupported", parsed["elicitation"]["status"]
     assert_equal "unsupported", parsed["sampling"]["status"]
     assert_match(/elicit boom/,   parsed["elicitation"]["error"])
@@ -48,9 +53,11 @@ class ProbeCapabilitiesTest < Test::Unit::TestCase
 
   def test_elicitation_supported_sampling_unsupported_mixed
     # 実 host (Claude Code 含む) でよくある状態: 片方だけ実装。
-    tool_class    = AppleSDKMac::MCP::Tools::ProbeCapabilities.tool_class
-    fake_context  = MixedContext.new
-    parsed        = JSON.parse(extract_text(tool_class.call(server_context: fake_context)))
+    tool_class   = AppleSDKMac::MCP::Tools::ProbeCapabilities.tool_class
+    fake_context = MixedContext.new
+    response     = nil
+    capture_stderr { response = tool_class.call(server_context: fake_context) }
+    parsed       = JSON.parse(extract_text(response))
     assert_equal "supported",   parsed["elicitation"]["status"]
     assert_equal "unsupported", parsed["sampling"]["status"]
   end

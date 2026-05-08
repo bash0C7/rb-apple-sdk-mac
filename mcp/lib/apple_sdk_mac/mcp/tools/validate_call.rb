@@ -40,8 +40,10 @@ module AppleSDKMac
               required: ["ruby_code"]
             }
           ) do |ruby_code:, server_context: nil, **_|
-            text = tool_obj.call(ruby_code: ruby_code)
-            ::MCP::Tool::Response.new([{ type: "text", text: text }])
+            AppleSDKMac::MCP::Server.wrap_with_log(tool_name: "apple_sdk_mac_validate_call") do
+              text = tool_obj.call(ruby_code: ruby_code)
+              ::MCP::Tool::Response.new([{ type: "text", text: text }])
+            end
           end
         end
 

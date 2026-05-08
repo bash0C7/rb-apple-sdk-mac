@@ -32,8 +32,10 @@ module AppleSDKMac
               required: ["intent"]
             }
           ) do |intent:, framework: nil, server_context: nil, **_|
-            text = tool_obj.call(intent: intent, framework: framework, server_context: server_context)
-            ::MCP::Tool::Response.new([{ type: "text", text: text }])
+            AppleSDKMac::MCP::Server.wrap_with_log(tool_name: "apple_sdk_mac_suggest_discover_call") do
+              text = tool_obj.call(intent: intent, framework: framework, server_context: server_context)
+              ::MCP::Tool::Response.new([{ type: "text", text: text }])
+            end
           end
         end
 

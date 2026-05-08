@@ -34,8 +34,10 @@ module AppleSDKMac
             description: "MCP host が elicitation / sampling capability を実装しとるか実地で確認する実証ツール。 create_form_elicitation / create_sampling_message を実呼びし例外で判定。 引数なし、 JSON で結果を返す。",
             input_schema: { type: "object", properties: {} }
           ) do |server_context: nil, **_|
-            text = AppleSDKMac::MCP::Tools::ProbeCapabilities.report(server_context)
-            ::MCP::Tool::Response.new([{ type: "text", text: text }])
+            AppleSDKMac::MCP::Server.wrap_with_log(tool_name: "apple_sdk_mac_probe_capabilities") do
+              text = AppleSDKMac::MCP::Tools::ProbeCapabilities.report(server_context)
+              ::MCP::Tool::Response.new([{ type: "text", text: text }])
+            end
           end
         end
 
