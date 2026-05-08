@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.1.0] — 2026-05-08
+
+User-facing simplification: in most cases callers no longer need an upfront `Apple.discover` to call an Apple SDK API. The dispatcher compiles the Swift glue dylib inline on the first invocation for any symbol the knowledge base already knows about; `Apple.discover` becomes a manual escape hatch for KB-external shapes, KB classification overrides, and pre-warming.
+
+### Added
+- **Transparent auto-compile in `Dispatcher#dispatch`.** When the compiled-glue cache misses but the KB has the symbol record, the dispatcher invokes `compiler.compile` inline, re-checks the cache, and proceeds with the call. Eliminates the prior `"no glue cached for ...; call Apple.discover first"` raise for the happy path.
+- **`apple_sdk_mac-irb` sub-gem (logical sub-gem under `irb/`)** ships IRB autocomplete + `:show_doc` dialog with KB-sourced documentation, LLM doc fallback for KB-empty symbols (Swift overlay, Ruby stdlib), background `Apple.discover` prefetch, and on-the-fly translation via the `translation_mac-locale` sub-gem of `rb-translation-mac`.
+- **`AppleSDKMac::IRB.install!`** wires Reline / IRB::Context completion + `:show_doc` dialog. Activated by `require "apple_sdk_mac/irb"` (separate gemspec; main gem stays free of IRB / Reline / `foundation_model_mac` dependencies).
+
+### Changed
+- **README Usage section restructured.** Two startup paths documented explicitly: a "bootstrap once, call freely" recommended path that pairs `AppleSDKMac.bootstrap!` with the new transparent auto-compile, and a "per-symbol on-demand" lightweight path for scripts that only touch a handful of symbols. The 3-case `Apple.discover` escape-hatch list (KB classification override, KB-external symbol, pre-warm) sits below.
+- **Translation pipeline pin.** Translation integration tracks `rb-translation-mac` 0.2.0, where `TranslationMac.translate` / `.prepare` / `.status` / `.supported_languages` all reach the Apple Translation framework via the helper subprocess. Headless-host hangs that previously bit `bundle exec rake test` are resolved upstream.
+
+### Fixed
+- `KnowledgeCache#lookup_framework_documentation` no longer leaks `"N symbols indexed"` (gem-internal symbol-count metadata) into the IRB doc dialog. Only user-facing fields surface (Swift module, category, macOS minimum, doc URL).
+
+### Reference
+- Migration design (cross-repo dependency): `../rb-translation-mac/docs/superpowers/specs/2026-05-08-availability-helper-subprocess-migration-design.md`
+- IRB sub-gem design: `docs/superpowers/specs/2026-05-08-irb-subgem-and-doc-discover-design.md`
+
 ## [v1.0.0] — 2026-05-06 — Phase 7 / release-quality
 
 ### Added
