@@ -9,3 +9,40 @@ Rake::TestTask.new(:test) do |t|
 end
 
 task default: :test
+
+namespace :probe do
+  # Phase F E2E (2026-05-08) の再現用 task。 nested `claude -p` 経由で 7 tool
+  # 全部を順次呼び、 log を tmp/longrun/apple-mcp-e2e-<ts>.log に流す。
+  # `claude -p` は print mode = headless で elicitation auto-cancel する仕様
+  # なので suggest_discover_call は action: cancel を返すのが正しい挙動。
+  # interactive 検証は docs/elicitation-headless-investigation.md 参照。
+  desc "Reproduce Phase F E2E via headless `claude -p` (auto-cancel elicitation)"
+  task :headless_e2e do
+    require "fileutils"
+    repo_root = File.expand_path("..", __dir__)
+    log_dir   = File.join(repo_root, "tmp/longrun")
+    FileUtils.mkdir_p(log_dir)
+    ts        = Time.now.strftime("%Y%m%dT%H%M%S")
+    log_file  = File.join(log_dir, "apple-mcp-e2e-#{ts}.log")
+    prompt    = File.expand_path("scripts/probe_e2e_prompt.txt", __dir__)
+    raise "prompt not found: #{prompt}" unless File.exist?(prompt)
+
+    allowed = %w[
+      mcp__apple-sdk__apple_sdk_mac_probe_capabilities
+      mcp__apple-sdk__apple_sdk_mac_search
+      mcp__apple-sdk__apple_sdk_mac_get_symbol_info
+      mcp__apple-sdk__apple_sdk_mac_list_klass_methods
+      mcp__apple-sdk__apple_sdk_mac_suggest_discover_call
+      mcp__apple-sdk__apple_sdk_mac_dry_run_template
+      mcp__apple-sdk__apple_sdk_mac_validate_call
+    ].join(",")
+
+    session = "apple-mcp-e2e-#{ts}"
+    cmd = %(screen -dmS #{session} bash -c 'claude -p --allowedTools "#{allowed}" < #{prompt} > #{log_file} 2>&1; echo "DONE: exit=$?" >> #{log_file}')
+    sh cmd
+    puts "Started: screen session #{session}"
+    puts "Log:     #{log_file}"
+    puts "Tail:    tail -f #{log_file}"
+    puts "Wait:    grep '^DONE:' #{log_file}"
+  end
+end
