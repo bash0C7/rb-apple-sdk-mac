@@ -326,11 +326,11 @@ module AppleSDKMac
 
       private
 
-      # LANG → BCP-47 normalization + soft-load translation_mac/locale
-      # (sibling sub-gem inside rb-translation-mac). When the user is in
-      # an English locale, when LANG is C / POSIX / unset, or when the
-      # translation gem is not installed, returns nil so doc_transform
-      # stays identity.
+      # Resolve translation target locale from APPLE_SDK_DOC_LANG (primary,
+      # documented as BCP-47 e.g. "ja-JP") and ENV["LANG"] (fallback,
+      # POSIX style e.g. "ja_JP.UTF-8" also accepted). When both resolve
+      # to nil, when LANG is C / POSIX / en*, or when the translation gem
+      # is not installed, returns nil so doc_transform stays identity.
       def build_translator
         begin
           require "translation_mac/locale"
@@ -338,7 +338,9 @@ module AppleSDKMac
           warn "[apple-sdk-mac irb] translation_mac/locale unavailable: #{e.message}" if ENV["APPLE_IRB_DEBUG"]
           return nil
         end
-        target = ::TranslationMac::Locale::Translator.detect_target_lang(ENV["LANG"])
+        target = ::TranslationMac::Locale::Translator.detect_target_lang_priority(
+          ENV["APPLE_SDK_DOC_LANG"], ENV["LANG"]
+        )
         return nil unless target
         ::TranslationMac::Locale::Translator.new(target_lang: target)
       end
