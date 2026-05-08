@@ -64,6 +64,32 @@ class TestKnowledgeCache < Test::Unit::TestCase
     assert_equal [], rows
   end
 
+  # Phase F follow-up (2026-05-08) — KB symbols は parent_id 階層で索引されて
+  # おり、 "URL.appendingPathComponent" のような flat name は lookup_symbol で
+  # 必ず miss する。 lookup_klass_method は klass + method を分けて parent_id
+  # JOIN で正確に hit させる。
+  def test_lookup_klass_method_returns_record_for_known
+    cache = AppleSDKMac.knowledge_cache
+    rec = cache.lookup_klass_method(framework: "Foundation", klass: "URL",
+                                    method: "appendingPathComponent")
+    assert_not_nil rec, "Foundation::URL::appendingPathComponent must be indexed under URL.parent_id"
+    assert_equal "appendingPathComponent", rec[:name]
+    assert_match(/method/, rec[:kind])
+  end
+
+  def test_lookup_klass_method_returns_nil_for_unknown_method
+    cache = AppleSDKMac.knowledge_cache
+    assert_nil cache.lookup_klass_method(framework: "Foundation", klass: "URL",
+                                          method: "noSuchMethod___xyz")
+  end
+
+  def test_lookup_klass_method_returns_nil_for_unknown_klass
+    cache = AppleSDKMac.knowledge_cache
+    assert_nil cache.lookup_klass_method(framework: "Foundation",
+                                          klass: "ClassThatDoesNotExist__",
+                                          method: "anything")
+  end
+
   # Step 3.2 — KnowledgeCache.lookup_documentation for the irb sub-gem
   # :show_doc dialog. The 2026-05-08 KB rebuild populates symbols.documentation
   # for ObjC/C frameworks via clang's FullComment AST; CoreFoundation symbols
