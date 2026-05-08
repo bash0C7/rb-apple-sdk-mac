@@ -1,0 +1,23 @@
+apple-sdk MCP server に登録された 7 個の tool を順に実呼びして、 各 tool の戻り値の特徴と観察結果を報告してほしい。
+
+実行する 7 tool と引数:
+
+1. mcp__apple-sdk__apple_sdk_mac_probe_capabilities — 引数なし
+2. mcp__apple-sdk__apple_sdk_mac_search — query: "decode JPEG image", framework: "ImageIO", limit: 3
+3. mcp__apple-sdk__apple_sdk_mac_get_symbol_info — framework: "Foundation", symbol: "URL"
+4. mcp__apple-sdk__apple_sdk_mac_list_klass_methods — framework: "Foundation", klass: "URL"
+5. mcp__apple-sdk__apple_sdk_mac_suggest_discover_call — intent: "create a CoreMIDI client", framework: "CoreMIDI"
+6. mcp__apple-sdk__apple_sdk_mac_dry_run_template — framework: "CoreMIDI", symbol: "MIDIClientCreate"
+7. mcp__apple-sdk__apple_sdk_mac_validate_call — ruby_code: 'Apple.discover(framework: :Foundation, symbol: :URL)\nApple::Foundation::URL.appendingPathComponent("foo")'
+
+各 tool について:
+- 戻り値 raw text の先頭 300 文字
+- 観察した特徴 (success/error/decline 等の action / 件数 / 興味深い field) を 1〜2 行
+
+最後にまとめとして:
+- どの tool が想定通り動いたか (○)
+- どの tool が想定外の挙動 / capability 不足で失敗したか (×) と原因推定
+- 特に suggest_discover_call の elicitation 挙動 (decline / cancel / accept / candidates のうちどれが返ったか) に注目
+- validate_call の checked_count に注目: literal `\n` 入力で direct call が 2 件抽出されているか (regression: 旧版だと 1 件しか抽出されない)
+
+報告は markdown で、 全体 800 文字以内を目処に簡潔に。
