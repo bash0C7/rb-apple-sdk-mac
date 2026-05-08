@@ -77,4 +77,52 @@ class TestDispatcher < Test::Unit::TestCase
       d.dispatch(framework: "CoreMIDI", symbol: "Missing", args: [])
     end
   end
+
+  # Transparent auto-discover (2026-05-08): when KB has the symbol record
+  # but the glue is not yet compiled, Dispatcher must trigger compile +
+  # cache populate inline so the call succeeds without an upfront
+  # `Apple.discover` from the user.
+  class FakeCompilerThatPopulatesCache
+    def initialize(cache); @cache = cache; @calls = []; end
+    attr_reader :calls
+    def compile(framework:, symbol:)
+      @calls << [framework, symbol[:name]]
+      @cache.fake_hit!(framework, symbol[:name],
+                       "glue_auto_#{symbol[:name]}", "/tmp/auto.dylib")
+      Struct.new(:success?, :error_stage, :error_detail).new(true, nil, nil)
+    end
+  end
+
+  class FakeCompilerThatFails
+    def compile(framework:, symbol:)
+      Struct.new(:success?, :error_stage, :error_detail).new(false, "swiftc", "fake fail")
+    end
+  end
+
+  def test_dispatch_auto_compiles_on_cache_miss_when_kb_has_symbol
+    cache = FakeCache.new
+    compiler = FakeCompilerThatPopulatesCache.new(cache)
+    loader = FakeLoader.new
+    d = AppleSDKMac::Dispatcher.new(
+      knowledge_cache: FakeKnowledge.new, glue_cache: cache,
+      loader: loader, compiler: compiler
+    )
+    # No fake_hit! before dispatch — cache miss path. Must not raise.
+    result = d.dispatch(framework: "CoreMIDI", symbol: "MIDIClientCreate", args: [1, 2])
+    assert_equal ["invoked", 0xCAFE, [1, 2]], result
+    assert_equal [["CoreMIDI", "MIDIClientCreate"]], compiler.calls,
+                 "compiler.compile should be invoked exactly once for the missing glue"
+    assert_equal [["/tmp/auto.dylib", "glue_auto_MIDIClientCreate"]], loader.calls
+  end
+
+  def test_dispatch_raises_when_auto_compile_fails
+    cache = FakeCache.new
+    d = AppleSDKMac::Dispatcher.new(
+      knowledge_cache: FakeKnowledge.new, glue_cache: cache,
+      loader: FakeLoader.new, compiler: FakeCompilerThatFails.new
+    )
+    assert_raise(AppleSDKMac::Error) do
+      d.dispatch(framework: "CoreMIDI", symbol: "MIDIClientCreate", args: [])
+    end
+  end
 end
