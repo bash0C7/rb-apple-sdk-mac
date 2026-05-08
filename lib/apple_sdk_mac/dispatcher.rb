@@ -23,7 +23,13 @@ module AppleSDKMac
       canonical = sym_meta[:name]
       cache_hit = @cache.lookup(framework: framework, symbol: canonical)
       if cache_hit.nil?
-        raise Error, "no glue cached for #{framework}::#{canonical}; call Apple.discover first"
+        # Transparent auto-compile (2026-05-08): trigger compile inline so
+        # callers don't need an upfront `Apple.discover` for symbols the KB
+        # already knows about. Apple.discover stays available for KB-external
+        # shapes that need explicit kwargs (params:/return_kind:/objc selector).
+        @compiler.compile(framework: framework, symbol: sym_meta)
+        cache_hit = @cache.lookup(framework: framework, symbol: canonical)
+        raise Error, "compile failed for #{framework}::#{canonical}" if cache_hit.nil?
       end
 
       fn_ptr = @loader.load(
