@@ -114,4 +114,21 @@ class ValidateCallTest < Test::Unit::TestCase
     assert_empty parsed["issues"]
     assert_equal 2, parsed["checked_count"]
   end
+
+  # Phase F E2E (2026-05-08) で発覚: nested `claude -p` の prompt 内で single
+  # quote 文字列に書いた `\n` は literal 2 chars (backslash + n) として MCP
+  # tool に届く。 旧 regex の `\b` は `n→A` 間で word boundary が立たず
+  # direct call が抜けて checked_count が想定より 1 少なくなる回帰。
+  def test_direct_call_after_literal_backslash_n_is_detected
+    kb = FakeKB.new(Set.new([
+      ["Foundation", "URL"],
+      ["Foundation", "URL.appendingPathComponent"]
+    ]))
+    tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: kb)
+    # single-quote literal なので \n は backslash+n の 2 chars (Phase F と同形)
+    code = 'Apple.discover(framework: :Foundation, symbol: :URL)\nApple::Foundation::URL.appendingPathComponent("foo")'
+    parsed = JSON.parse(tool.call(ruby_code: code))
+    assert_equal 2, parsed["checked_count"], "discover + direct の 2 件抽出すべき"
+    assert_empty parsed["issues"]
+  end
 end
