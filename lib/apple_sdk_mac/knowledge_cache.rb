@@ -108,9 +108,10 @@ module AppleSDKMac
     end
 
     # Synthesizes a framework-level description from the frameworks
-    # table and a symbol-count query. Used by the irb sub-gem when the
-    # user hovers `Apple::<Framework>` (apple_root). When the row is
-    # absent altogether (unknown framework) returns nil.
+    # table. Used by the irb sub-gem when the user hovers `Apple::<Framework>`
+    # (apple_root). When the row is absent altogether (unknown framework)
+    # returns nil. Symbol counts and other gem-internal metadata are
+    # intentionally omitted — only user-facing description fields appear.
     def lookup_framework_documentation(name:)
       row = @db.execute(<<~SQL, [name]).first
         SELECT name, swift_module, category, doc_url, min_macos
@@ -118,15 +119,8 @@ module AppleSDKMac
       SQL
       return nil unless row
 
-      symbol_count = @db.execute(<<~SQL, [name]).first[0]
-        SELECT COUNT(*) FROM symbols s
-        JOIN frameworks f ON s.framework_id = f.id
-        WHERE f.name = ?
-      SQL
-
       parts = ["#{row[0]} framework"]
       parts << "Swift module: #{row[1]}" if row[1] && !row[1].empty?
-      parts << "#{symbol_count} symbols indexed" if symbol_count.is_a?(Integer)
       parts << "Category: #{row[2]}" if row[2] && !row[2].empty?
       parts << "macOS: #{row[4]}+" if row[4] && !row[4].empty?
       parts << "Documentation: #{row[3]}" if row[3] && !row[3].empty?
