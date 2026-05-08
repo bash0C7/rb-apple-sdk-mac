@@ -122,11 +122,30 @@ module AppleSDKMac
         end
 
         def accept_response(record)
+          enriched = enrich_record(record)
           JSON.generate(
             action: "accept",
-            kwargs: build_kwargs(record),
-            record: record
+            kwargs: build_kwargs(enriched),
+            record: enriched
           )
+        end
+
+        # search row は薄い (framework/name/kind/signature 程度)。 AI agent が
+        # params: / return_kind: の override を判断するには documentation /
+        # parameters_json / return_kind 等の richer field が要る。 lookup_symbol
+        # で fetch しなおして上書き。 KB が lookup_symbol を持たん / nil 返すと
+        # search row に fallback。
+        def enrich_record(record)
+          return record unless @kb.respond_to?(:lookup_symbol)
+          fw   = record[:framework] || record["framework"]
+          name = record[:name]      || record["name"]
+          return record if fw.nil? || name.nil?
+          fuller = begin
+            @kb.lookup_symbol(framework: fw, name: name)
+          rescue StandardError
+            nil
+          end
+          fuller || record
         end
 
         def candidate_label(record)
