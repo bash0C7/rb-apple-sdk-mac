@@ -143,4 +143,12 @@ class TestIRBInstall < Test::Unit::TestCase
         "Primary env mapping to nil (C/POSIX/en*/blank) must fall through to LANG"
     end
   end
+
+  def test_install_falls_through_when_apple_sdk_doc_lang_is_blank_string
+    with_doc_lang_env("", "ja_JP.UTF-8") do
+      install_with_stub_cache
+      assert_equal "ja-JP", resolved_target_lang,
+        "Empty-string primary must fall through to LANG (matches sub-gem skip rules)"
+    end
+  end
 end
