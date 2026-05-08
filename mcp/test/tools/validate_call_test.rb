@@ -80,7 +80,10 @@ class ValidateCallTest < Test::Unit::TestCase
   # 出している箇所も regex 抽出 → KB lookup で検証する。
 
   def test_direct_klass_method_call_known_passes
-    kb = FakeKB.new(Set.new([["Foundation", "URL.appendingPathComponent"]]))
+    # 3-tuple [framework, klass, method] = lookup_klass_method 用 fixture。
+    # 旧 lookup_symbol("URL.appendingPathComponent") では parent_id 階層に
+    # hit せん (KB index 仕様)、 klass + method 分離 lookup が必要。
+    kb = FakeKB.new(Set.new([["Foundation", "URL", "appendingPathComponent"]]))
     tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: kb)
     code = 'Apple::Foundation::URL.appendingPathComponent("foo")'
     parsed = JSON.parse(tool.call(ruby_code: code))
@@ -122,7 +125,7 @@ class ValidateCallTest < Test::Unit::TestCase
   def test_direct_call_after_literal_backslash_n_is_detected
     kb = FakeKB.new(Set.new([
       ["Foundation", "URL"],
-      ["Foundation", "URL.appendingPathComponent"]
+      ["Foundation", "URL", "appendingPathComponent"]
     ]))
     tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: kb)
     # single-quote literal なので \n は backslash+n の 2 chars (Phase F と同形)
