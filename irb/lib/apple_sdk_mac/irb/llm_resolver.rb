@@ -56,18 +56,23 @@ module AppleSDKMac
       end
 
       def build_apple_prompt(ctx)
-        parts = ["Briefly describe (1-3 short sentences, plain prose) the Apple SDK symbol below. Do not echo the name. No preamble. No code blocks."]
+        kind_label = case ctx.receiver_kind
+                     when :class then "method or property"
+                     when :module then "type"
+                     when :apple_root then "framework"
+                     else "API element"
+                     end
+        parts = ["Write 1-3 short sentences of API-style documentation for the following Apple framework #{kind_label}. Plain prose, no code blocks, no preamble, do not repeat the identifier."]
         parts << "Framework: #{ctx.framework}" if ctx.framework
-        parts << "Class/Type: #{ctx.klass}" if ctx.klass
+        parts << "Type: #{ctx.klass}" if ctx.klass
         parts << "Name: #{ctx.prefix}" if ctx.prefix && !ctx.prefix.empty?
-        parts << "Receiver kind: #{ctx.receiver_kind}"
         sig = lookup_signature(ctx)
         parts << "Signature: #{sig}" if sig
         parts.join("\n")
       end
 
       def build_ruby_prompt(matched)
-        "Briefly describe (1-3 short sentences, plain prose) what `#{matched}` does in the Ruby standard library or core. Do not echo the expression. No preamble. No code blocks."
+        "Write 1-3 short sentences of Ruby API documentation for `#{matched}` (a Ruby core or standard library method or class). Plain prose, no code blocks, no preamble, do not repeat the identifier."
       end
 
       def lookup_signature(ctx)

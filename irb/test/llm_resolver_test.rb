@@ -31,6 +31,22 @@ class TestLLMResolver < Test::Unit::TestCase
     assert_match(/appendingPathComponent/, seen_prompt)
   end
 
+  def test_apple_prompt_uses_api_wording_not_bare_symbol
+    # Live verification (2026-05-08) showed Apple's on-device model
+    # interpreting bare "Apple SDK symbol" as a visual icon and returning
+    # nonsense like "a rectangle with a blue circle in the middle and a
+    # diagonal line crossing through it." The prompt must use API-doc
+    # wording (API element / framework API / method) so the model treats
+    # the input as a programming construct.
+    seen = nil
+    llm = ->(p) { seen = p; "x" }
+    LLMResolver.new(llm_proc: llm).resolve("Apple::Foundation::URL.appendingPathComponent")
+    refute_match(/Apple SDK symbol/i, seen,
+      "prompt must not use the bare word 'symbol' which the on-device model misreads as a glyph")
+    assert_match(/API|method|function|property|type/i, seen,
+      "prompt should anchor the model on programming-construct vocabulary")
+  end
+
   def test_apple_prompt_includes_signature_when_kb_supplies_it
     kb = make_kb(signatures: {
       ["Foundation", "URL", "appendingPathComponent"] =>
