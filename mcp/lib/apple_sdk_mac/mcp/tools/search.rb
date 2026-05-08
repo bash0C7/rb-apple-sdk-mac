@@ -32,7 +32,7 @@ module AppleSDKMac
           tool_obj = new(kb: kb)
           ::MCP::Tool.define(
             name: "apple_sdk_mac_search",
-            description: "rb-apple-sdk-mac の Knowledge Base から Apple SDK symbol を検索する。 自然言語クエリ + 任意の framework / kind 絞り込み。 結果は JSON 配列のテキスト。",
+            description: "rb-apple-sdk-mac の Knowledge Base から Apple SDK symbol を検索する。 自然言語 phrase は 3 文字以上の token に分解され OR 結合で投げられる (例 'read EXIF metadata from image' → 'read OR EXIF OR metadata OR from OR image')。 1 token / OR・AND・NOT を含む advanced query はそのまま透過。 framework / kinds での絞り込み optional。 結果は JSON 配列のテキスト。",
             input_schema: {
               type: "object",
               properties: {
