@@ -92,4 +92,55 @@ class TestIRBInstall < Test::Unit::TestCase
     assert IRB::RelineInputMethod.include?(AppleSDKMac::IRB::RelineInputMethodOverride),
       "IRB::RelineInputMethod must be prepended with RelineInputMethodOverride"
   end
+
+  # ---- APPLE_SDK_DOC_LANG primary env var (with LANG fallback) -----------
+
+  def with_doc_lang_env(primary, fallback)
+    saved_primary = ENV["APPLE_SDK_DOC_LANG"]
+    saved_lang = ENV["LANG"]
+    ENV["APPLE_SDK_DOC_LANG"] = primary
+    ENV["LANG"] = fallback
+    yield
+  ensure
+    ENV["APPLE_SDK_DOC_LANG"] = saved_primary
+    ENV["LANG"] = saved_lang
+  end
+
+  def install_with_stub_cache
+    fake_cache = Object.new
+    fake_cache.define_singleton_method(:list_frameworks) { [] }
+    fake_cache.define_singleton_method(:list_framework_symbols) { |**| [] }
+    fake_cache.define_singleton_method(:list_klass_methods) { |**| [] }
+    fake_cache.define_singleton_method(:lookup_documentation) { |**| nil }
+    AppleSDKMac::IRB.install!(knowledge_cache: fake_cache)
+  end
+
+  def resolved_target_lang
+    t = AppleSDKMac::IRB.apple_translator
+    t && t.instance_variable_get(:@target_lang)
+  end
+
+  def test_install_prefers_apple_sdk_doc_lang_over_lang
+    with_doc_lang_env("fr-FR", "ja_JP.UTF-8") do
+      install_with_stub_cache
+      assert_equal "fr-FR", resolved_target_lang,
+        "APPLE_SDK_DOC_LANG must take priority over LANG"
+    end
+  end
+
+  def test_install_falls_back_to_lang_when_apple_sdk_doc_lang_unset
+    with_doc_lang_env(nil, "ja_JP.UTF-8") do
+      install_with_stub_cache
+      assert_equal "ja-JP", resolved_target_lang,
+        "LANG (POSIX style) must still resolve when APPLE_SDK_DOC_LANG is unset"
+    end
+  end
+
+  def test_install_falls_through_apple_sdk_doc_lang_when_unresolvable
+    with_doc_lang_env("C", "ja_JP.UTF-8") do
+      install_with_stub_cache
+      assert_equal "ja-JP", resolved_target_lang,
+        "Primary env mapping to nil (C/POSIX/en*/blank) must fall through to LANG"
+    end
+  end
 end
