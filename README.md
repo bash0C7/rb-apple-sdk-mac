@@ -26,14 +26,27 @@ bundle exec rake apple:knowledge:rebuild   # see rb-apple-sdk-knowledge
 ```ruby
 require "apple_sdk_mac"
 
-# First-time: declare you want to call this API
-Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientCreate)
-
-# Use it
+# Just call it — the dispatcher compiles the Swift glue dylib inline on
+# the first invocation for any symbol the knowledge base already knows.
 client = Apple::CoreMIDI.MIDIClientCreate("MyClient", nil, nil)
 ```
 
-See `examples/` for more.
+Subsequent calls hit the compiled-glue cache and dispatch directly. First-call
+latency is the swiftc compile (~1–3 s); cache hits are sub-millisecond.
+
+For KB-external shapes — custom `params:`/`return_kind:` overrides, ObjC
+selectors that need explicit `klass:`, anything not represented in the KB —
+declare them up front:
+
+```ruby
+Apple.discover(
+  framework: :Foundation, klass: :NSString,
+  class_method: :stringWithUTF8String,
+  params: [:cstring], return_kind: :opaque_ref
+)
+```
+
+`Apple.discover` is otherwise optional in v0.2+. See `examples/` for more.
 
 ## IRB autocomplete
 
@@ -74,7 +87,7 @@ ingested by `rb-apple-sdk-knowledge`):
 - Swift-overlay frameworks (Foundation, AppKit, SwiftUI) currently
   ship empty — Apple's compiler strips `///` from `*.swiftinterface`.
 - `Apple::<Framework>` (no symbol) shows a synthesized description
-  with Swift module + indexed-symbol count.
+  with Swift module + (when present) category / macOS minimum / doc URL.
 - Non-Apple candidates fall back to IRB's standard RDoc-driven
   `:show_doc`. Errors there are caught silently so a broken `~/.ri`
   store does not leak into the prompt.
@@ -117,8 +130,10 @@ Design notes and decision log: `docs/superpowers/specs/2026-05-08-irb-subgem-and
 
 Note that the knowledge base ingests Swift framework interfaces (`*.swiftinterface`),
 so types appear under their Swift import names (`URL` rather than `NSURL`,
-`Data` rather than `NSData`). ObjC-only types still need explicit `Apple.discover`
-with `klass:` and `selector:`/`class_method:`.
+`Data` rather than `NSData`). ObjC-only types whose selectors aren't in the
+KB (e.g. private framework methods) still need explicit `Apple.discover`
+with `klass:` and `selector:`/`class_method:`; KB-known selectors compile
+transparently on first call like everything else.
 
 ## Architecture
 
@@ -129,7 +144,7 @@ The bridge is composed of:
 - **Glue Runtime** (`ext/apple_sdk_mac_runtime/`): static Swift dylib with 9 pillars (Ref Table, Marshal, Callback, ARC, Error, Async, Threading, RunLoop, Conformance) bridged to CRuby via SE-0495 `@c`.
 - **Ruby cache layer**: Config (XDG/ENV/YAML), CompiledGlueCache (SQLite + dylib FS), KnowledgeCache (consume rb-apple-sdk-knowledge).
 - **Glue Compiler pipeline**: TemplateGenerator (deterministic shape catalog) → LLMGenerator fallback (rb-foundation-model-mac via Ollama) → ValidationGates (allowed imports / banned APIs / glue shape) → SwiftcInvoker.
-- **Ruby runtime**: GlueLoader (dlopen + pointer cache), Dispatcher, SecurityCop (in-Box monkey patches with allow-list bypass), NamespaceBuilder (eager `Apple::<Framework>` definition), `Apple` Ruby::Box bootstrap.
+- **Ruby runtime**: GlueLoader (dlopen + pointer cache), Dispatcher (cache miss → inline compile + invoke; transparent for KB symbols), SecurityCop (in-Box monkey patches with allow-list bypass), NamespaceBuilder (eager `Apple::<Framework>` shell definition at bootstrap), `Apple` Ruby::Box bootstrap.
 
 ## License
 
