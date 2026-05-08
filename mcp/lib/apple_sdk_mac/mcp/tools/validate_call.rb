@@ -25,7 +25,10 @@ module AppleSDKMac
         # group1 = framework, group2 = klass (optional, nil は FW.func 形),
         # group3 = method。 Klass の有無で symbol を "Klass.method" or "method"
         # に組み立てて KB lookup。
-        DIRECT_CALL_RE = /\bApple::([A-Z][A-Za-z0-9_]*)(?:::([A-Z][A-Za-z0-9_]*))?\.([A-Za-z_][A-Za-z0-9_?!]*)/.freeze
+        # lookbehind: 文字列頭 / literal "\n" 2 chars / non-word のいずれか。
+        # `\b` だと literal `\n` (backslash + n) の n→A 間で boundary が立たず
+        # 抽出に失敗するため、 zero-width lookbehind で 3 case を網羅する。
+        DIRECT_CALL_RE = /(?<=\A|\\n|[^A-Za-z0-9_])Apple::([A-Z][A-Za-z0-9_]*)(?:::([A-Z][A-Za-z0-9_]*))?\.([A-Za-z_][A-Za-z0-9_?!]*)/.freeze
 
         def self.tool_class(kb:)
           tool_obj = new(kb: kb)
