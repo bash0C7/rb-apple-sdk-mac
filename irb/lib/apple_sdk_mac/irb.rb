@@ -20,6 +20,15 @@ require "apple_sdk_mac/irb/doc_dialog"
 require "apple_sdk_mac/irb/prefetcher"
 require "apple_sdk_mac/irb/llm_resolver"
 
+# reline-dialog-transform (Phase 5 swap, 2026-05-08-reline-dialog-
+# transform-design.md): owns the translation / speech transforms
+# that used to live inline in this gem. We disable its require-time
+# autoload because :show_doc is not yet registered at this point;
+# the wrap is triggered manually inside RelineInputMethodOverride
+# right after we install our chained Apple/RDoc proc.
+ENV["RELINE_DIALOG_TRANSFORM_AUTOLOAD"] = "off" unless ENV.key?("RELINE_DIALOG_TRANSFORM_AUTOLOAD")
+require "reline/dialog_transform"
+
 module AppleSDKMac
   module IRB
     Context = Struct.new(:framework, :klass, :receiver_kind, :prefix) do
@@ -261,13 +270,16 @@ module AppleSDKMac
         ::IRB.conf[:COMPLETOR] = :type
 
         @apple_provider = provider
+        # `apple_translator` keeps the env-var-driven target_lang
+        # resolution as informational state — it tells the user
+        # which locale the IRB session detected — but is no longer
+        # piped into DocResolver / LLMResolver. Translation moved to
+        # the reline-dialog-transform sibling gem (Phase 5 swap of
+        # 2026-05-08-reline-dialog-transform-design.md): users now
+        # configure translation via ~/.reline-dialog-transform.rb,
+        # whose auto-load wraps :show_doc with the chain.
         @apple_translator = build_translator
-        doc_transform = if @apple_translator&.active?
-          translator = @apple_translator
-          ->(doc, _ctx) { translator.translate(doc) }
-        else
-          DocResolver::IDENTITY_TRANSFORM
-        end
+        doc_transform = DocResolver::IDENTITY_TRANSFORM
         resolver = DocResolver.new(knowledge_cache: knowledge_cache, doc_transform: doc_transform)
         @apple_prefetcher = Prefetcher.new(discoverer: discoverer)
         @apple_llm_resolver = build_llm_resolver(
@@ -417,6 +429,16 @@ module AppleSDKMac
               end
             }
             Reline.add_dialog_proc(:show_doc, chained, Reline::DEFAULT_DIALOG_CONTEXT)
+
+            # Phase 5 hand-off: wrap the registered chained proc with
+            # the user's reline-dialog-transform configuration. Loader
+            # discovers .reline-dialog-transform.rb in cwd / home and
+            # builds a Builder; install_chain captures the chained
+            # proc above as the inner source and adds an outer wrap
+            # that runs each line of DialogRenderInfo#contents through
+            # the user's transform chain. No-op when neither dotfile
+            # exists, so `irb` without a config still works.
+            ::Reline::DialogTransform.load!
           end
         end
       end

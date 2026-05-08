@@ -24,4 +24,5 @@ group :development do
   gem "apple_sdk_mac-irb", path: "irb"
   gem "rb-translation-mac", path: "../rb-translation-mac"
   gem "translation_mac-locale", path: "../rb-translation-mac/locale"
+  gem "reline-dialog-transform", path: "../reline-dialog-transform"
 end
