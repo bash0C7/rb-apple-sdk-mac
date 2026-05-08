@@ -26,27 +26,47 @@ bundle exec rake apple:knowledge:rebuild   # see rb-apple-sdk-knowledge
 ```ruby
 require "apple_sdk_mac"
 
-# Just call it — the dispatcher compiles the Swift glue dylib inline on
-# the first invocation for any symbol the knowledge base already knows.
+# Just call it. KB-known symbols compile transparently on first call.
 client = Apple::CoreMIDI.MIDIClientCreate("MyClient", nil, nil)
 ```
 
 Subsequent calls hit the compiled-glue cache and dispatch directly. First-call
 latency is the swiftc compile (~1–3 s); cache hits are sub-millisecond.
 
-For KB-external shapes — custom `params:`/`return_kind:` overrides, ObjC
-selectors that need explicit `klass:`, anything not represented in the KB —
-declare them up front:
+### When you still need `Apple.discover`
 
-```ruby
-Apple.discover(
-  framework: :Foundation, klass: :NSString,
-  class_method: :stringWithUTF8String,
-  params: [:cstring], return_kind: :opaque_ref
-)
-```
+`Apple.discover` is the manual escape hatch for cases the transparent path
+cannot resolve on its own:
 
-`Apple.discover` is otherwise optional in v0.2+. See `examples/` for more.
+1. **The KB classification is wrong for your use case.** The knowledge base
+   sometimes labels a C parameter as `:string` when you need `:opaque_ref`,
+   tags a return as `:bool` when it's an `Int`, etc. Override the shape with
+   explicit `params:` / `return_kind:`:
+
+   ```ruby
+   Apple.discover(
+     framework: :CoreFoundation, symbol: :CFStringCreateWithCString,
+     params: [:opaque_ref, :cstring, :uint32], return_kind: :opaque_ref
+   )
+   ```
+
+2. **The symbol isn't in the KB at all.** Private framework methods, custom
+   ObjC selectors, anything outside the indexed `*.swiftinterface` set —
+   the eager method shell never gets installed because nothing told the
+   namespace builder it exists. Declare the shape so the dispatcher knows
+   how to compile it:
+
+   ```ruby
+   Apple.discover(
+     framework: :Foundation, klass: :NSString,
+     class_method: :stringWithUTF8String
+   )
+   ```
+
+3. **Pre-warm.** Even for KB-known symbols, calling `Apple.discover` at boot
+   avoids paying the swiftc latency on the first user-facing invocation.
+
+For everything else, just call the API directly. See `examples/` for more.
 
 ## IRB autocomplete
 
