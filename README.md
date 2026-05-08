@@ -23,15 +23,39 @@ bundle exec rake apple:knowledge:rebuild   # see rb-apple-sdk-knowledge
 
 ## Usage
 
+Pick one of two startup styles, then just call the APIs.
+
+### Recommended: bootstrap once, call freely
+
 ```ruby
 require "apple_sdk_mac"
+AppleSDKMac.bootstrap!   # ~1 s — eager-defines Apple::<Framework> shells from the KB
 
-# Just call it. KB-known symbols compile transparently on first call.
 client = Apple::CoreMIDI.MIDIClientCreate("MyClient", nil, nil)
 ```
 
-Subsequent calls hit the compiled-glue cache and dispatch directly. First-call
-latency is the swiftc compile (~1–3 s); cache hits are sub-millisecond.
+After `bootstrap!`, every KB-known symbol has a Ruby method shell ready to
+go. The dispatcher compiles the Swift glue dylib inline on the first
+invocation per symbol (~1–3 s swiftc latency); subsequent calls hit the
+compiled-glue cache and dispatch in sub-millisecond time.
+
+### Lightweight: per-symbol on-demand
+
+If you don't want the bootstrap startup cost — e.g. a script that touches
+a handful of symbols — use `Apple.discover` to set up the namespace for
+just those symbols:
+
+```ruby
+require "apple_sdk_mac"
+Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientCreate)
+
+client = Apple::CoreMIDI.MIDIClientCreate("MyClient", nil, nil)
+```
+
+`Apple.discover` builds the namespace shell **and** compiles glue for the
+single symbol it's given. This is the right shape for one-off scripts and
+is also required for the cases the transparent path can't resolve (next
+section).
 
 ### When you still need `Apple.discover`
 
