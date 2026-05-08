@@ -8,8 +8,15 @@ class ValidateCallTest < Test::Unit::TestCase
   # KB に対して検証。 swiftc は走らせない (重い、 dry-run は §4.5)。
 
   FakeKB = Struct.new(:known) do
+    # 2-tuple [framework, symbol] entries for top-level symbols (lookup_symbol)
+    # 3-tuple [framework, klass, method] entries for parent_id child rows
+    # (lookup_klass_method)
     def lookup_symbol(framework:, symbol:)
       known.include?([framework.to_s, symbol.to_s]) ? { name: symbol.to_s } : nil
+    end
+
+    def lookup_klass_method(framework:, klass:, method:)
+      known.include?([framework.to_s, klass.to_s, method.to_s]) ? { name: method.to_s } : nil
     end
   end
 

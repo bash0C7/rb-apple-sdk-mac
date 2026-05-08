@@ -55,29 +55,49 @@ module AppleSDKMac
         end
 
         def call(ruby_code:)
-          all = extract_discoveries(ruby_code) + extract_direct_calls(ruby_code)
           issues = []
+          total  = 0
 
-          all.each do |framework, symbol|
+          extract_discoveries(ruby_code).each do |framework, symbol|
+            total += 1
             record = @kb.lookup_symbol(framework: framework, symbol: symbol)
+            issues << build_issue(framework, symbol) if record.nil?
+          end
+
+          # klass あり時は parent_id JOIN で検証する KnowledgeCache#lookup_klass_method
+          # 経由。 KB symbols table は klass を parent_id で持つので flat name
+          # lookup_symbol("Klass.method") では絶対 hit せん (Phase F follow-up,
+          # memory `validate_call_kb_canonical_mismatch.md`)。
+          extract_direct_calls(ruby_code).each do |framework, klass, method|
+            total += 1
+            record = if klass
+                       @kb.lookup_klass_method(framework: framework, klass: klass, method: method)
+                     else
+                       @kb.lookup_symbol(framework: framework, symbol: method)
+                     end
             if record.nil?
-              issues << {
-                kind: "unknown_symbol",
-                message: "symbol '#{symbol}' not found in framework '#{framework}'",
-                framework: framework,
-                symbol: symbol
-              }
+              symbol = klass ? "#{klass}.#{method}" : method
+              issues << build_issue(framework, symbol)
             end
           end
 
           JSON.generate(
             valid: issues.empty?,
-            checked_count: all.size,
+            checked_count: total,
             issues: issues
           )
         end
 
         private
+
+        def build_issue(framework, symbol)
+          {
+            kind: "unknown_symbol",
+            message: "symbol '#{symbol}' not found in framework '#{framework}'",
+            framework: framework,
+            symbol: symbol
+          }
+        end
 
         def extract_discoveries(code)
           results = []
@@ -93,8 +113,7 @@ module AppleSDKMac
         def extract_direct_calls(code)
           results = []
           code.scan(DIRECT_CALL_RE) do |framework, klass, method|
-            symbol = klass ? "#{klass}.#{method}" : method
-            results << [framework, symbol]
+            results << [framework, klass, method]
           end
           results
         end
