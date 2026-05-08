@@ -47,6 +47,30 @@ module AppleSDKMac
       }
     end
 
+    # Klass を介した子 method/property の lookup。 lookup_symbol は flat name
+    # 検索なので "URL.appendingPathComponent" のような形式は parent_id 階層で
+    # 索引された KB に対して必ず miss する。 こちらは parent_id JOIN で正確に
+    # klass 配下の symbol を引く (mcp の validate_call が direct call 検証で利用)。
+    def lookup_klass_method(framework:, klass:, method:)
+      row = @db.execute(<<~SQL, [framework, klass, method]).first
+        SELECT s.id, s.name, s.kind, s.signature, s.abi, s.documentation,
+               s.parameters_json, s.requires_main_thread, s.content_hash,
+               s.fields_json
+        FROM symbols s
+        JOIN symbols p     ON s.parent_id = p.id
+        JOIN frameworks f  ON s.framework_id = f.id
+        WHERE f.name = ? AND p.name = ? AND s.name = ?
+        LIMIT 1
+      SQL
+      return nil unless row
+      {
+        id: row[0], name: row[1], kind: row[2], signature: row[3],
+        abi: row[4], documentation: row[5], parameters_json: row[6],
+        requires_main_thread: row[7] == 1, content_hash: row[8],
+        fields_json: row[9]
+      }
+    end
+
     def list_framework_symbols(framework:, kinds: nil)
       sql = <<~SQL
         SELECT s.name, s.kind, s.signature, s.abi
