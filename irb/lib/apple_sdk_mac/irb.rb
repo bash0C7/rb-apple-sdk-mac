@@ -18,6 +18,7 @@ require "apple_sdk_mac"
 require "apple_sdk_mac/irb/doc_resolver"
 require "apple_sdk_mac/irb/doc_dialog"
 require "apple_sdk_mac/irb/prefetcher"
+require "apple_sdk_mac/irb/llm_resolver"
 
 module AppleSDKMac
   module IRB
@@ -269,7 +270,14 @@ module AppleSDKMac
         end
         resolver = DocResolver.new(knowledge_cache: knowledge_cache, doc_transform: doc_transform)
         @apple_prefetcher = Prefetcher.new(discoverer: discoverer)
-        @apple_doc_dialog = DocDialog.new(resolver: resolver, prefetcher: @apple_prefetcher)
+        @apple_llm_resolver = build_llm_resolver(
+          knowledge_cache: knowledge_cache, doc_transform: doc_transform
+        )
+        @apple_doc_dialog = DocDialog.new(
+          resolver: resolver,
+          prefetcher: @apple_prefetcher,
+          llm_resolver: @apple_llm_resolver
+        )
 
         # IRB::Context.build_completor を prepend で wrap。 super で base を取って
         # Completor で wrap (Apple:: は provider、 他は base にデリゲート)。
@@ -305,6 +313,7 @@ module AppleSDKMac
         @apple_doc_dialog = nil
         @apple_prefetcher = nil
         @apple_translator = nil
+        @apple_llm_resolver = nil
       end
 
       def installed?
@@ -313,7 +322,7 @@ module AppleSDKMac
 
       # Internal — accessed by ContextOverride / RelineInputMethodOverride.
       attr_reader :apple_provider, :apple_dig_perfect, :apple_doc_dialog,
-                  :apple_prefetcher, :apple_translator
+                  :apple_prefetcher, :apple_translator, :apple_llm_resolver
 
       private
 
@@ -332,6 +341,29 @@ module AppleSDKMac
         target = ::TranslationMac::Locale::Translator.detect_target_lang(ENV["LANG"])
         return nil unless target
         ::TranslationMac::Locale::Translator.new(target_lang: target)
+      end
+
+      # Soft-load foundation_model_mac and wrap AppleFoundationModel.generate
+      # in an LLMResolver. Returns nil when APPLE_IRB_NO_LLM=1 (user opt-out)
+      # or the LLM gem is unavailable. Shares doc_transform with DocResolver
+      # so generated text picks up the same translation pipeline.
+      def build_llm_resolver(knowledge_cache:, doc_transform:)
+        return nil if ENV["APPLE_IRB_NO_LLM"] == "1"
+        begin
+          require "foundation_model_mac"
+        rescue LoadError => e
+          warn "[apple-sdk-mac irb] foundation_model_mac unavailable: #{e.message}" if ENV["APPLE_IRB_DEBUG"]
+          return nil
+        end
+        llm_proc = ->(prompt) {
+          response = ::AppleFoundationModel.generate(prompt: prompt)
+          response.is_a?(String) ? response : response.to_s
+        }
+        LLMResolver.new(
+          llm_proc: llm_proc,
+          knowledge_cache: knowledge_cache,
+          doc_transform: doc_transform
+        )
       end
     end
 
