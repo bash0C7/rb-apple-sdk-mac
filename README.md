@@ -84,23 +84,32 @@ prefetch**: the symbol's `Apple.discover` runs in a separate Thread
 so the first real call has its glue dylib already compiled.
 Idempotent per `(framework, klass, name)`.
 
-If `ENV["LANG"]` resolves to a non-English BCP-47 tag (e.g.
-`ja_JP.UTF-8` → `ja-JP`) and the
+If `ENV["APPLE_SDK_DOC_LANG"]` is set to a non-English BCP-47 tag
+(e.g. `ja-JP`, `fr-FR`) and the
 [`rb-translation-mac`](https://github.com/bash0C7/rb-translation-mac)
-gem is available, the doc text is translated by Apple Intelligence on
-the fly via a `doc_transform` lambda hook on `DocResolver`. English /
-`C` / `POSIX` / unset locales pass through unchanged. The translation
-gem is an optional runtime dep — sub-gem degrades silently if
-absent. Per-input cache keeps the popup snappy across re-hovers.
+gem (specifically the `translation_mac-locale` sub-gem) is
+available, the doc text is translated by Apple Intelligence on the
+fly via a `doc_transform` lambda hook on `DocResolver`.
+`APPLE_SDK_DOC_LANG` is the documented primary input and expects
+**BCP-47 only** (no charset suffix). When it is unset, `ENV["LANG"]`
+is consulted as fallback and POSIX-style values like
+`ja_JP.UTF-8` are accepted there too. English /
+`C` / `POSIX` / unset locales pass through unchanged. The
+translation gem is an optional runtime dep — sub-gem degrades
+silently if absent. Per-input cache keeps the popup snappy across
+re-hovers.
 
 ```
-$ LANG=ja_JP.UTF-8 irb -r apple_sdk_mac -r apple_sdk_mac/irb
+$ APPLE_SDK_DOC_LANG=ja-JP irb -r apple_sdk_mac -r apple_sdk_mac/irb
 > AppleSDKMac::IRB.install!
 > Apple::CoreFoundation::CFArrayAppendValue<TAB-hover>
   ┌─ candidates ─┐ ┌─ doc (ja-JP) ─────────────────────────┐
   │ ...          │ │ 配列に値を追加し、新しい最大インデック   │
   │              │ │ スを付与します。 値を追加する配列。      │
   └──────────────┘ └────────────────────────────────────────┘
+
+# Or, fall back to LANG (POSIX style accepted here):
+$ LANG=ja_JP.UTF-8 irb -r apple_sdk_mac -r apple_sdk_mac/irb
 ```
 
 Design notes and decision log: `docs/superpowers/specs/2026-05-08-irb-subgem-and-doc-discover-design.md`.
