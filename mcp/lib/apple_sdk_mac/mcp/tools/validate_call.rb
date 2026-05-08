@@ -19,6 +19,14 @@ module AppleSDKMac
           /#{kw}:\s*(?::"([^"]+)"|:'([^']+)'|"([^"]+)"|'([^']+)'|:([A-Za-z_][A-Za-z0-9_]*))/
         end
 
+        # Apple.discover 後の動的メソッドの直接呼び出し:
+        #   Apple::Foundation::URL.appendingPathComponent("...")  # FW::Klass.method
+        #   Apple::CoreMIDI.MIDIClientCreate(...)                 # FW.func
+        # group1 = framework, group2 = klass (optional, nil は FW.func 形),
+        # group3 = method。 Klass の有無で symbol を "Klass.method" or "method"
+        # に組み立てて KB lookup。
+        DIRECT_CALL_RE = /\bApple::([A-Z][A-Za-z0-9_]*)(?:::([A-Z][A-Za-z0-9_]*))?\.([A-Za-z_][A-Za-z0-9_?!]*)/.freeze
+
         def self.tool_class(kb:)
           tool_obj = new(kb: kb)
           ::MCP::Tool.define(
@@ -42,10 +50,10 @@ module AppleSDKMac
         end
 
         def call(ruby_code:)
-          discoveries = extract_discoveries(ruby_code)
+          all = extract_discoveries(ruby_code) + extract_direct_calls(ruby_code)
           issues = []
 
-          discoveries.each do |framework, symbol|
+          all.each do |framework, symbol|
             record = @kb.lookup_symbol(framework: framework, symbol: symbol)
             if record.nil?
               issues << {
@@ -59,7 +67,7 @@ module AppleSDKMac
 
           JSON.generate(
             valid: issues.empty?,
-            checked_count: discoveries.size,
+            checked_count: all.size,
             issues: issues
           )
         end
@@ -73,6 +81,15 @@ module AppleSDKMac
             next unless framework
             symbol = extract_symbol_value(args_str)
             results << [framework, symbol] if symbol
+          end
+          results
+        end
+
+        def extract_direct_calls(code)
+          results = []
+          code.scan(DIRECT_CALL_RE) do |framework, klass, method|
+            symbol = klass ? "#{klass}.#{method}" : method
+            results << [framework, symbol]
           end
           results
         end
