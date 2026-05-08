@@ -124,13 +124,22 @@ Every tool invocation writes one JSON line to stderr:
 bundle exec rake test
 ```
 
-70 tests / 132 assertions / 100% pass at the time of writing. The test suite uses `test-unit`, fake `Struct`-based KBs, and `capture_stderr` in `test_helper.rb` to assert log output.
+The test suite uses `test-unit`, fake `Struct`-based KBs, and `capture_stderr` in `test_helper.rb` to assert log output.
+
+### End-to-end (headless)
+
+```bash
+bundle exec rake probe:headless_e2e
+```
+
+Spawns a detached `screen` session that runs all seven tools in sequence through nested `claude -p` against the live MCP server. Log lands in `tmp/longrun/apple-mcp-e2e-<ts>.log`, completion is signaled by the `DONE:` sentinel. Note: `claude -p`'s headless mode auto-cancels elicitation forms, so `suggest_discover_call` reports `action: cancel` by design — exercise the accept/decline branches via interactive `claude` (TTY) or MCP Inspector (see `docs/elicitation-headless-investigation.md`).
 
 ## Design references
 
 - Spec: [`docs/superpowers/specs/2026-05-08-rb-apple-sdk-mac-mcp-design.md`](../docs/superpowers/specs/2026-05-08-rb-apple-sdk-mac-mcp-design.md) — full design, 11 sections, decision points D1-D6
 - Reference implementation pattern: [chiebukuro-mcp](https://github.com/bash0C7/chiebukuro-mcp) — `ServerFacade`, `wrap_with_log_proc`, real-call `ProbeTool`, `start_mcp.sh` PATH workaround
 - MCP gem: [modelcontextprotocol/ruby-sdk](https://github.com/modelcontextprotocol/ruby-sdk) (`mcp` >= 0.13.0 for elicitation)
+- **Elicitation behavior under Claude Code**: [`docs/elicitation-headless-investigation.md`](docs/elicitation-headless-investigation.md) — headless vs interactive accept/decline/cancel paths, observability notes for `wrap_with_log` stderr capture
 
 ## License
 
