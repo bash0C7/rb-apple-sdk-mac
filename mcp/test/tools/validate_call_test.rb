@@ -1,0 +1,77 @@
+# frozen_string_literal: true
+require_relative "../test_helper"
+require "json"
+require "set"
+
+class ValidateCallTest < Test::Unit::TestCase
+  # spec §4.6 — Ruby コード片の Apple.discover / Apple::FW.method 呼び出しを
+  # KB に対して検証。 swiftc は走らせない (重い、 dry-run は §4.5)。
+
+  FakeKB = Struct.new(:known) do
+    def lookup_symbol(framework:, symbol:)
+      known.include?([framework.to_s, symbol.to_s]) ? { name: symbol.to_s } : nil
+    end
+  end
+
+  def setup
+    @kb = FakeKB.new(Set.new([
+      ["Foundation", "URL"],
+      ["Foundation", "URLSession"],
+      ["CoreMIDI", "MIDIClientCreate"]
+    ]))
+  end
+
+  def test_tool_name
+    tc = AppleSDKMac::MCP::Tools::ValidateCall.tool_class(kb: @kb)
+    assert_equal "apple_sdk_mac_validate_call", tc.tool_name
+  end
+
+  def test_input_requires_ruby_code
+    tc = AppleSDKMac::MCP::Tools::ValidateCall.tool_class(kb: @kb)
+    schema = tc.input_schema
+    schema_hash = schema.respond_to?(:to_h) ? schema.to_h : schema
+    required = schema_hash[:required] || schema_hash["required"] || []
+    assert_includes required, "ruby_code"
+  end
+
+  def test_known_symbol_passes
+    tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: @kb)
+    code = 'Apple.discover(framework: :Foundation, symbol: :URL)'
+    result = tool.call(ruby_code: code)
+    parsed = JSON.parse(result)
+    assert_empty parsed["issues"]
+    assert_equal true, parsed["valid"]
+  end
+
+  def test_unknown_symbol_warns
+    tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: @kb)
+    code = 'Apple.discover(framework: :Foundation, symbol: :NoSuchThing)'
+    result = tool.call(ruby_code: code)
+    parsed = JSON.parse(result)
+    assert_operator parsed["issues"].size, :>=, 1
+    assert_match(/NoSuchThing/, parsed["issues"].first["message"])
+    assert_equal false, parsed["valid"]
+  end
+
+  def test_multiple_calls_in_code
+    tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: @kb)
+    code = <<~RUBY
+      Apple.discover(framework: :Foundation, symbol: :URL)
+      Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientCreate)
+      Apple.discover(framework: :Foundation, symbol: :NoSuchThing)
+    RUBY
+    result = tool.call(ruby_code: code)
+    parsed = JSON.parse(result)
+    # Only 1 unknown symbol → 1 issue
+    assert_equal 1, parsed["issues"].size
+  end
+
+  def test_no_apple_calls_returns_empty_valid
+    tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: @kb)
+    code = 'puts "hello"'
+    result = tool.call(ruby_code: code)
+    parsed = JSON.parse(result)
+    assert_empty parsed["issues"]
+    assert_equal true, parsed["valid"]
+  end
+end

@@ -1,0 +1,18 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+require 'bundler/setup'
+require_relative '../lib/apple_sdk_mac/mcp'
+
+case ARGV[0]
+when 'serve', nil
+  AppleSDKMac::MCP::Server.new.run
+when 'probe'
+  # CLI から tools リストを確認 (Claude 接続なしで動作確認用)
+  facade = AppleSDKMac::MCP::Server.new.build_mcp_server
+  puts facade.tool_classes.map(&:tool_name).inspect
+else
+  warn "Usage:"
+  warn "  rb-apple-sdk-mac-mcp serve     # Start MCP stdio server (default)"
+  warn "  rb-apple-sdk-mac-mcp probe     # List exposed tools without running server"
+  exit 1
+end
