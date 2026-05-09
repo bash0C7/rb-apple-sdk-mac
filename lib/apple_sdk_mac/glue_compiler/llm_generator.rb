@@ -439,35 +439,60 @@ module AppleSDKMac
         # has a 4096-token context window; the full INSTRUCTIONS bundle
         # (all 11 worked examples + prose) hits ~6.3k tokens and trips
         # exceededContextWindowSize at the very first respond(). We
-        # build a smaller per-family instructions string at first call
-        # and cache the session by family. Tests that read the
-        # INSTRUCTIONS constant continue to see the canonical bundle.
+        # build a smaller per-family instructions string at first call.
+        # Phase 2 bug fix: sessions are NOT cached across generate() calls.
+        # Each call gets a fresh session to prevent context accumulation
+        # (conversation history from attempt N-1 pushes attempt N over the
+        # 4096-token context window → exceededContextWindowSize on retry 2+).
         @explicit_session = session
-        @session_cache = {}
       end
 
       def generate(framework:, symbol:, glue_id:)
-        sess = session_for(symbol[:kind])
+        family = kind_family(symbol[:kind])
+        # Bug 1 fix: always create a FRESH session per generate() invocation.
+        # Reusing a cached session accumulates conversation history across
+        # retries and blows the 4096-token context window on attempt 2+.
+        sess = foundation_model_session(family)
         prompt = build_prompt(framework, symbol, glue_id)
         response = sess.respond(to: prompt)
         return nil if response.nil? || response.strip.empty?
-        response.gsub(/\A```swift\n/, "").gsub(/\n```\z/, "").strip
+        cleaned = response.gsub(/\A```swift\n/, "").gsub(/\n```\z/, "").strip
+        # Bug 2 fix: post-process to ensure HEADER block is present even if
+        # the LLM dropped the @_silgen_name declarations.
+        ensure_header(cleaned, framework: framework)
       end
 
       def close
         @explicit_session&.close
-        @session_cache.each_value(&:close)
-        @session_cache.clear
       end
 
       private
 
-      def session_for(kind)
+      # Always returns a new session object so each generate() call starts
+      # with a clean conversation context (no accumulated history).
+      # Tests can stub this method on the singleton to intercept creation.
+      def foundation_model_session(family)
         return @explicit_session if @explicit_session
-        family = kind_family(kind)
-        @session_cache[family] ||= AppleFoundationModel::Session.new(
-          instructions: instructions_for(family)
-        )
+        AppleFoundationModel::Session.new(instructions: instructions_for(family))
+      end
+
+      # Post-process the LLM-generated Swift source to ensure the canonical
+      # HEADER block is present. The LLM occasionally drops the import lines
+      # and @_silgen_name declarations, causing swiftc "cannot find 'rb_num2ll'
+      # in scope" errors. We check for @_silgen_name presence (a reliable
+      # marker for the full HEADER) and prepend the canonical block if missing.
+      def ensure_header(swift_source, framework:)
+        has_silgen = swift_source.include?("@_silgen_name(")
+        has_fw_import = swift_source.include?("import #{framework}")
+        has_foundation = swift_source.include?("import Foundation")
+        return swift_source if has_silgen && has_fw_import && has_foundation
+
+        header_block = "import #{framework}\nimport Foundation\n\n#{TemplateGenerator::HEADER}\n"
+        # Strip any stray import lines the LLM may have added to avoid duplication.
+        stripped = swift_source
+          .gsub(/^import #{Regexp.escape(framework)}\s*\n?/, "")
+          .gsub(/^import Foundation\s*\n?/, "")
+        "#{header_block}#{stripped}"
       end
 
       def kind_family(kind)
@@ -527,6 +552,14 @@ module AppleSDKMac
           parameters_json: #{sym[:parameters_json]}
 
           Generate the Swift glue file as specified. Output Swift source only.
+
+          MANDATORY: include the entire HEADER block at the top exactly as shown
+          in Section 2 of the instructions — do not omit any @_silgen_name line.
+          Failure to include the HEADER will cause compile errors ("cannot find
+          'rb_num2ll' in scope", etc.). The HEADER must appear before the @c
+          function definition, even if a worked example shows "HEADER omitted
+          for brevity". Those examples abbreviated for readability only — the
+          actual generated file must always contain the full HEADER verbatim.
         PROMPT
       end
     end
