@@ -35,4 +35,22 @@ class WorktreeOpsTest < Test::Unit::TestCase
     refute File.symlink?(cache), "cache.sqlite must be a copy, not symlink"
     assert_equal "stub-cache-data", File.read(cache)
   end
+
+  def test_populate_cache_skips_symlink_when_source_subdir_missing
+    src = File.join(@main, ".rb-apple-sdk-mac", @sdk)
+    FileUtils.rm_rf(File.join(src, "knowledge"))
+
+    EmitterDev::WorktreeOps.populate_cache(
+      worktree_path: @wt, main_root: @main, sdk_version: @sdk
+    )
+
+    dst  = File.join(@wt, ".rb-apple-sdk-mac", @sdk)
+    link = File.join(dst, "knowledge")
+    refute File.symlink?(link), "must not create dangling symlink for missing source subdir"
+    refute File.exist?(link), "must not create entry at all when source missing"
+
+    %w[sources lib].each do |dir|
+      assert File.symlink?(File.join(dst, dir)), "expected symlink #{dir} (source exists)"
+    end
+  end
 end
