@@ -137,6 +137,11 @@ module AppleSDKMac
 
       def out_handling
         return nil unless @param[:is_out_param]
+        # Double-pointer types (indirection > 1) cannot be handled by simple
+        # &outVal emission; return nil to route to the LLM safety net per
+        # spec principle 4. Knowledge Base contains 2 such float-kind symbols:
+        # "double * _Nonnull * _Nonnull" and "float * _Nonnull * _Nonnull".
+        return nil if @param[:type].to_s.scan("*").length > 1
         swift_type = scalar_float_type(@param[:type]) || "Double"
         to_ruby = (swift_type == "Double") \
           ? "rb_float_new(#{@param[:name]})"
@@ -157,6 +162,10 @@ module AppleSDKMac
                      .sub(/\s*\*+\s*\z/, "")
                      .strip
         return nil if cleaned.empty? || cleaned.include?("*") || cleaned == "void"
+        # Reject multi-token types (e.g. "long double") — not valid Swift
+        # identifiers. Knowledge Base contains one "long double *" symbol;
+        # returning nil causes out_handling to fall back to "Double".
+        return nil unless cleaned.match?(/\A[A-Za-z_]\w*\z/)
         # Normalize C primitive names to Swift equivalents
         return "Float"  if cleaned == "float"
         return "Double" if cleaned == "double"
