@@ -105,4 +105,56 @@ class TestStore < Test::Unit::TestCase
     assert_equal new_fields, rows.first.first
     store.close
   end
+
+  # insert_symbol must accept and atomically persist swift_imported_name as
+  # part of the INSERT ... ON CONFLICT DO UPDATE statement. Previously the
+  # Swift overlay importer wrote this column via a separate UPDATE following
+  # the insert — observable partial state, and the UPDATE was skipped on the
+  # ON CONFLICT path, leaving stale swift_imported_name on re-import.
+  def test_insert_symbol_persists_swift_imported_name
+    store = AppleSDKKnowledge::Store.open(@db_path)
+    fw_id = store.insert_framework(name: "AVFoundation", swift_module: "AVFoundation")
+    store.insert_symbol(
+      framework_id: fw_id, name: "devicesWithMediaType:", kind: "class_method",
+      abi: "swift", content_hash: "h_swift_name",
+      signature: "class func devices(for: AVMediaType)",
+      swift_imported_name: "devices(for:)"
+    )
+    row = store.db.execute(
+      "SELECT swift_imported_name FROM symbols WHERE content_hash = ?",
+      ["h_swift_name"]
+    ).first
+    assert_equal "devices(for:)", row.first
+    store.close
+  end
+
+  # Re-inserting under the same content_hash with a NEW swift_imported_name
+  # must atomically update the column. The pre-fix two-statement pattern
+  # left a window where the row had stale swift_imported_name and required
+  # a separate UPDATE that the importer could (and did) skip on conflict.
+  def test_insert_symbol_updates_swift_imported_name_on_conflict
+    store = AppleSDKKnowledge::Store.open(@db_path)
+    fw_id = store.insert_framework(name: "AVFoundation", swift_module: "AVFoundation")
+    store.insert_symbol(
+      framework_id: fw_id, name: "devicesWithMediaType:", kind: "class_method",
+      abi: "swift", content_hash: "h_swift_conflict",
+      signature: "class func devices(for: AVMediaType)",
+      swift_imported_name: "devices(for:)"
+    )
+    # Second insert under the same content_hash with a DIFFERENT
+    # swift_imported_name. The row must reflect the new value.
+    store.insert_symbol(
+      framework_id: fw_id, name: "devicesWithMediaType:", kind: "class_method",
+      abi: "swift", content_hash: "h_swift_conflict",
+      signature: "class func devices(for: AVMediaType)",
+      swift_imported_name: "devices(forMediaType:)"
+    )
+    rows = store.db.execute(
+      "SELECT swift_imported_name FROM symbols WHERE content_hash = ?",
+      ["h_swift_conflict"]
+    )
+    assert_equal 1, rows.length
+    assert_equal "devices(forMediaType:)", rows.first.first
+    store.close
+  end
 end
