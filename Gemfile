@@ -22,4 +22,6 @@ gem "fiddle"  # Test-only: MIDIPacketList byte-packing in test_send_packet_via_m
 # polluting the main gemspec.
 group :development do
   gem "apple_sdk_mac-irb", path: "irb"
+  # tooling/ HITL emitter-improvement RedundancyScanner (Ruby AST 走査)
+  gem "parser"
 end
