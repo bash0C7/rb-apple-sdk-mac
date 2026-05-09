@@ -197,4 +197,27 @@ class TestHeaderParser < Test::Unit::TestCase
     assert(fn[:documentation].nil? || fn[:documentation].empty?,
       "MiniGetRatio has no doc-comment in fixture, :documentation should be nil/empty")
   end
+
+  # Apple framework headers use Objective-C syntax (`@class`, `@interface`,
+  # `@property`, `<NSCopying>`). The parser MUST drive clang in
+  # objective-c mode with -isysroot / -F so framework includes resolve.
+  # Driving it as plain C makes `@class NSString;` fail with
+  # "expected identifier or '('" and silently skips every framework header,
+  # which is exactly what blocked the v1.2 rebuild before this fix.
+  def test_parses_objective_c_header_without_raising
+    require "tempfile"
+    Tempfile.create(["mini_objc", ".h"]) do |f|
+      f.write(<<~OBJC)
+        @class NSString;
+        @interface MyMiniObjCType
+        - (void)doSomethingWithName:(NSString *)name;
+        @end
+      OBJC
+      f.flush
+      parser = AppleSDKKnowledge::Importer::HeaderParser.new
+      assert_nothing_raised do
+        parser.parse_file(f.path)
+      end
+    end
+  end
 end
