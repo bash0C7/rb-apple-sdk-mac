@@ -126,7 +126,41 @@ module AppleSDKMac
 
     class FloatMarshaller < Marshaller
       def in_load
+        return nil if @param[:is_out_param]
         "let #{@param[:name]}: Double = rb_num2dbl(argv[#{@index}])"
+      end
+
+      def call_arg
+        return "&#{@param[:name]}" if @param[:is_out_param]
+        @param[:name]
+      end
+
+      def out_handling
+        return nil unless @param[:is_out_param]
+        swift_type = scalar_float_type(@param[:type]) || "Double"
+        to_ruby = (swift_type == "Double") \
+          ? "rb_float_new(#{@param[:name]})"
+          : "rb_float_new(Double(#{@param[:name]}))"
+        {
+          init:    "var #{@param[:name]}: #{swift_type} = 0",
+          addr:    "&#{@param[:name]}",
+          to_ruby: to_ruby
+        }
+      end
+
+      private
+
+      def scalar_float_type(raw)
+        cleaned = raw.to_s.strip
+                     .sub(/\Aconst\s+/, "")
+                     .gsub(/\b_(Nonnull|Nullable)\b/, "")
+                     .sub(/\s*\*+\s*\z/, "")
+                     .strip
+        return nil if cleaned.empty? || cleaned.include?("*") || cleaned == "void"
+        # Normalize C primitive names to Swift equivalents
+        return "Float"  if cleaned == "float"
+        return "Double" if cleaned == "double"
+        cleaned
       end
     end
     Marshaller::REGISTRY["float"] = FloatMarshaller
