@@ -54,6 +54,7 @@ module AppleSDKMac
 
     class IntMarshaller < Marshaller
       def in_load
+        return nil if @param[:is_out_param]
         "let #{@param[:name]}: Int64 = rb_num2ll(argv[#{@index}])"
       end
 
@@ -66,9 +67,22 @@ module AppleSDKMac
       # to be visible at glue lexical scope. For `Int64` the cast is
       # unnecessary noise; pass through unchanged.
       def call_arg
+        return "&#{@param[:name]}" if @param[:is_out_param]
         ctype = scalar_type_token(@param[:type])
         return @param[:name] if ctype.nil? || ctype == "Int64"
         "numericCast(#{@param[:name]})"
+      end
+
+      def out_handling
+        return nil unless @param[:is_out_param]
+        ctype = scalar_type_token(@param[:type]) || "Int64"
+        {
+          init: "var #{@param[:name]}: #{ctype} = 0",
+          addr: "&#{@param[:name]}",
+          to_ruby: unsigned?(@param[:type]) \
+            ? "rb_ull2inum(UInt64(#{@param[:name]}))"
+            : "rb_ll2inum(Int64(#{@param[:name]}))"
+        }
       end
 
       private
@@ -77,9 +91,14 @@ module AppleSDKMac
         cleaned = raw.to_s.strip
                      .sub(/\Aconst\s+/, "")
                      .gsub(/\b_(Nonnull|Nullable)\b/, "")
+                     .sub(/\s*\*+\s*\z/, "")
                      .strip
-        return nil if cleaned.empty? || cleaned.include?("*")
+        return nil if cleaned.empty? || cleaned.include?("*") || cleaned == "void"
         cleaned
+      end
+
+      def unsigned?(t)
+        t.match?(/\b(UInt|UInt8|UInt16|UInt32|UInt64|uint(8|16|32|64)_t|unsigned)\b/)
       end
     end
     Marshaller::REGISTRY["int"] = IntMarshaller
