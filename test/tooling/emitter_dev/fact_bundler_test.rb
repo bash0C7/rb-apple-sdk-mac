@@ -42,4 +42,12 @@ class FactBundlerTest < Test::Unit::TestCase
     md = EmitterDev::FactBundler.new(branch: "emitter/test-fix", base: "main").compose
     assert_match(/<missing: tmp\/emitter\/verify_emitter_test-fix\.txt>/, md)
   end
+
+  def test_compose_includes_design_section_when_artifact_present
+    File.write("tmp/emitter/design_emitter_test-fix.md",
+               "## Design\nnew marshaller class_method_overlay\n")
+    md = EmitterDev::FactBundler.new(branch: "emitter/test-fix", base: "main").compose
+    assert_match(/## design/, md)
+    assert_match(/new marshaller class_method_overlay/, md)
+  end
 end
