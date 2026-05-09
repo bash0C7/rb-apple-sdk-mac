@@ -9,7 +9,7 @@ gemspec
 gem "swift_gem", git: "https://github.com/bash0C7/swift_gem"
 
 gem "rb-foundation-model-mac", path: "../rb-foundation-model-mac"
-gem "rb-apple-sdk-knowledge", path: "../rb-apple-sdk-knowledge"
+gem "rb-apple-sdk-knowledge", path: "knowledge"
 
 gem "rake", "~> 13.0"
 gem "rake-compiler", "~> 1.2"
