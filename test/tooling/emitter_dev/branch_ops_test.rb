@@ -28,4 +28,12 @@ class BranchOpsTest < Test::Unit::TestCase
     name = EmitterDev::BranchOps.derive_name(cand)
     assert_match %r{\Aemitter/add-avcapturedevice-deviceswithmediatype-static-emitter-\d{8}\z}, name
   end
+
+  def test_derive_name_collision_uses_suffix
+    system "git checkout -qb emitter/add-foo-#{Time.now.strftime('%Y%m%d')} 2>/dev/null"
+    system "git checkout -q main"
+    cand = { "mode" => "add", "summary" => "foo" }
+    name = EmitterDev::BranchOps.derive_name(cand)
+    assert_match %r{-2\z}, name, "expected -2 suffix when base name exists"
+  end
 end
