@@ -3,20 +3,24 @@ require "time"
 
 # Stateless candidate ranker for the HITL emitter-improvement workflow.
 #
-# Add mode only — given pre-aggregated compile_history rows, produce a
-# sorted top-N candidate envelope per design spec section 5.1 / 5.6.
+# Two modes share a single envelope:
 #
-# Each input row is expected to be a Hash with string keys:
-#   framework    : String
-#   symbol       : String
-#   llm_count    : Integer
-#   tpl_count    : Integer
-#   avg_retry    : Numeric (may be nil if no llm runs — those rows are dropped)
-#   error_stages : String or nil (group_concat of distinct error_stage values)
+#   add  — given pre-aggregated compile_history rows, produce candidates
+#          for adding new static emitters. See spec section 5.1 / 5.6.
+#   trim — given RedundancyScanner findings, produce candidates for
+#          consolidating redundant marshallers. See spec section 5.4.
+#   all  — emit add and trim merged, sorted by score together.
 #
-# Source aggregation (SQLite read) is the rake task's job (Task 1.6); this
-# module is intentionally stateless so it can be unit-tested with synthetic
-# input arrays.
+# `rank_add` row shape (Hash with string keys):
+#   framework, symbol, llm_count, tpl_count, avg_retry (nil-safe), error_stages
+#
+# `rank_trim` finding shape (Hash with symbol keys, produced by
+# `EmitterDev::RedundancyScanner#scan`):
+#   :heuristic, :classes, :methods | :common_methods, :score
+#
+# Source aggregation (SQLite read for add, AST scan for trim) lives in the
+# rake task layer; this module stays stateless so it unit-tests against
+# synthetic input arrays.
 module EmitterDev
   module CandidateRanker
     TEMPLATE_NIL_BONUS = 5
@@ -26,9 +30,10 @@ module EmitterDev
 
     module_function
 
-    def rank(rows:, mode:, top:)
+    def rank(rows: [], findings: [], mode:, top:)
       candidates = []
-      candidates += rank_add(rows) if %w[add all].include?(mode)
+      candidates.concat(rank_add(rows))      if %w[add all].include?(mode)
+      candidates.concat(rank_trim(findings)) if %w[trim all].include?(mode)
       candidates.sort_by! { |c| -c["score"] }
       candidates = candidates.first(top)
       candidates.each_with_index { |c, i| c["id"] = i + 1 }
@@ -63,6 +68,48 @@ module EmitterDev
             "compile_history で LLM 経路に流れとる #{row['symbol']} を template path に乗せる",
         }
       end
+    end
+
+    def rank_trim(findings)
+      findings.map do |f|
+        {
+          "mode"               => "trim",
+          "score"              => f.fetch(:score).to_f,
+          "summary"            => trim_summary(f),
+          "evidence"           => { "redundancy_scanner" => stringify_finding(f) },
+          "recommended_action" => trim_action(f),
+        }
+      end
+    end
+
+    def trim_summary(f)
+      case f[:heuristic]
+      when :twin_private_helper
+        "#{f[:classes].join(' / ')} の双子 helper #{f[:methods].join(' / ')} を共通化"
+      when :class_pair_method_overlap
+        "Marshaller pair #{f[:classes].join(' / ')} の重複 method " \
+          "#{f[:common_methods].join(',')} を整理"
+      else
+        "redundancy: #{f[:heuristic]}"
+      end
+    end
+
+    def trim_action(f)
+      case f[:heuristic]
+      when :twin_private_helper
+        "#{f[:methods].join(' と ')} を Marshaller base の単一 helper にまとめて両 class から呼ぶ"
+      when :class_pair_method_overlap
+        "#{f[:classes].join(' と ')} の overlap (#{f[:common_methods].join(',')}) を片方に統合 + 残る側を delegator に"
+      else
+        "redundancy 解消"
+      end
+    end
+
+    # JSON encoders fail on Symbol-keyed hashes downstream (FactBundler reads
+    # candidates back out as JSON), so flatten finding keys to strings before
+    # emitting the candidate envelope.
+    def stringify_finding(f)
+      f.each_with_object({}) { |(k, v), acc| acc[k.to_s] = v.is_a?(Symbol) ? v.to_s : v }
     end
   end
 end
