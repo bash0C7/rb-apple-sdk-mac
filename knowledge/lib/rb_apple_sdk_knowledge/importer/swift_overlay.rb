@@ -241,15 +241,12 @@ module AppleSDKKnowledge
         end
       end
 
-      # Variant for init: always "With<Internal>" based on the internal name.
+      # Variant for init: always Capitalize<Internal>, regardless of whether
+      # the Swift label is "_" or a preposition. Apple's ObjC bridging
+      # convention for initializers is uniformly "initWith<Internal>:" — the
+      # external label never participates in the selector head.
       def first_param_with_suffix(param)
-        label    = param[:label]
-        internal = param[:internal]
-        if label == "_"
-          capitalize(internal)
-        else
-          capitalize(internal)
-        end
+        capitalize(param[:internal])
       end
 
       # Computes the ObjC selector part for subsequent (non-first) params.
