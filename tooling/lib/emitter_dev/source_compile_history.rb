@@ -18,6 +18,8 @@ module EmitterDev
         end
         db = SQLite3::Database.new(@sqlite_path)
         db.results_as_hash = true
+        return [] unless table_exists?(db, "compile_history")
+
         rows = db.execute(<<~SQL)
           SELECT framework, symbol,
                  SUM(CASE WHEN generator = 'llm'      THEN 1 ELSE 0 END) AS llm_count,
@@ -41,6 +43,18 @@ module EmitterDev
         end
       ensure
         db&.close
+      end
+
+      private
+
+      # Empty cache.sqlite (just-bootstrapped repo) has no schema yet. Return
+      # [] silently rather than crash — the add path naturally degrades to "no
+      # candidates" and trim/all mode still emits trim findings.
+      def table_exists?(db, name)
+        row = db.execute(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", [name],
+        ).first
+        !row.nil?
       end
     end
   end

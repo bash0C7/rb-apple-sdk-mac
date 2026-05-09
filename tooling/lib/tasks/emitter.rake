@@ -23,11 +23,14 @@ require "emitter_dev/branch_ops"
 require "emitter_dev/worktree_ops"
 require "emitter_dev/candidate_ranker"
 require "emitter_dev/source_compile_history"
+require "emitter_dev/redundancy_scanner"
 require "emitter_dev/fact_bundler"
 
 namespace :apple do
   namespace :emitter do
-    desc "Aggregate compile_history and rank candidates (MODE=add|all TOP=N OUT=path)"
+    DEFAULT_MARSHALLERS_PATH = "lib/apple_sdk_mac/glue_compiler/marshallers.rb"
+
+    desc "Aggregate sources and rank candidates (MODE=add|trim|all TOP=N OUT=path)"
     task :candidates do
       mode         = ENV.fetch("MODE", "add")
       top          = Integer(ENV.fetch("TOP", "10"))
@@ -36,8 +39,22 @@ namespace :apple do
       sdk_version  = ENV.fetch("SDK_VERSION") { detect_sdk_version(project_root) }
       db_path      = File.join(project_root, ".rb-apple-sdk-mac", sdk_version, "cache.sqlite")
 
-      rows   = EmitterDev::Sources::CompileHistory.new(db_path).aggregate
-      result = EmitterDev::CandidateRanker.rank(rows: rows, mode: mode, top: top)
+      rows = if %w[add all].include?(mode) && File.exist?(db_path)
+               EmitterDev::Sources::CompileHistory.new(db_path).aggregate
+             else
+               []
+             end
+
+      marshallers_path = ENV.fetch("MARSHALLERS", File.join(project_root, DEFAULT_MARSHALLERS_PATH))
+      findings = if %w[trim all].include?(mode) && File.exist?(marshallers_path)
+                   EmitterDev::RedundancyScanner.new(marshallers_path).scan
+                 else
+                   []
+                 end
+
+      result = EmitterDev::CandidateRanker.rank(
+        rows: rows, findings: findings, mode: mode, top: top,
+      )
 
       FileUtils.mkdir_p(File.dirname(out))
       File.write(out, JSON.pretty_generate(result))
