@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 require "test_helper"
 require "sqlite3"
+require "sqlite_vec"
 
 # Asserts post-rebuild Knowledge Base invariants. Run AFTER
 # `bundle exec rake apple:knowledge:clean` + `bundle exec rake apple:knowledge:rebuild`.
@@ -17,6 +18,11 @@ class FullRebuildAssertionsTest < Test::Unit::TestCase
   def setup
     omit "Knowledge Base SQLite missing — run `bundle exec rake apple:knowledge:rebuild` first" unless File.exist?(KB_PATH)
     @db = SQLite3::Database.new(KB_PATH)
+    # symbols_vec is a vec0 virtual table — querying it requires the
+    # sqlite-vec extension loaded on this connection, same as Store#initialize.
+    @db.enable_load_extension(true)
+    SqliteVec.load(@db)
+    @db.enable_load_extension(false)
   end
 
   def teardown
