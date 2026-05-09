@@ -287,21 +287,20 @@ module AppleSDKKnowledge
         kind_str   = kind_string_for(decl[:kind])
         hash       = Digest::SHA256.hexdigest("#{fw_id}|#{klass_id}|#{selector}|#{kind_str}|swift_overlay")
 
-        sym_id = @store.insert_symbol(
-          framework_id: fw_id,
-          name:         selector,
-          parent_id:    klass_id,
-          kind:         kind_str,
-          abi:          "swift",
-          content_hash: hash,
-          signature:    decl[:signature]
-        )
-
-        return unless sym_id && swift_name
-
-        @store.db.execute(
-          "UPDATE symbols SET swift_imported_name = ? WHERE id = ?",
-          [swift_name, sym_id]
+        # Single atomic INSERT ... ON CONFLICT — swift_imported_name rides
+        # along so a re-import under the same content_hash updates this
+        # column in the same statement. The earlier two-statement pattern
+        # (insert + separate UPDATE) left a partial-state window and could
+        # leave the column stale on the conflict path.
+        @store.insert_symbol(
+          framework_id:        fw_id,
+          name:                selector,
+          parent_id:           klass_id,
+          kind:                kind_str,
+          abi:                 "swift",
+          content_hash:        hash,
+          signature:            decl[:signature],
+          swift_imported_name: swift_name
         )
       end
 
