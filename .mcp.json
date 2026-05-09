@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "apple-sdk": {
+      "type": "stdio",
+      "command": "./mcp/scripts/start_mcp.sh",
+      "args": [],
+      "env": {}
+    }
+  }
+}
