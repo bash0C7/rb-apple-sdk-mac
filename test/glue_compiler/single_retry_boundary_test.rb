@@ -6,14 +6,23 @@ require "apple_sdk_mac/glue_compiler"
 class SingleRetryBoundaryTest < Test::Unit::TestCase
   class FakeTemplate
     attr_reader :calls
-    def initialize(swift_source); @swift = swift_source; @calls = 0; end
-    def generate(framework:, symbol:, glue_id:); @calls += 1; @swift; end
+    def initialize; @calls = 0; end
+    def generate(framework:, symbol:, glue_id:)
+      @calls += 1
+      swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
+      # Returns source that passes gate validation but will fail swiftc compilation
+      "@c public func glue_#{glue_id}_#{swift_id}(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt { THIS_IS_INVALID_SWIFT }"
+    end
   end
 
   class FakeLLM
     attr_reader :calls
-    def initialize(swift_source); @swift = swift_source; @calls = 0; end
-    def generate(framework:, symbol:, glue_id:); @calls += 1; @swift; end
+    def initialize; @calls = 0; end
+    def generate(framework:, symbol:, glue_id:)
+      @calls += 1
+      swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
+      "@c public func glue_#{glue_id}_#{swift_id}(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt { return 0 }"
+    end
   end
 
   class FakeSwiftc
@@ -39,10 +48,11 @@ class SingleRetryBoundaryTest < Test::Unit::TestCase
       cache = FakeCache.new(dir, "26.2")
       FileUtils.mkdir_p(File.join(dir, "26.2", "sources"))
       FileUtils.mkdir_p(File.join(dir, "26.2", "lib"))
-      template = FakeTemplate.new("// broken swift")
-      llm = FakeLLM.new("@c public func glue_dead_FAKE(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt { return 0 }")
+      template = FakeTemplate.new
+      llm = FakeLLM.new
       compiler = AppleSDKMac::GlueCompiler.new(
         cache: cache, runtime_dylib_path: nil, runtime_modules_paths: [],
+        template_generator: template,
         llm_generator: llm, swiftc_invoker: FakeSwiftc.new(template_ok: false, llm_ok: true)
       )
 
