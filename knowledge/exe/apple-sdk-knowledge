@@ -1,0 +1,35 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+require "fileutils"
+require "rb_apple_sdk_knowledge"
+
+case ARGV.first
+when "rebuild"
+  sdk_version = AppleSDKKnowledge.detect_sdk_version
+  path = AppleSDKKnowledge.knowledge_path(sdk_version: sdk_version)
+  FileUtils.mkdir_p(File.dirname(path))
+  puts "Building knowledge base at #{path}..."
+  AppleSDKKnowledge::Importer.new(store_path: path).run
+  puts "Done."
+when "info"
+  store = AppleSDKKnowledge.open
+  puts "Frameworks: #{store.db.execute("SELECT COUNT(*) FROM frameworks").flatten.first}"
+  puts "Symbols:    #{store.db.execute("SELECT COUNT(*) FROM symbols").flatten.first}"
+  puts "Path:       #{store.path}"
+  store.close
+when "search"
+  framework = ARGV[1]
+  query = ARGV[2]
+  abort "usage: apple-sdk-knowledge search <framework> <query>" unless framework && query
+  store = AppleSDKKnowledge.open
+  results = AppleSDKKnowledge::Search.new(store).lexical(framework: framework, query: query)
+  results.each { |r| puts "#{r[:framework]}::#{r[:name]} #{r[:signature]}" }
+  store.close
+else
+  puts <<~USAGE
+    usage:
+      apple-sdk-knowledge rebuild
+      apple-sdk-knowledge info
+      apple-sdk-knowledge search <framework> <query>
+  USAGE
+end

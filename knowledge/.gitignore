@@ -1,0 +1,16 @@
+/.bundle/
+/.yardoc
+/_yardoc/
+/coverage/
+/doc/
+/pkg/
+/spec/reports/
+/tmp/
+/data/*.sqlite
+/data/*.sqlite-shm
+/data/*.sqlite-wal
+/data/*.sqlite.bak*
+/data/*.sqlite.bak-shm
+/data/*.sqlite.bak-wal
+/Gemfile.lock
+/vendor/bundle
