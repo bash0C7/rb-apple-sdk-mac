@@ -7,11 +7,13 @@ module AppleSDKMac
     # subset of the protocol that applies to them; defaults below are no-ops.
     #
     # Protocol (each returns a Swift snippet or nil):
-    #   in_load     — argv[i] → Swift binding at the function entry
-    #   call_arg    — Swift expression for the argument at the C call site
-    #   out_init    — out-param `var` declaration before the call
-    #   out_addr    — `&...` expression at the call site for an out-param
-    #   out_to_ruby — Swift expression that converts the post-call out value to Ruby VALUE
+    #   in_load          — argv[i] → Swift binding at the function entry
+    #   call_arg         — Swift expression for the argument at the C call site
+    #   out_handling     — {init:, addr:, to_ruby:} Hash for out-params, or nil if unsupported
+    #                      init:     var declaration before the call
+    #                      addr:     `&...` expression at the call site
+    #                      to_ruby:  Swift expression converting post-call value to Ruby VALUE
+    #   out_post_call    — optional Swift snippet between status check and return (e.g. struct marshal)
     #   call_wrapper(inner) — optional wrapping around the C call expression
     #                         (e.g. withUnsafePointer { ... }); base returns inner
     class Marshaller
@@ -25,10 +27,7 @@ module AppleSDKMac
 
       def in_load;      nil end
       def call_arg;     @param[:name] end
-      def out_init;     nil end
-      def out_addr;     nil end
       def out_post_call; nil end  # Swift snippet between status check and return
-      def out_to_ruby;  nil end   # final expression for `return ...`
       def out_handling; nil end   # sentinel: nil means marshaller cannot handle out-param
       def call_wrapper(inner); inner end
 
@@ -132,24 +131,17 @@ module AppleSDKMac
         @param[:is_out_param] ? "&#{@param[:name]}" : @param[:name]
       end
 
-      def out_init
+      def out_handling
         return nil unless @param[:is_out_param]
         ref_type = strip_pointer(@param[:type])
-        "var #{@param[:name]}: #{ref_type} = #{ref_type}()"
-      end
-
-      def out_addr
-        return nil unless @param[:is_out_param]
-        "&#{@param[:name]}"
-      end
-
-      def out_to_ruby
-        return nil unless @param[:is_out_param]
-        if unsigned?(@param[:type])
-          "rb_ull2inum(UInt64(#{@param[:name]}))"
-        else
-          "rb_ll2inum(Int64(#{@param[:name]}))"
-        end
+        to_ruby = unsigned?(@param[:type]) \
+          ? "rb_ull2inum(UInt64(#{@param[:name]}))"
+          : "rb_ll2inum(Int64(#{@param[:name]}))"
+        {
+          init:    "var #{@param[:name]}: #{ref_type} = #{ref_type}()",
+          addr:    "&#{@param[:name]}",
+          to_ruby: to_ruby
+        }
       end
 
       private
@@ -216,22 +208,14 @@ module AppleSDKMac
         @param[:name]
       end
 
-      def out_init
+      def out_handling
         return nil unless @param[:is_out_param]
         type = ref_type(@param[:type])
-        "var #{@param[:name]}: #{type}? = nil"
-      end
-
-      def out_addr
-        return nil unless @param[:is_out_param]
-        "&#{@param[:name]}"
-      end
-
-      def out_to_ruby
-        return nil unless @param[:is_out_param]
-        # Encode the CF pointer as Ruby Integer via the OpaquePointer raw bit-pattern.
-        # User must CFRelease manually (no auto-ARC bridging in Phase 7).
-        "rb_ull2inum(UInt64(UInt(bitPattern: unsafeBitCast(#{@param[:name]}!, to: OpaquePointer.self))))"
+        {
+          init:    "var #{@param[:name]}: #{type}? = nil",
+          addr:    "&#{@param[:name]}",
+          to_ruby: "rb_ull2inum(UInt64(UInt(bitPattern: unsafeBitCast(#{@param[:name]}!, to: OpaquePointer.self))))"
+        }
       end
 
       private
@@ -639,12 +623,12 @@ module AppleSDKMac
 
       def broken?; @broken; end
 
-      def out_init
-        "var #{@param[:name]}_struct = #{type}()"
-      end
-
-      def out_addr
-        "&#{@param[:name]}_struct"
+      def out_handling
+        {
+          init:    "var #{@param[:name]}_struct = #{type}()",
+          addr:    "&#{@param[:name]}_struct",
+          to_ruby: "#{@param[:name]}_h"
+        }
       end
 
       def out_post_call
@@ -660,10 +644,6 @@ module AppleSDKMac
           lines << "rb_hash_aset(#{h_var}, rb_str_new_cstr(\"#{f[:name]}\"), #{val_expr})"
         end
         lines.join("\n    ")
-      end
-
-      def out_to_ruby
-        "#{@param[:name]}_h"
       end
 
       private
