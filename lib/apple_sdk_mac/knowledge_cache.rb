@@ -48,6 +48,27 @@ module AppleSDKMac
       }
     end
 
+    # Phase 4b — Swift overlay bridge naming lookup. Returns the
+    # `swift_imported_name` column for a given (framework, klass, selector),
+    # populated by the Swift overlay importer (Phase 4a). nil when miss
+    # (no row, no swift_imported_name on row, or no Swift overlay column at
+    # all on a stale schema). Caller (SwiftBridgeName.resolve) treats nil
+    # as 'fall through to next resolution tier'.
+    def lookup_swift_imported_name(framework:, klass:, selector:)
+      row = @db.execute(<<~SQL, [framework, klass, selector]).first
+        SELECT s.swift_imported_name
+        FROM symbols s
+        JOIN symbols p     ON s.parent_id = p.id
+        JOIN frameworks f  ON s.framework_id = f.id
+        WHERE f.name = ? AND p.name = ? AND s.name = ?
+        LIMIT 1
+      SQL
+      row && row[0]
+    rescue SQLite3::SQLException => e
+      raise unless e.message.include?("no such column")
+      nil
+    end
+
     # Klass を介した子 method/property の lookup。 lookup_symbol は flat name
     # 検索なので "URL.appendingPathComponent" のような形式は parent_id 階層で
     # 索引された KB に対して必ず miss する。 こちらは parent_id JOIN で正確に

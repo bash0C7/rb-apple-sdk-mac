@@ -2,6 +2,7 @@
 require "json"
 require "set"
 require_relative "marshallers"
+require_relative "swift_bridge_name"
 
 module AppleSDKMac
   class GlueCompiler
@@ -227,7 +228,7 @@ module AppleSDKMac
         exported = "glue_#{glue_id}_#{swift_id}"
 
         in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i) }
-        call_expr = swift_call_for_class_method(swift_klass, selector, params)
+        call_expr = swift_call_for_class_method(swift_klass, selector, params, framework: framework)
 
         body = in_loads + ["let raw = #{call_expr}"] + objc_return_lines(return_kind, "raw")
 
@@ -652,7 +653,18 @@ module AppleSDKMac
       # (e.g. NSString.stringWithUTF8String → NSString.init(utf8String:))。
       # この shape の selector は init form を emit する。それ以外は class method
       # form (`Klass.swiftMethod(args)`) を維持。
-      def swift_call_for_class_method(klass, selector, params)
+      def swift_call_for_class_method(klass, selector, params, framework: nil)
+        # Phase 4b — try KB swift_imported_name + manual overrides first.
+        # Heuristic remains the fallback for selectors not yet covered by
+        # the Swift overlay importer (e.g. selectors from frameworks the
+        # importer skipped due to generic / async / where clauses).
+        if (kb_or_override = SwiftBridgeName.resolve(
+              framework: framework, klass: klass,
+              selector: selector, params: params, kc: @kc,
+            ))
+          return kb_or_override
+        end
+
         parts = selector.split(":", -1).reject(&:empty?)
         if parts.size == 1
           sole = parts[0]
