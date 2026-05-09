@@ -104,7 +104,22 @@ module AppleSDKMac
 
     class BoolMarshaller < Marshaller
       def in_load
+        return nil if @param[:is_out_param]
         "let #{@param[:name]}: Bool = (argv[#{@index}] != Qfalse && argv[#{@index}] != Qnil)"
+      end
+
+      def call_arg
+        return "&#{@param[:name]}" if @param[:is_out_param]
+        @param[:name]
+      end
+
+      def out_handling
+        return nil unless @param[:is_out_param]
+        {
+          init:    "var #{@param[:name]}: Bool = false",
+          addr:    "&#{@param[:name]}",
+          to_ruby: "#{@param[:name]} ? Qtrue : Qfalse"
+        }
       end
     end
     Marshaller::REGISTRY["bool"] = BoolMarshaller
