@@ -19,7 +19,9 @@ module EmitterDev
       FileUtils.mkdir_p(dst)
       %w[knowledge sources lib].each do |dir|
         target = File.join(src, dir)
-        link   = File.join(dst, dir)
+        next unless File.directory?(target)
+
+        link = File.join(dst, dir)
         File.symlink(target, link) unless File.exist?(link) || File.symlink?(link)
       end
       cache_src = File.join(src, "cache.sqlite")
