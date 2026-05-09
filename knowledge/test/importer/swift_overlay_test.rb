@@ -17,7 +17,7 @@ class SwiftOverlayImporterTest < Test::Unit::TestCase
         WHERE f.name = ? AND p.name = ? AND s.name = ?
       SQL
       refute_nil row, "no row found for AVFoundation::AVCaptureDevice::devicesWithMediaType:"
-      assert_equal "objc_method_class", row[0]
+      assert_equal "class_method", row[0]
       assert_equal "devices(for:)", row[1]
       store.close
     end
