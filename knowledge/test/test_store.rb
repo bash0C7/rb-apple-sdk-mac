@@ -50,10 +50,10 @@ class TestStore < Test::Unit::TestCase
     store.close
   end
 
-  def test_schema_version_bumped_to_2
+  def test_schema_version_persisted_matches_constant
     store = AppleSDKKnowledge::Store.open(@db_path)
     v = store.db.execute("SELECT value FROM schema_meta WHERE key = 'schema_version'").first.first
-    assert_equal "2", v
+    assert_equal AppleSDKKnowledge::Store::SCHEMA_VERSION.to_s, v
     store.close
   end
 
