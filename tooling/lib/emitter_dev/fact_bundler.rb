@@ -14,6 +14,7 @@ module EmitterDev
         section_header,
         section_branch_commits,
         section_diff_stat,
+        section_design,
         section_regression,
         section_individual_verification,
         section_compile_history_delta,
@@ -25,6 +26,11 @@ module EmitterDev
 
     def section_header
       "# Fact bundle: #{@branch}\nbase: #{@base}"
+    end
+
+    def section_design
+      content = read_artifact("tmp/emitter/design_#{@slug}.md")
+      "## design\n#{content}"
     end
 
     def section_branch_commits

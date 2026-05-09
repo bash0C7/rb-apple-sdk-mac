@@ -12,6 +12,7 @@ tooling/
 │   │   ├── branch_ops.rb
 │   │   ├── worktree_ops.rb
 │   │   ├── source_compile_history.rb
+│   │   ├── redundancy_scanner.rb
 │   │   ├── candidate_ranker.rb
 │   │   └── fact_bundler.rb
 │   └── tasks/
@@ -25,9 +26,10 @@ tooling/
 | --- | --- |
 | `EmitterDev::BranchOps` | candidate 情報から branch 名 (例 `emitter/add-NSString-stringWithUTF8String`) を導出。 mode / API / timestamp を組み合わせて衝突しない名前を返す純関数。 |
 | `EmitterDev::WorktreeOps` | `git worktree add` で隔離 workspace を作り、 `~/.cache/rb-apple-sdk-mac` 配下の read-only artifact (sdkdb_index 等) は symlink、 mutable な `cache.sqlite` は copy で populate。 並列 session が cache を壊さんための分離層。 |
-| `EmitterDev::Sources::CompileHistory` | Knowledge Base の `compile_history.sqlite` を読み、 API ごとの compile 失敗回数 / 直近呼び出し時刻を集計。 candidate 評価の入力 fact を提供。 |
-| `EmitterDev::CandidateRanker` | `Sources::*` の集計結果を受け取り、 add mode (まだ emitter に無い高頻度 API) / trim mode (emitter にあるが呼ばれてへん entry) ごとに ranking。 H-1 では add、 H-2 で trim を追加実装。 |
-| `EmitterDev::FactBundler` | HITL gate に提示する生 artifact (`git diff`, `rake test` stdout, e2e log, branch / base / worktree path metadata) を JSON / markdown bundle に composition。 LLM 自己評価 summary は混ぜへん。 |
+| `EmitterDev::Sources::CompileHistory` | Knowledge Base の `cache.sqlite::compile_history` table を読み、 API ごとの compile 失敗回数 / 直近呼び出し時刻を集計。 candidate 評価の入力 fact を提供。 table 未作成な空 cache は `[]` を返して trim/all mode 経路を阻害せえへん。 |
+| `EmitterDev::RedundancyScanner` | `marshallers.rb` を `parser` gem で AST 走査し、 `twin_private_helper` (Levenshtein 類似 helper の双子) と `class_pair_method_overlap` (>= 2 method 重複の class pair) の 2 heuristic で trim 候補を抽出。 H-2 で追加。 |
+| `EmitterDev::CandidateRanker` | `Sources::*` / `RedundancyScanner` の出力を受け取り、 add mode (まだ emitter に無い高頻度 API) / trim mode (冗長な marshaller を統合できる pair) / all mode (両方マージ) ごとに ranking。 stateless module (`module_function`)、 `rank(rows:, findings:, mode:, top:)` 単一 entry。 |
+| `EmitterDev::FactBundler` | HITL gate に提示する生 artifact (`git diff`, `rake test` stdout, e2e log, branch / base / worktree path metadata) を markdown bundle に composition。 LLM 自己評価 summary は混ぜへん。 |
 
 `EmitterDev::*` は全て module_function ベースの薄い helper。 状態は持たず、 副作用 (git, sqlite) は引数で受け取った path に閉じる。
 
@@ -109,6 +111,26 @@ bundle exec rake apple:emitter:merge BRANCH=emitter/add-... BASE=feature/v1.2-bo
 ```
 
 各 step が独立した Rake task / agent invocation になっとるんで、 失敗時はその step だけ retry できる。 fact-review gate には LLM の自己評価 summary を出さず、 生 diff / 生 test stdout / 生 e2e log だけを提示するんが design の核心 (memory: HITL gate は事実を見せる場所)。
+
+## FactBundler の設計
+
+HITL fact-review gate で user が読む markdown を構成する。 設計の核心は **生 artifact だけ並べる**: LLM 自己評価 / summary / 安心させる文言は一切混ぜへん。 user は事実を見て承認 / 却下を判断する (memory `feedback_hitl_gate_facts_only.md`)。
+
+bundle は次の section から成る (`compose` の順):
+
+| Section | source | 役割 |
+| --- | --- | --- |
+| header | branch + base 名 | 何の fact bundle かの identity |
+| branch & commits | `git log --oneline base..branch` | 候補 branch の commit 列 |
+| diff stat | `git diff --stat base..branch` | 差分の規模 (file 数 / line 増減) |
+| design | `tmp/emitter/design_<slug>.md` | implementer subagent が作った設計メモ (任意 artifact) |
+| regression | `tmp/emitter/regression_<slug>.txt` | `rake test` の生 stdout (test-unit summary 行) |
+| individual verification | `tmp/emitter/verify_<slug>.txt` | 個別 example の e2e 結果 (test-unit assert) |
+| compile_history delta | `tmp/emitter/compile_history_<slug>.txt` | `cache.sqlite` の before/after row 差分 |
+
+artifact が無い section は `<missing: <path>>` placeholder を残す。 「なんで無いん」 を user が判断できるよう、 黙って section を消したりしない。
+
+bundle path の slug は `branch.tr("/", "_")` で変換 (例 `emitter/add-foo` → `emitter_add-foo`)。 implementer subagent は同じ slug で artifact を出力する規約。
 
 ## 設計 spec
 
