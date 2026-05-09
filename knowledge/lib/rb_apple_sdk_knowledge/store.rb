@@ -185,8 +185,12 @@ module AppleSDKKnowledge
 
     def vec_insert(symbol_id, embedding)
       blob = embedding.pack("f*")
+      # vec0 virtual tables silently ignore INSERT OR REPLACE and raise
+      # SQLite3::SQLException on UNIQUE PK collision. Explicit DELETE first
+      # makes re-import on content_hash repeats deterministic.
+      @db.execute("DELETE FROM symbols_vec WHERE symbol_id = ?", [symbol_id])
       @db.execute(
-        "INSERT OR REPLACE INTO symbols_vec(symbol_id, embedding) VALUES (?, ?)",
+        "INSERT INTO symbols_vec(symbol_id, embedding) VALUES (?, ?)",
         [symbol_id, blob]
       )
     end
