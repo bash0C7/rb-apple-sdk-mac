@@ -157,4 +157,31 @@ class TestStore < Test::Unit::TestCase
     assert_equal "devices(forMediaType:)", rows.first.first
     store.close
   end
+
+  def test_vec_insert_is_idempotent_on_same_symbol_id
+    Dir.mktmpdir do |dir|
+      store = AppleSDKKnowledge::Store.open(File.join(dir, "test.sqlite"))
+      fw_id = store.insert_framework(name: "TestFW", swift_module: "TestFW")
+      sym_id = store.insert_symbol(
+        framework_id: fw_id, name: "foo", kind: "function",
+        abi: "swift", content_hash: "h1", signature: "func foo()"
+      )
+
+      embedding = Array.new(768) { 0.1 }
+      assert_nothing_raised do
+        store.vec_insert(sym_id, embedding)
+        # Second insert with SAME symbol_id — vec0 virtual table has UNIQUE PK
+        # on symbol_id and does NOT honor INSERT OR REPLACE. Must succeed by
+        # DELETE + INSERT (or equivalent idempotent path) without raising
+        # SQLite3::SQLException "UNIQUE constraint failed".
+        store.vec_insert(sym_id, embedding)
+      end
+
+      count = store.db.execute(
+        "SELECT COUNT(*) FROM symbols_vec WHERE symbol_id = ?", [sym_id]
+      ).first.first
+      assert_equal 1, count, "expected exactly 1 row after idempotent re-insert, got #{count}"
+      store.close
+    end
+  end
 end
