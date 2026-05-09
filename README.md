@@ -2,6 +2,14 @@
 
 Runtime dynamic Ruby ↔ Apple SDK bridge for macOS. Call any public Apple framework API from Ruby with no pre-declarations.
 
+> **v1.2 status.** Swift overlay framework (AVFoundation / AppKit / Vision /
+> SwiftUI 系) の API も `bootstrap!` だけで動く。 ObjC selector → Swift
+> imported name は Knowledge Base に取り込まれ (`swift_imported_name`
+> column)、 ObjC↔Swift bridge 名前解決は `SwiftBridgeName` の 3 段
+> resolution (Knowledge Base → 手動 override → heuristic → LLM 安全網)
+> に統一された。 `examples/avspeech_synth.rb` / `examples/vision_ocr.rb`
+> が end-to-end の release-quality 検収例。
+
 ## Requirements
 
 - macOS 26+
@@ -18,8 +26,15 @@ gem "rb-apple-sdk-mac"
 After install:
 
 ```bash
-bundle exec rake apple:knowledge:rebuild   # see rb-apple-sdk-knowledge
+bundle exec rake apple:knowledge:rebuild   # 50+ 分 / forground; CI / 単体実行向き
+# あるいは長時間 detached で走らせる:
+bundle exec rake apple:knowledge:rebuild_async   # screen -dmS で背景化、 tmp/longrun/<NAME>.log を tail
 ```
+
+`rebuild` は ObjC framework + Swift overlay framework 両方の
+`*.swiftinterface` を ingest し、 `<project>/.rb-apple-sdk-mac/knowledge/`
+に SQLite を生成する。 完了後 `Apple::<Framework>::<Type>.<method>` が
+全て呼び出し可能になる。
 
 ## Usage
 
@@ -152,14 +167,26 @@ transparently on first call like everything else.
 
 ## Architecture
 
-See `docs/superpowers/specs/2026-05-04-rb-apple-sdk-mac-design.md` in the swift_gem repo.
+See `docs/superpowers/specs/2026-05-04-rb-apple-sdk-mac-design.md` in the swift_gem repo + v1.2 spec `docs/superpowers/specs/2026-05-09-v1.2-bootstrap-principle-design.md`.
 
 The bridge is composed of:
 
 - **Glue Runtime** (`ext/apple_sdk_mac_runtime/`): static Swift dylib with 9 pillars (Ref Table, Marshal, Callback, ARC, Error, Async, Threading, RunLoop, Conformance) bridged to CRuby via SE-0495 `@c`.
 - **Ruby cache layer**: Config (XDG/ENV/YAML), CompiledGlueCache (SQLite + dylib FS), KnowledgeCache (consume rb-apple-sdk-knowledge).
-- **Glue Compiler pipeline**: TemplateGenerator (deterministic shape catalog) → LLMGenerator fallback (rb-foundation-model-mac via Ollama) → ValidationGates (allowed imports / banned APIs / glue shape) → SwiftcInvoker.
+- **Glue Compiler pipeline**: TemplateGenerator (deterministic shape catalog) → SwiftBridgeName (Knowledge Base + override 2 段 resolver, v1.2 で追加) → LLMGenerator fallback (rb-foundation-model-mac via Ollama) → ValidationGates (allowed imports / banned APIs / glue shape) → SwiftcInvoker.
 - **Ruby runtime**: GlueLoader (dlopen + pointer cache), Dispatcher (cache miss → inline compile + invoke; transparent for KB symbols), SecurityCop (in-Box monkey patches with allow-list bypass), NamespaceBuilder (eager `Apple::<Framework>` shell definition at bootstrap), `Apple` Ruby::Box bootstrap.
+- **Knowledge Base** (`knowledge/` sub-gem): `*.swiftinterface` ingester + Swift overlay ingester (v1.2 Phase 4a で追加)、 ObjC selector → Swift imported name の対応を `symbols.swift_imported_name` に保存。
+
+## Maintainer tools (`tooling/`)
+
+長期改善 (新 emitter 追加 / 冗長 marshaller 統合) を 2-gate HITL workflow
+で回す `tooling/` サブツリー。 `bundle exec rake apple:emitter:candidates`
+で compile_history + RedundancyScanner から候補を ranking、 `git worktree`
+で隔離 → implementer subagent → fact bundle gate → 非 fast-forward merge と
+進む。 詳細は `tooling/README.md` および
+`docs/superpowers/specs/2026-05-09-hitl-emitter-improvement-design.md`。
+
+Slash command 経由起動: `/rb-apple-sdk-mac-improve-emitter [--mode=add|trim|all] [--top=N]`
 
 ## License
 
