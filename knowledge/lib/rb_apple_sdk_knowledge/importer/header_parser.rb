@@ -6,6 +6,10 @@ require_relative "kind"
 module AppleSDKKnowledge
   module Importer
     class HeaderParser
+      def initialize(sdk_path: nil)
+        @sdk_path = sdk_path
+      end
+
       def parse_file(path)
         json = run_clang_ast_dump(path)
         symbols = []
@@ -18,10 +22,18 @@ module AppleSDKKnowledge
 
       private
 
+      def sdk_path
+        @sdk_path ||= `xcrun --show-sdk-path`.strip
+      end
+
       def run_clang_ast_dump(path)
         out, err, status = Open3.capture3(
           "clang", "-Xclang", "-ast-dump=json", "-fsyntax-only",
-          "-x", "c", path
+          "-x", "objective-c",
+          "-isysroot", sdk_path,
+          "-F", File.join(sdk_path, "System", "Library", "Frameworks"),
+          "-arch", "arm64",
+          path
         )
         raise "clang failed for #{path}: #{err.strip}" unless status.success?
         JSON.parse(out)

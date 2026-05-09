@@ -25,7 +25,7 @@ module AppleSDKKnowledge
         store         = AppleSDKKnowledge::Store.open(@store_path)
         embedder      = @fast ? nil : Embedder.new
         swift_parser  = SwiftInterfaceParser.new
-        header_parser = HeaderParser.new
+        header_parser = HeaderParser.new(sdk_path: resolver.sdk_path)
         consolidator  = Consolidator.new
         swift_overlay = SwiftOverlay.new(store)
 
