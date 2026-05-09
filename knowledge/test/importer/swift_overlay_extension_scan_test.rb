@@ -65,4 +65,52 @@ class SwiftOverlayExtensionScanTest < Test::Unit::TestCase
     assert_match(/lockForConfiguration/, blocks[0][:body])
     assert_match(/defaultDevice/, blocks[0][:body])
   end
+
+  def test_extracts_module_qualified_simple
+    source = "extension Foundation.URL {\n  public init?(string: Swift.String)\n}\n"
+    blocks = @overlay.send(:extract_extension_blocks, source)
+    assert_equal 1, blocks.length
+    assert_equal "URL", blocks[0][:klass]
+  end
+
+  def test_extracts_module_qualified_with_conformance
+    source = "extension Foundation.TermOfAddress : Swift.Codable {\n  public func encode(to encoder: any Swift.Encoder) throws\n}\n"
+    blocks = @overlay.send(:extract_extension_blocks, source)
+    assert_equal 1, blocks.length
+    assert_equal "TermOfAddress", blocks[0][:klass]
+  end
+
+  def test_extracts_module_qualified_with_where_clause
+    source = "extension Foundation._KeyValueCodingAndObservingPublishing where Self : ObjectiveC.NSObject {\n  public func publisher<Value>(for keyPath: Swift.KeyPath<Self, Value>) -> Swift.Int\n}\n"
+    blocks = @overlay.send(:extract_extension_blocks, source)
+    assert_equal 1, blocks.length
+    assert_equal "_KeyValueCodingAndObservingPublishing", blocks[0][:klass]
+  end
+
+  def test_extracts_module_qualified_with_conformance_and_where
+    source = "extension Foundation.NSKeyValueObservedChange : Swift.Sendable where Value : Swift.Sendable {\n}\n"
+    blocks = @overlay.send(:extract_extension_blocks, source)
+    assert_equal 1, blocks.length
+    assert_equal "NSKeyValueObservedChange", blocks[0][:klass]
+  end
+
+  def test_extracts_nested_type_3_segments
+    source = "extension Foundation.URL.ParseStrategy {\n  public func parse(_ value: Swift.String) throws -> Foundation.URL\n}\n"
+    blocks = @overlay.send(:extract_extension_blocks, source)
+    assert_equal 1, blocks.length
+    assert_equal "ParseStrategy", blocks[0][:klass]
+  end
+
+  def test_extracts_all_forms_from_real_fixture
+    fixture = File.expand_path("../fixtures/swift_overlay/foundation_real.swiftinterface", __dir__)
+    source  = File.read(fixture)
+    blocks  = @overlay.send(:extract_extension_blocks, source)
+    klasses = blocks.map { |b| b[:klass] }
+    assert_equal 5, blocks.length, "expected 5 extension blocks from real fixture, got #{blocks.length}: #{klasses.inspect}"
+    assert_includes klasses, "URL"
+    assert_includes klasses, "TermOfAddress"
+    assert_includes klasses, "_KeyValueCodingAndObservingPublishing"
+    assert_includes klasses, "NSKeyValueObservedChange"
+    assert_includes klasses, "ParseStrategy"
+  end
 end
