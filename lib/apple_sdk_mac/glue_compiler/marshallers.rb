@@ -29,6 +29,7 @@ module AppleSDKMac
       def out_addr;     nil end
       def out_post_call; nil end  # Swift snippet between status check and return
       def out_to_ruby;  nil end   # final expression for `return ...`
+      def out_handling; nil end   # sentinel: nil means marshaller cannot handle out-param
       def call_wrapper(inner); inner end
 
       REGISTRY = {}
