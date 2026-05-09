@@ -10,13 +10,17 @@ require "sqlite_vec"
 #
 # memory rule: verification の output は test-unit assert に任せる。
 class FullRebuildAssertionsTest < Test::Unit::TestCase
-  KB_PATH = File.expand_path(
-    "../../.rb-apple-sdk-mac/knowledge/26.2/sdk_knowledge.sqlite",
+  # SDK version is detected by SDKResolver at rebuild time (xcrun --show-sdk-version),
+  # so the path is `<project>/.rb-apple-sdk-mac/knowledge/<sdk_version>/sdk_knowledge.sqlite`.
+  # Glob the version segment so this test stays valid as the SDK upgrades
+  # (26.2 → 26.4.1 → ...).
+  KB_PATH = Dir.glob(File.expand_path(
+    "../../.rb-apple-sdk-mac/knowledge/*/sdk_knowledge.sqlite",
     __dir__
-  )
+  )).max_by { |p| File.mtime(p) }
 
   def setup
-    omit "Knowledge Base SQLite missing — run `bundle exec rake apple:knowledge:rebuild` first" unless File.exist?(KB_PATH)
+    omit "Knowledge Base SQLite missing — run `bundle exec rake apple:knowledge:rebuild` first" if KB_PATH.nil? || !File.exist?(KB_PATH)
     @db = SQLite3::Database.new(KB_PATH)
     # symbols_vec is a vec0 virtual table — querying it requires the
     # sqlite-vec extension loaded on this connection, same as Store#initialize.
