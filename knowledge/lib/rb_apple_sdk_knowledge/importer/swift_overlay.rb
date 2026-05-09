@@ -21,11 +21,16 @@ module AppleSDKKnowledge
 
       # Matches: (open|public) [class|static] func name(params) [-> RetType]
       # Captures: [1] class/static?, [2] func name, [3] raw params, [4] return type
-      DECL_FUNC_RE = /(?:open|public)\s+(?:(class|static)\s+)?func\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*([^\n{]+))?/.freeze
+      # `(?:<[^>]+>)?` after the function name accepts generic type parameters
+      # like `func publisher<Value>(...)` that appear in real Apple
+      # .swiftinterface (Foundation/AppKit/Vision/SwiftUI overlay).
+      DECL_FUNC_RE = /(?:open|public)\s+(?:(class|static)\s+)?func\s+(\w+)(?:<[^>]+>)?\s*\(([^)]*)\)(?:\s*->\s*([^\n{]+))?/.freeze
 
       # Matches: (open|public) [convenience|required] init(params)
       # Captures: [1] qualifier?, [2] raw params
-      DECL_INIT_RE = /(?:open|public)\s+(?:(convenience|required)\s+)?init\s*\(([^)]*)\)/.freeze
+      # `init\??` accepts both `init(...)` and Swift failable initializers
+      # `init?(...)` which appear throughout Foundation overlay (URL, etc.).
+      DECL_INIT_RE = /(?:open|public)\s+(?:(convenience|required)\s+)?init\??\s*\(([^)]*)\)/.freeze
 
       # Matches: (open|public) [class|static] var name: Type
       # Captures: [1] class/static?, [2] var name, [3] type
