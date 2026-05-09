@@ -20,11 +20,12 @@ module AppleSDKMac
     def initialize(cache:, runtime_dylib_path:, runtime_modules_paths: [],
                     llm_generator: nil, swiftc_invoker: nil,
                     template_generator: nil,
+                    knowledge_cache: nil,
                     max_llm_retries: DEFAULT_MAX_LLM_RETRIES)
       @cache = cache
       @runtime_dylib_path = runtime_dylib_path
       @runtime_modules_paths = runtime_modules_paths
-      @template = template_generator || GlueCompiler::TemplateGenerator.new
+      @template = template_generator || GlueCompiler::TemplateGenerator.new(knowledge_cache: knowledge_cache)
       @llm = llm_generator
       @gates = GlueCompiler::ValidationGates.new
       @swiftc = swiftc_invoker || GlueCompiler::SwiftcInvoker.new

@@ -48,6 +48,7 @@ module AppleSDKMac
         cache: glue_cache,
         runtime_dylib_path: runtime_dylib_path,
         runtime_modules_paths: runtime_modules_paths,
+        knowledge_cache: knowledge_cache,
         llm_generator: GlueCompiler::LLMGenerator.new
       )
     end

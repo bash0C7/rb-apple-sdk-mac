@@ -674,14 +674,56 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["struct_out"] = StructOutMarshaller
 
+    # `struct_in_pointer` — C function takes `const Struct *`.
+    # When the knowledge cache has field info for the struct type, builds the
+    # struct locally from a Ruby Hash (same field-load pattern as StructInMarshaller)
+    # and passes its address (`&local_struct`). This lets callers pass a Ruby Hash
+    # with symbol keys matching the struct field names.
+    # Falls back to raw integer bit-pattern path when no field info is available
+    # (i.e. the caller must pass a pre-allocated pointer as a Ruby Integer).
     class StructInPointerMarshaller < Marshaller
+      def initialize(param, index, ctx)
+        super
+        @fields = load_fields
+        @use_hash_path = !@fields.nil? && !@fields.empty?
+      end
+
       def in_load
         type = struct_type(@param[:type])
         name = @param[:name]; i = @index
-        "let #{name}: UnsafePointer<#{type}> = UnsafePointer<#{type}>(bitPattern: UInt(rb_num2ull(argv[#{i}])))!"
+        if @use_hash_path
+          # Build struct from Ruby Hash (field-by-field), then pass &local_struct.
+          lines = ["let #{name}_h = argv[#{i}]", "var #{name}_struct = #{type}()"]
+          @fields.each do |f|
+            case f[:kind]
+            when "int"
+              lines << "#{name}_struct.#{f[:name]} = #{strip_annotations(f[:type])}(rb_num2ll(rb_hash_aref(#{name}_h, rb_str_new_cstr(\"#{f[:name]}\"))))"
+            when "float"
+              lines << "#{name}_struct.#{f[:name]} = rb_num2dbl(rb_hash_aref(#{name}_h, rb_str_new_cstr(\"#{f[:name]}\"))) "
+            when "bool"
+              lines << "#{name}_struct.#{f[:name]} = (rb_hash_aref(#{name}_h, rb_str_new_cstr(\"#{f[:name]}\")) != Qfalse)"
+            end
+          end
+          lines.join("\n    ")
+        else
+          # Raw integer bit-pattern path: caller passes a pre-allocated pointer.
+          "let #{name}: UnsafePointer<#{type}> = UnsafePointer<#{type}>(bitPattern: UInt(rb_num2ull(argv[#{i}])))!"
+        end
+      end
+
+      def call_arg
+        @use_hash_path ? "&#{@param[:name]}_struct" : @param[:name]
       end
 
       private
+
+      def load_fields
+        return nil unless @ctx[:knowledge_cache]
+        type = struct_type(@param[:type])
+        sym = @ctx[:knowledge_cache].lookup_symbol(framework: @ctx[:framework], symbol: type)
+        return nil unless sym && sym[:fields_json]
+        JSON.parse(sym[:fields_json], symbolize_names: true)
+      end
 
       def struct_type(type_str)
         # Strip leading const, trailing *, nullability annotations.
@@ -690,6 +732,10 @@ module AppleSDKMac
           .sub(/\s*\*.*\z/, "")
           .gsub(/\b_(Nonnull|Nullable)\b/, "")
           .strip
+      end
+
+      def strip_annotations(type_str)
+        type_str.gsub(/\b_(Nonnull|Nullable)\b/, "").strip
       end
     end
     Marshaller::REGISTRY["struct_in_pointer"] = StructInPointerMarshaller
