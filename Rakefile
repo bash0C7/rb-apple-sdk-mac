@@ -11,6 +11,7 @@ end
 Rake::TestTask.new(:test) do |t|
   t.libs << "test"
   t.libs << "lib"
+  t.libs << "tooling/lib"
   t.test_files = FileList["test/**/*_test.rb", "knowledge/test/test_*.rb"]
 end
 
@@ -174,3 +175,5 @@ namespace :test do
 end
 
 task default: :test
+
+load "tooling/lib/tasks/emitter.rake"
