@@ -22,7 +22,21 @@ class IntOutMarshallerTest < Test::Unit::TestCase
     assert_equal "rb_ll2inum(Int64(outVal))", h[:to_ruby]
   end
 
-  def test_int64_default_when_type_unknown
+  def test_int64_explicit
+    h = make(type: "Int64 *").out_handling
+    assert_equal "var outVal: Int64 = 0", h[:init]
+    assert_equal "&outVal", h[:addr]
+    assert_equal "rb_ll2inum(Int64(outVal))", h[:to_ruby]
+  end
+
+  def test_uint64_explicit
+    h = make(type: "UInt64 *").out_handling
+    assert_equal "var outVal: UInt64 = 0", h[:init]
+    assert_equal "&outVal", h[:addr]
+    assert_equal "rb_ull2inum(UInt64(outVal))", h[:to_ruby]
+  end
+
+  def test_void_ptr_falls_back_to_int64
     h = make(type: "void *").out_handling
     assert_equal "var outVal: Int64 = 0", h[:init]
   end
