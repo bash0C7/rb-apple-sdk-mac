@@ -8,7 +8,10 @@ module AppleSDKKnowledge
     # columns. ingest population of those columns is staged for v1.1; the
     # column shape is committed at v1.0 so the mac gem's schema_version
     # invalidation path doesn't have to thrash on later bumps.
-    SCHEMA_VERSION = 3
+    # v4 — adds swift_imported_name TEXT for Swift overlay importer (Task 4a.2).
+    # The Glue Compiler emitter (Phase 4b) reads this column to bridge ObjC
+    # method selectors to their resolved Swift import name.
+    SCHEMA_VERSION = 4
 
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;
@@ -86,9 +89,11 @@ module AppleSDKKnowledge
       # for CF auto-ARC routing (falling back to the Create/Copy naming
       # heuristic when null); objc_kind / swift_kind unblock the
       # ObjC method dispatch + Swift initializer / property paths.
-      ensure_column!("symbols", "cf_create_rule", "INTEGER DEFAULT 0")
-      ensure_column!("symbols", "objc_kind",      "TEXT")
-      ensure_column!("symbols", "swift_kind",     "TEXT")
+      ensure_column!("symbols", "cf_create_rule",      "INTEGER DEFAULT 0")
+      ensure_column!("symbols", "objc_kind",            "TEXT")
+      ensure_column!("symbols", "swift_kind",           "TEXT")
+      # v4 — Swift overlay importer writes ObjC selector → Swift import name here.
+      ensure_column!("symbols", "swift_imported_name", "TEXT")
       @db.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
         ["schema_version", SCHEMA_VERSION.to_s]
