@@ -11,16 +11,10 @@ module AppleSDKMac
     #   that the swiftinterface stripped of `///` get a synthesized doc
     # - Ruby stdlib expressions (String.to_s) that fall outside the KB
     #   scope still surface a useful description
-    #
-    # Shares the doc_transform pipeline with DocResolver so translation
-    # applies uniformly to KB-sourced and LLM-sourced text.
     class LLMResolver
-      IDENTITY_TRANSFORM = DocResolver::IDENTITY_TRANSFORM
-
-      def initialize(llm_proc:, knowledge_cache: nil, doc_transform: IDENTITY_TRANSFORM)
+      def initialize(llm_proc:, knowledge_cache: nil)
         @llm_proc = llm_proc
         @cache_kb = knowledge_cache
-        @doc_transform = doc_transform
         @result_cache = {}
         @mutex = Mutex.new
       end
@@ -39,8 +33,7 @@ module AppleSDKMac
           memoize(key, nil)
           return nil
         end
-        transformed = @doc_transform.call(raw, ctx)
-        memoize(key, transformed)
+        memoize(key, raw)
       end
 
       private

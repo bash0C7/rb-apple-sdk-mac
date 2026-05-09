@@ -8,19 +8,14 @@ module AppleSDKMac
     # input, framework-level matches (no symbol), and symbols whose KB
     # row has no doc-comment populated.
     class DocResolver
-      IDENTITY_TRANSFORM = ->(doc, _ctx) { doc }
-
-      def initialize(knowledge_cache:, doc_transform: IDENTITY_TRANSFORM)
+      def initialize(knowledge_cache:)
         @cache = knowledge_cache
-        @doc_transform = doc_transform
       end
 
       def resolve(matched)
         ctx = AppleSDKMac::IRB::Context.parse(matched)
         return nil if ctx.nil?
-        raw = lookup_raw(ctx)
-        return nil if raw.nil?
-        @doc_transform.call(raw, ctx)
+        lookup_raw(ctx)
       end
 
       private

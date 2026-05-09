@@ -270,21 +270,9 @@ module AppleSDKMac
         ::IRB.conf[:COMPLETOR] = :type
 
         @apple_provider = provider
-        # `apple_translator` keeps the env-var-driven target_lang
-        # resolution as informational state — it tells the user
-        # which locale the IRB session detected — but is no longer
-        # piped into DocResolver / LLMResolver. Translation moved to
-        # the reline-dialog-transform sibling gem (Phase 5 swap of
-        # 2026-05-08-reline-dialog-transform-design.md): users now
-        # configure translation via ~/.reline-dialog-transform.rb,
-        # whose auto-load wraps :show_doc with the chain.
-        @apple_translator = build_translator
-        doc_transform = DocResolver::IDENTITY_TRANSFORM
-        resolver = DocResolver.new(knowledge_cache: knowledge_cache, doc_transform: doc_transform)
+        resolver = DocResolver.new(knowledge_cache: knowledge_cache)
         @apple_prefetcher = Prefetcher.new(discoverer: discoverer)
-        @apple_llm_resolver = build_llm_resolver(
-          knowledge_cache: knowledge_cache, doc_transform: doc_transform
-        )
+        @apple_llm_resolver = build_llm_resolver(knowledge_cache: knowledge_cache)
         @apple_doc_dialog = DocDialog.new(
           resolver: resolver,
           prefetcher: @apple_prefetcher,
@@ -324,7 +312,6 @@ module AppleSDKMac
         @apple_dig_perfect = nil
         @apple_doc_dialog = nil
         @apple_prefetcher = nil
-        @apple_translator = nil
         @apple_llm_resolver = nil
       end
 
@@ -334,34 +321,14 @@ module AppleSDKMac
 
       # Internal — accessed by ContextOverride / RelineInputMethodOverride.
       attr_reader :apple_provider, :apple_dig_perfect, :apple_doc_dialog,
-                  :apple_prefetcher, :apple_translator, :apple_llm_resolver
+                  :apple_prefetcher, :apple_llm_resolver
 
       private
 
-      # Resolve translation target locale from APPLE_SDK_DOC_LANG (primary,
-      # documented as BCP-47 e.g. "ja-JP") and ENV["LANG"] (fallback,
-      # POSIX style e.g. "ja_JP.UTF-8" also accepted). When both resolve
-      # to nil, when LANG is C / POSIX / en*, or when the translation gem
-      # is not installed, returns nil so doc_transform stays identity.
-      def build_translator
-        begin
-          require "translation_mac/locale"
-        rescue LoadError => e
-          warn "[apple-sdk-mac irb] translation_mac/locale unavailable: #{e.message}" if ENV["APPLE_IRB_DEBUG"]
-          return nil
-        end
-        target = ::TranslationMac::Locale::Translator.detect_target_lang_priority(
-          ENV["APPLE_SDK_DOC_LANG"], ENV["LANG"]
-        )
-        return nil unless target
-        ::TranslationMac::Locale::Translator.new(target_lang: target)
-      end
-
       # Soft-load foundation_model_mac and wrap AppleFoundationModel.generate
       # in an LLMResolver. Returns nil when APPLE_IRB_NO_LLM=1 (user opt-out)
-      # or the LLM gem is unavailable. Shares doc_transform with DocResolver
-      # so generated text picks up the same translation pipeline.
-      def build_llm_resolver(knowledge_cache:, doc_transform:)
+      # or the LLM gem is unavailable.
+      def build_llm_resolver(knowledge_cache:)
         return nil if ENV["APPLE_IRB_NO_LLM"] == "1"
         begin
           require "foundation_model_mac"
@@ -373,11 +340,7 @@ module AppleSDKMac
           response = ::AppleFoundationModel.generate(prompt: prompt)
           response.is_a?(String) ? response : response.to_s
         }
-        LLMResolver.new(
-          llm_proc: llm_proc,
-          knowledge_cache: knowledge_cache,
-          doc_transform: doc_transform
-        )
+        LLMResolver.new(llm_proc: llm_proc, knowledge_cache: knowledge_cache)
       end
     end
 

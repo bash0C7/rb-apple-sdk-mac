@@ -127,34 +127,4 @@ class TestLLMResolver < Test::Unit::TestCase
     assert_equal 2, counter
   end
 
-  def test_doc_transform_applied_after_generation
-    llm = ->(_p) { "raw doc" }
-    r = LLMResolver.new(
-      llm_proc: llm,
-      doc_transform: ->(doc, _ctx) { "wrapped(#{doc})" }
-    )
-    out = r.resolve("Apple::Foundation::URL.appendingPathComponent")
-    assert_equal "wrapped(raw doc)", out
-  end
-
-  def test_doc_transform_receives_context_when_apple
-    seen_ctx = nil
-    r = LLMResolver.new(
-      llm_proc: ->(_p) { "doc" },
-      doc_transform: ->(doc, ctx) { seen_ctx = ctx; doc }
-    )
-    r.resolve("Apple::Foundation::URL.appendingPathComponent")
-    assert_equal "Foundation", seen_ctx&.framework
-    assert_equal "URL", seen_ctx&.klass
-  end
-
-  def test_doc_transform_receives_nil_ctx_for_ruby_input
-    seen_ctx = :unset
-    r = LLMResolver.new(
-      llm_proc: ->(_p) { "doc" },
-      doc_transform: ->(doc, ctx) { seen_ctx = ctx; doc }
-    )
-    r.resolve("String.to_s")
-    assert_nil seen_ctx
-  end
 end
