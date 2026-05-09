@@ -66,4 +66,31 @@ class TestSwiftOverlayPipeline < Test::Unit::TestCase
     assert_includes selectors, "devicesWithMediaType:",
       "ObjC selector for `class func devices(for mediaType:)` must be reconstructed"
   end
+
+  def test_real_apple_fixture_populates_swift_imported_name
+    Dir.mktmpdir do |dir|
+      store   = AppleSDKKnowledge::Store.open(File.join(dir, "test.sqlite"))
+      fixture = File.expand_path("../fixtures/swift_overlay/foundation_real.swiftinterface", __dir__)
+      AppleSDKKnowledge::Importer::SwiftOverlay.new(store).import!(framework: "Foundation", path: fixture)
+
+      count = store.db.execute(
+        "SELECT COUNT(*) FROM symbols WHERE swift_imported_name IS NOT NULL AND swift_imported_name != ''"
+      ).first.first
+      assert_operator count, :>=, 4,
+        "expected >=4 rows with swift_imported_name from 5 extension blocks (URL has 1 init + 1 var, others 1 each), got #{count}"
+
+      # Spot-check: URL.init?(string:) — Swift initializer ingests under
+      # ObjC selector "initWithString:" with swift_imported_name "init(string:)"
+      row = store.db.execute(<<~SQL, ["Foundation", "URL", "initWithString:"]).first
+        SELECT s.swift_imported_name FROM symbols s
+        JOIN symbols p ON s.parent_id = p.id
+        JOIN frameworks f ON s.framework_id = f.id
+        WHERE f.name = ? AND p.name = ? AND s.name = ?
+      SQL
+      refute_nil row, "URL.initWithString: row missing"
+      assert_equal "init(string:)", row[0]
+
+      store.close
+    end
+  end
 end
