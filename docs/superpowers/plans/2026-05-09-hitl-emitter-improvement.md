@@ -14,6 +14,88 @@
 
 ---
 
+## Implementation status (2026-05-09 post-H-1)
+
+Phase H-1 がそのまま `feature/v1.2-bootstrap-principle` に landed (commit a29fa98 まで)。 plan の literal text とは下記の点で実装が divergence しとる。 H-2 以降の implementer dispatch はこの addendum を参照してから plan body を読む。
+
+### CandidateRanker is a stateless module, not a class
+
+Plan では `class CandidateRanker; def initialize(project_root:, sdk_version:, marshallers_path:)` の class form やったが、 dispatch contract の "stateless function" + shallow constraint に従い、 実装は **stateless module** form で ship 済:
+
+```ruby
+module EmitterDev
+  module CandidateRanker
+    module_function
+    def rank(rows:, mode:, top:)  # rows = pre-aggregated array of Hash
+      ...
+    end
+    def rank_add(rows); ...; end
+  end
+end
+```
+
+SQLite 読みは rake task が `EmitterDev::Sources::CompileHistory.new(db_path).aggregate` を呼んでから `CandidateRanker.rank(rows: rows, ...)` に渡す **二段 orchestration**。
+
+H-2 trim mode は同じ pattern で extension する: `rank_trim(findings)` を module function として追加し、 rake task が `RedundancyScanner.new(...).scan` の結果を `CandidateRanker.rank_trim` に渡す形にする。 plan Task 2.3 step 4 の class-form code block は無視して、 Step 4 の実装は下の "Trim mode wiring (revised)" を参照すること。
+
+### Rake task env vars (actually shipped)
+
+| task | required env | optional env (with default) |
+|---|---|---|
+| `apple:emitter:candidates` | none | `MODE=add\|trim\|all` (default `add`), `TOP=N` (default `10`), `OUT=path` (default `tmp/emitter/candidates.json`), `SDK_VERSION=X` (auto-detect under `.rb-apple-sdk-mac/`) |
+| `apple:emitter:worktree_create` | `CANDIDATE_ID=N` | `BASE=branch` (default current branch), `CANDIDATES=path` (default `tmp/emitter/candidates.json`), `SDK_VERSION=X` (auto-detect) |
+| `apple:emitter:fact_bundle` | `BRANCH=name` | `BASE=branch` (default current branch), `OUT=path` (default `tmp/emitter/fact_<slug>.md`) |
+| `apple:emitter:merge` | `BRANCH=name`, `WORKTREE_PATH=path` | `BASE=branch` (default current branch) |
+
+`CANDIDATES=` は candidate JSON file の path で、 `CANDIDATE_ID=` は JSON 内 candidate の id。 別 concept。 旧 handoff summary に書いた `DB=` env 使用は誤り、 実際は `SDK_VERSION` で SDK dir を選び、 db path は `<project_root>/.rb-apple-sdk-mac/<SDK_VERSION>/cache.sqlite` から導出する。
+
+### Trim mode wiring (revised, replaces Task 2.3 Step 4)
+
+実装は class への refactor ではなく、 stateless module に rank_trim を追加する:
+
+```ruby
+# Append to tooling/lib/emitter_dev/candidate_ranker.rb (inside module CandidateRanker)
+def rank_trim(findings)
+  findings.map do |f|
+    {
+      "mode"               => "trim",
+      "score"              => f.fetch(:score).to_f,
+      "summary"            => trim_summary(f),
+      "evidence"           => { "redundancy_scanner" => f },
+      "recommended_action" => trim_action(f),
+    }
+  end
+end
+
+# rank() に trim 分岐追加
+def rank(rows: [], findings: [], mode:, top:)
+  candidates = []
+  candidates += rank_add(rows)      if %w[add all].include?(mode)
+  candidates += rank_trim(findings) if %w[trim all].include?(mode)
+  candidates.sort_by! { |c| -c["score"] }
+  candidates = candidates.first(top)
+  candidates.each_with_index { |c, i| c["id"] = i + 1 }
+  {
+    "generated_at" => Time.now.utc.iso8601,
+    "mode"         => mode,
+    "top"          => top,
+    "candidates"   => candidates,
+  }
+end
+```
+
+Rake task 側 (Task 2.3 後の Step 4 で emitter.rake を更新):
+
+```ruby
+rows     = mode == "trim" ? [] : EmitterDev::Sources::CompileHistory.new(db_path).aggregate
+findings = %w[trim all].include?(mode) ? EmitterDev::RedundancyScanner.new(marshallers_path).scan : []
+result   = EmitterDev::CandidateRanker.rank(rows: rows, findings: findings, mode: mode, top: top)
+```
+
+`rank_trim` 単体の test は H-2 plan Task 2.3 Step 1 の spec をそのまま流用してよい (assert される shape は変わらん)、 ただし呼び方を `EmitterDev::CandidateRanker.rank_trim(findings)` に直す。
+
+---
+
 ## File Structure
 
 ### Created
