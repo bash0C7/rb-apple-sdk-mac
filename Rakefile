@@ -192,6 +192,7 @@ namespace :test do
     [
       "test/integration/readme_canonical_test.rb",
       "test/integration/examples_smoke_test.rb",
+      "test/integration/examples_v12_e2e_test.rb",
       "test/integration/discover_coverage_test.rb",
       "test/integration/memory_leak_test.rb",
       "test/concurrency/concurrent_discover_test.rb"
