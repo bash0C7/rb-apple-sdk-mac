@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 require "test_helper"
-require "apple_sdk_knowledge/importer/swift_overlay"
+require "rb_apple_sdk_knowledge/importer/swift_overlay"
 
 class SwiftOverlayExtensionScanTest < Test::Unit::TestCase
   def setup
