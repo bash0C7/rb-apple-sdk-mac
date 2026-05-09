@@ -308,14 +308,26 @@ module AppleSDKKnowledge
         )
       end
 
+      # Maps parser-internal :symbol kinds to canonical Knowledge Base kind
+      # strings. Canonical values (verified empirically via
+      #   SELECT DISTINCT kind FROM symbols
+      # against the Phase 7 sdk_knowledge.sqlite) are:
+      #   actor, class, class_method, enum_case, enum_module, function,
+      #   global_constant, instance_method, instance_property, protocol, struct
+      #
+      # Notes:
+      # - There is no "class_property" in the canonical set; static / class
+      #   var declarations are folded into "instance_property", matching
+      #   swift_interface_parser.rb's existing convention (which collapses
+      #   public var / public let — instance or static — to instance_property).
+      # - :init maps to "class_method" because Swift initializers ingest as
+      #   class-level entry points (matching swift_interface_parser.rb).
       def kind_string_for(kind)
         case kind
-        when :class_func    then "objc_method_class"
-        when :instance_func then "instance_method"
-        when :init          then "objc_method_class"
-        when :class_var     then "class_property"
-        when :instance_var  then "instance_property"
-        else                     "unknown"
+        when :class_func, :static_func, :init  then "class_method"
+        when :instance_func                    then "instance_method"
+        when :class_var, :instance_var         then "instance_property"
+        else                                        "unknown"
         end
       end
     end
