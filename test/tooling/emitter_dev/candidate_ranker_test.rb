@@ -72,6 +72,45 @@ class CandidateRankerTest < Test::Unit::TestCase
     assert_match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/, out.fetch("generated_at"))
   end
 
+  def synthetic_findings
+    [
+      {
+        heuristic: :twin_private_helper,
+        classes:   ["IntMarshaller", "FloatMarshaller"],
+        methods:   ["scalar_type_token", "scalar_float_type"],
+        score:     12,
+      },
+      {
+        heuristic:      :class_pair_method_overlap,
+        classes:        ["BlockA", "BlockAVoid"],
+        common_methods: ["in_load", "call_arg"],
+        score:          10,
+      },
+    ]
+  end
+
+  def test_rank_trim_mode_returns_redundancy_candidates
+    out = EmitterDev::CandidateRanker.rank(
+      rows: [], findings: synthetic_findings, mode: "trim", top: 5,
+    )
+    cs = out.fetch("candidates")
+    assert_equal 2, cs.size
+    assert_equal "trim", cs[0].fetch("mode")
+    assert cs[0].fetch("evidence").key?("redundancy_scanner"),
+           "trim candidate evidence must carry redundancy_scanner key"
+    assert cs[0].fetch("score") >= cs[1].fetch("score"),
+           "trim candidates must be sorted by score descending"
+  end
+
+  def test_rank_all_mode_merges_add_and_trim
+    out = EmitterDev::CandidateRanker.rank(
+      rows: aggregate_rows, findings: synthetic_findings, mode: "all", top: 10,
+    )
+    modes = out.fetch("candidates").map { |c| c.fetch("mode") }
+    assert_includes modes, "add"
+    assert_includes modes, "trim"
+  end
+
   def test_rank_score_includes_template_nil_bonus
     rows_with_template_nil = [
       {
