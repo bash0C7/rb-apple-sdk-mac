@@ -1,5 +1,10 @@
 # rb-apple-sdk-mac
 
+> **This gem is experimental.** Ruby 4 Box namespace isolation
+> (`RUBY_BOX=1`) は実験 flag、 macOS 26 Foundation Model on-device LLM 由来の
+> Swift glue 生成は確率的 (毎回 deterministic ではない場面あり)、 public API
+> shape は v1.x の間に変わりうる。 production 投入は自己責任で。
+
 Runtime dynamic Ruby ↔ Apple SDK bridge for macOS. Call any public Apple framework API from Ruby with no pre-declarations.
 
 > **v1.2 status.** Swift overlay framework (AVFoundation / AppKit / Vision /
@@ -8,7 +13,9 @@ Runtime dynamic Ruby ↔ Apple SDK bridge for macOS. Call any public Apple frame
 > column)、 ObjC↔Swift bridge 名前解決は `SwiftBridgeName` の 3 段
 > resolution (Knowledge Base → 手動 override → heuristic → LLM 安全網)
 > に統一された。 `examples/avspeech_synth.rb` / `examples/vision_ocr.rb`
-> が end-to-end の release-quality 検収例。
+> が end-to-end の release-quality 検収例。 `Apple.discover` は escape hatch
+> 専用 (private framework / 第三者 framework / 自前 ObjC selector の宣言にのみ
+> 使う)、 `examples/discover_escape.rb` を参照。
 
 ## Requirements
 
