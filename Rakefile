@@ -121,6 +121,19 @@ namespace :apple do
 
     desc "Clear all cache artifacts (glue + sources + DB) for the given SDK version"
     task :clear_all => [:clear_glue, :clear_db]
+
+    desc "Remove project-scoped glue artifacts (<project>/.rb-apple-sdk-mac)"
+    task :clear do
+      require "fileutils"
+      require_relative "lib/apple_sdk_mac/cache_dir"
+      target = AppleSDKMac.cache_dir
+      if Dir.exist?(target)
+        FileUtils.rm_rf(target)
+        puts "Cleared: #{target}"
+      else
+        puts "Nothing to clear: #{target}"
+      end
+    end
   end
 end
 
