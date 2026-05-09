@@ -1,9 +1,8 @@
 # frozen_string_literal: true
-# CoreAudio audio device count via transparent dispatch + LLM safety net.
-# AudioObjectGetPropertyDataSize は KB に居るが outDataSize の int out param が
-# 静的 emitter で対応外 → safety net が template を nil 戻し → LLM 生成経路で
-# Swift glue が出る。 Phase 3 で IntMarshaller が静的化されるとこの example は
-# 自動的に template generator 経由に切り替わる (出力は同じ)。
+# CoreAudio audio device count via transparent dispatch (static template path).
+# AudioObjectGetPropertyDataSize の outDataSize は int out param、 inAddress は
+# AudioObjectPropertyAddress struct in。 IntMarshaller#out_handling と
+# StructInPointerMarshaller の Hash 入力経路で静的 emitter が完結する。
 #
 # Usage:
 #   . ~/.swiftly/env.sh
@@ -18,9 +17,9 @@ K_AUDIO_OBJECT_PROPERTY_SCOPE_GLOBAL  = 0x676c6f62  # 'glob'
 K_AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN  = 0
 
 addr = {
-  mSelector: K_AUDIO_HARDWARE_PROPERTY_DEVICES,
-  mScope:    K_AUDIO_OBJECT_PROPERTY_SCOPE_GLOBAL,
-  mElement:  K_AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN
+  "mSelector" => K_AUDIO_HARDWARE_PROPERTY_DEVICES,
+  "mScope"    => K_AUDIO_OBJECT_PROPERTY_SCOPE_GLOBAL,
+  "mElement"  => K_AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN
 }
 
 bytes = Apple::CoreAudio.AudioObjectGetPropertyDataSize(
