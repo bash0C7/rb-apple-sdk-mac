@@ -1,0 +1,4 @@
+extension AVCaptureDevice {
+  @available(macOS 10.7, *)
+  open class func devices(for mediaType: AVMediaType) -> [AVCaptureDevice]
+}
