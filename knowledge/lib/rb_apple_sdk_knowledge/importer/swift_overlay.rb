@@ -125,6 +125,12 @@ module AppleSDKKnowledge
 
       # Reconstructs the ObjC selector for a parsed declaration.
       # Returns String (e.g. "devicesWithMediaType:") or nil.
+      #
+      # Apple's ObjC naming convention for Swift functions:
+      # - When the first param has label == internal (or label is "_"):
+      #     func foo(bar baz:) → "fooBar:" or "foo:" (underscore label)
+      # - When the first param has label != internal (e.g. func foo(for mediaType:)):
+      #     the ObjC name uses "With<InternalName>" suffix → "fooWithMediaType:"
       def objc_selector_for(klass, decl)
         case decl[:kind]
         when :class_func, :instance_func
@@ -133,10 +139,9 @@ module AppleSDKKnowledge
             decl[:name]
           else
             first, *rest = params
-            first_label  = first[:label] == "_" ? "" : first[:label]
-            suffix       = first_label.empty? ? "" : capitalize(first_label)
-            head         = "#{decl[:name]}#{suffix}:"
-            tail         = rest.map { |p| p[:label] == "_" ? ":" : "#{p[:label]}:" }.join
+            suffix = first_param_suffix(first)
+            head   = "#{decl[:name]}#{suffix}:"
+            tail   = rest.map { |p| rest_param_part(p) }.join
             head + tail
           end
 
@@ -145,10 +150,9 @@ module AppleSDKKnowledge
           return "init" if params.empty?
 
           first, *rest = params
-          first_label  = first[:label] == "_" ? "" : first[:label]
-          suffix       = first_label.empty? ? "" : capitalize(first_label)
-          head         = "initWith#{suffix}:"
-          tail         = rest.map { |p| p[:label] == "_" ? ":" : "#{p[:label]}:" }.join
+          suffix = first_param_with_suffix(first)
+          head   = "initWith#{suffix}:"
+          tail   = rest.map { |p| rest_param_part(p) }.join
           head + tail
 
         when :instance_var, :class_var
@@ -218,6 +222,39 @@ module AppleSDKKnowledge
       def capitalize(str)
         return str if str.empty?
         str[0].upcase + str[1..]
+      end
+
+      # Computes the ObjC suffix for the first param of a func declaration.
+      # When label == internal (or label is "_"), uses the label directly.
+      # When label != internal (e.g. "for" vs "mediaType"), uses "With<Internal>".
+      def first_param_suffix(param)
+        label    = param[:label]
+        internal = param[:internal]
+        if label == "_"
+          ""
+        elsif label == internal
+          capitalize(label)
+        else
+          # label is a preposition (for/in/at/with/etc.) — Apple convention:
+          # func foo(for bar:) → "fooWithBar:"
+          "With#{capitalize(internal)}"
+        end
+      end
+
+      # Variant for init: always "With<Internal>" based on the internal name.
+      def first_param_with_suffix(param)
+        label    = param[:label]
+        internal = param[:internal]
+        if label == "_"
+          capitalize(internal)
+        else
+          capitalize(internal)
+        end
+      end
+
+      # Computes the ObjC selector part for subsequent (non-first) params.
+      def rest_param_part(param)
+        param[:label] == "_" ? ":" : "#{param[:label]}:"
       end
 
       def upsert_framework(name)
