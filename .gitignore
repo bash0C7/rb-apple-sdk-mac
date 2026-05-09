@@ -24,3 +24,6 @@ lib/**/*.bundle.dSYM/
 # Claude Code runtime files
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+
+# rake test transient cache (KB / glue dispatch). Always cleared before rake test.
+.rb-apple-sdk-mac/
