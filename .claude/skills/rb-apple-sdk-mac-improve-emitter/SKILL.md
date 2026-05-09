@@ -13,6 +13,22 @@ User typed `/rb-apple-sdk-mac-improve-emitter [--mode=add|trim|all] [--top=N]` i
 - `--mode` : `add` (新規 emitter 追加 candidate) / `trim` (冗長 marshaller 統合 candidate) / `all` (default)
 - `--top`  : ranking 上位件数 (default 10)
 
+## Arguments parsing
+
+Slash command が受け取る `$ARGUMENTS` (Claude Code が user 入力をそのまま流す) を skill 内で parse する:
+
+```ruby
+mode = "all"
+top  = 10
+ARGUMENTS.scan(/--mode=(\S+)/) { |m| mode = m.first }
+ARGUMENTS.scan(/--top=(\d+)/)  { |m| top  = m.first.to_i }
+# Validation: mode は %w[add trim all] のいずれか、 top は正の整数。 不正値は default に fall back。
+mode = "all" unless %w[add trim all].include?(mode)
+top  = 10    if top <= 0
+```
+
+`mode` / `top` は Section 1 (Candidate aggregation) で `MODE=$MODE TOP=$TOP` として `apple:emitter:candidates` Rake task に env で渡す。 引数なしで invoke された場合は default `mode=all top=10`。
+
 ## Core principles
 
 1. **HITL gate は 2 箇所のみ** — start (USER PICK) と fact-review (USER FACT-REVIEW)。 中間で user に確認質問せん。
