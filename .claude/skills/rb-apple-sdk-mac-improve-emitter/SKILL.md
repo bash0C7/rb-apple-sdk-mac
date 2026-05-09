@@ -72,6 +72,8 @@ Agent({
 
 結果を candidate JSON の各 entry の `evidence.claude_session` field に merge。
 
+**MCP fallback**: chiebukuro-mcp が wire されてない / subagent return が `[]` / dispatch が timeout した場合は、 candidate JSON の `evidence.claude_session` field を空欄のまま進めて workflow 全体は止めへん。 user に「session source 取れんかった」 を 1 行 note して fact-bundle に注記する。
+
 その後 markdown table に整形して user に提示:
 
 ```
