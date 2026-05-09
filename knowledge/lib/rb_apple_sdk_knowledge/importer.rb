@@ -2,6 +2,7 @@
 require "json"
 require_relative "importer/sdk_resolver"
 require_relative "importer/swift_interface_parser"
+require_relative "importer/swift_overlay"
 require_relative "importer/header_parser"
 require_relative "importer/consolidator"
 require_relative "importer/embedder"
@@ -11,22 +12,26 @@ module AppleSDKKnowledge
   module Importer
     class Pipeline
       def initialize(store_path:, fast: ENV["RB_APPLE_SDK_KNOWLEDGE_FAST"] == "1",
-                     offline: ENV["RB_APPLE_SDK_KNOWLEDGE_OFFLINE"] == "1")
+                     offline: ENV["RB_APPLE_SDK_KNOWLEDGE_OFFLINE"] == "1",
+                     resolver: nil)
         @store_path = store_path
         @fast = fast
         @offline = offline
+        @resolver = resolver
       end
 
       def run
-        resolver = SDKResolver.new
-        store = AppleSDKKnowledge::Store.open(@store_path)
-        embedder = @fast ? nil : Embedder.new
-        swift_parser = SwiftInterfaceParser.new
+        resolver      = @resolver || SDKResolver.new
+        store         = AppleSDKKnowledge::Store.open(@store_path)
+        embedder      = @fast ? nil : Embedder.new
+        swift_parser  = SwiftInterfaceParser.new
         header_parser = HeaderParser.new
-        consolidator = Consolidator.new
+        consolidator  = Consolidator.new
+        swift_overlay = SwiftOverlay.new(store)
 
         resolver.frameworks.each do |fw|
           process_framework(fw, store, swift_parser, header_parser, consolidator, embedder)
+          import_swift_overlay(fw, swift_overlay)
         end
 
         store.rebuild_fts!
@@ -92,6 +97,21 @@ module AppleSDKKnowledge
       rescue SQLite3::ConstraintException
         # symbol already exists from a prior run (content_hash UNIQUE): skip silently
         nil
+      end
+
+      # Walks the framework's .swiftinterface set and runs SwiftOverlay
+      # against each. SwiftOverlay handles its own per-decl skip rules
+      # (generic / async / throws); failures here are logged and swallowed
+      # so one corrupt interface does not abort the whole rebuild.
+      def import_swift_overlay(fw, swift_overlay)
+        pattern = File.join(fw.path, "Modules", "*.swiftmodule", "*.swiftinterface")
+        Dir.glob(pattern).each do |path|
+          begin
+            swift_overlay.import!(framework: fw.name, path: path)
+          rescue StandardError => e
+            warn "[importer] swift overlay skipped #{path}: #{e.class}: #{e.message}"
+          end
+        end
       end
 
       def collect_swift_symbols(fw, parser)

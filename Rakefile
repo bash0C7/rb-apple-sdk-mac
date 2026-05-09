@@ -39,6 +39,24 @@ namespace :apple do
         sh({ "APPLE_SDK_MAC_KB_BASE_DIR" => kb_base }, "bundle", "exec", "rake", "apple:knowledge:rebuild")
       end
     end
+
+    desc "Detached rebuild via screen (CLAUDE.md ロングバッチ pattern; tail tmp/longrun/<NAME>.log)"
+    task :rebuild_async do
+      require "fileutils"
+      FileUtils.mkdir_p("tmp/longrun")
+      name = ENV.fetch("NAME", "knowledge-rebuild-#{Time.now.strftime('%Y%m%d-%H%M%S')}")
+      log  = File.join("tmp/longrun", "#{name}.log")
+      cmd  = <<~SH
+        bundle exec rake apple:knowledge:rebuild > #{log} 2>&1
+        echo "DONE: exit=$?" >> #{log}
+      SH
+      ok = system("screen", "-dmS", name, "bash", "-c", cmd)
+      raise "screen -dmS failed for #{name}" unless ok
+      puts "started detached rebuild: screen session=#{name} log=#{log}"
+      puts "tail:    tail -f #{log}"
+      puts "status:  grep '^DONE:' #{log}   (0 lines = running, 1 line = finished w/ exit code)"
+      puts "kill:    screen -X -S #{name} quit"
+    end
   end
 
   namespace :runtime do
