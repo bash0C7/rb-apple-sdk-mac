@@ -13,7 +13,11 @@ module AppleSDKKnowledge
     # where clauses that can't be reliably parsed are skipped; the LLM safety
     # net handles those (coverage > speed tenet).
     class SwiftOverlay
-      EXTENSION_HEADER_RE = /\bextension\s+(\w+)\s*\{/.freeze
+      # Matches: extension <DottedName>(.\w+)*(\s*:\s*<Conformances>)?(\s+where\s+...)?\s*\{
+      # Captures: [1] dotted name (e.g. "Foundation.URL", "Foundation.URL.ParseStrategy")
+      # Real Apple .swiftinterface always uses module-qualified names; klass key
+      # is taken as the LAST dotted segment by extract_extension_blocks.
+      EXTENSION_HEADER_RE = /\bextension\s+([A-Za-z_][\w.]*)[^{]*\{/.freeze
 
       # Matches: (open|public) [class|static] func name(params) [-> RetType]
       # Captures: [1] class/static?, [2] func name, [3] raw params, [4] return type
@@ -42,7 +46,11 @@ module AppleSDKKnowledge
 
         until scanner.eos?
           if (m = scanner.scan_until(EXTENSION_HEADER_RE))
-            klass      = scanner.captures.first || m[/extension\s+(\w+)/, 1]
+            dotted     = scanner.captures.first || m[/extension\s+([A-Za-z_][\w.]*)/, 1]
+            # Real Apple .swiftinterface uses module-qualified or nested-type
+            # names: "Foundation.URL", "Foundation.URL.ParseStrategy". The KB
+            # key is the type identifier alone — last dotted segment.
+            klass      = dotted.split(".").last
             body_start = scanner.pos
             depth      = 1
 
