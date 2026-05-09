@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] — v1.2 bootstrap-principle
+
+長期改善が組み込まれた状態 + README 通り安全確実な実行が継続できる状態 — この
+2 つを同時に達成することを核心に据えて、 Swift overlay framework 全域への
+カバレッジ拡張と maintainer 向け HITL 改善ループを足場として整えた。
+
+### Added
+- **Knowledge Base Swift overlay ingester (Phase 4a).** `*.swiftinterface`
+  内の Swift overlay 形 (`extension Foo { @objc public class func ... }`)
+  を行ベース regex parser で抽出、 ObjC selector を再構築して
+  `symbols.swift_imported_name` に保存。 Pipeline.run が rebuild の中で
+  `EmitterDev::Sources::CompileHistory` の add 経路と並行して呼ぶ
+  (knowledge schema v4)。
+- **`SwiftBridgeName` 3 段 resolver (Phase 4b).** ObjC selector → Swift
+  call expression を Knowledge Base `swift_imported_name` lookup → 手動
+  `SWIFT_BRIDGE_OVERRIDES` hash → 既存 inline heuristic → LLM 安全網
+  (nil 返却で caller が LLM 経路にルート) の順に試す stateless module。
+  `template_generator.swift_call_for_class_method` が 3 段経由に切替え。
+- **HITL emitter improvement tool (`tooling/`).** maintainer が compile
+  history と marshallers.rb の AST scan から「足したい emitter」「削れる
+  marshaller」 候補を出して、 `git worktree` 隔離 + implementer subagent
+  + fact bundle gate で merge する workflow。 slash command
+  `/rb-apple-sdk-mac-improve-emitter [--mode=add|trim|all] [--top=N]`、
+  4 つの `apple:emitter:*` Rake task + `apple:emitter:cleanup_stale`、
+  `EmitterDev::RedundancyScanner` (twin_private_helper /
+  class_pair_method_overlap heuristic) + `CandidateRanker` (stateless
+  module form, rank_add / rank_trim / all merge)。
+- **`apple:knowledge:rebuild_async` Rake task.** 50+ 分かかる KB rebuild
+  を `screen -dmS` で detached 化し、 `tmp/longrun/<NAME>.log` に
+  `DONE: exit=...` sentinel まで記録する。 CLAUDE.md ロングバッチ pattern
+  に正準形で乗せる。
+- **`examples/avspeech_synth.rb` の Phase 4 acceptance e2e test.**
+  AVFoundation Swift overlay 経路が `bootstrap!` のみで discover → init
+  → speak まで通る証跡を test-unit assert に乗せた (memory
+  `feedback_test_unit_assert_as_report.md` 通り)。
+
+### Changed
+- **`KnowledgeCache#lookup_swift_imported_name(framework:, klass:, selector:)`
+  を追加.** schema v4 column を `parent_id` JOIN 込みで読む。 column 不在
+  の stale schema は SQLException 'no such column' を捕まえて nil で
+  fall-through (HITL safe execution 維持)。
+- **`EmitterDev::Sources::CompileHistory#aggregate` が空 cache.sqlite を
+  tolerate.** `compile_history` table が未作成な just-bootstrapped 状態を
+  `[]` で返却、 trim/all mode 経路を阻害しない。
+- **`EmitterDev::WorktreeOps.populate_cache` が dangling symlink を
+  作らない.** SDK dir に `knowledge` / `sources` / `lib` subdir が無い
+  場合は `File.directory?` guard で skip。
+
+### Reference
+- v1.2 spec: `docs/superpowers/specs/2026-05-09-v1.2-bootstrap-principle-design.md`
+- HITL spec: `docs/superpowers/specs/2026-05-09-hitl-emitter-improvement-design.md`
+- HITL plan + 実装 status addendum: `docs/superpowers/plans/2026-05-09-hitl-emitter-improvement.md`
+- Final smoke transcript: `docs/superpowers/smoke/2026-05-09-h-final-smoke.md`
+
 ## [v1.1.0] — 2026-05-08
 
 User-facing simplification: in most cases callers no longer need an upfront `Apple.discover` to call an Apple SDK API. The dispatcher compiles the Swift glue dylib inline on the first invocation for any symbol the knowledge base already knows about; `Apple.discover` becomes a manual escape hatch for KB-external shapes, KB classification overrides, and pre-warming.
