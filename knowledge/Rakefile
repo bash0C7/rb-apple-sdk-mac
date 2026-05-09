@@ -18,7 +18,11 @@ namespace :apple do
     task :rebuild do
       require "rb_apple_sdk_knowledge"
       sdk_version = AppleSDKKnowledge::SDK.version
-      path = AppleSDKKnowledge.knowledge_path(sdk_version: sdk_version)
+      # When APPLE_SDK_MAC_KB_BASE_DIR is set (e.g. by the parent gem's Rakefile),
+      # write to that project-scoped directory; otherwise fall back to the gem-internal
+      # data/ path so standalone `knowledge/` builds keep working.
+      kb_base_dir = ENV["APPLE_SDK_MAC_KB_BASE_DIR"]
+      path = AppleSDKKnowledge.knowledge_path(sdk_version: sdk_version, base_dir: kb_base_dir)
       FileUtils.mkdir_p(File.dirname(path))
       puts "Building knowledge base at #{path}..."
       AppleSDKKnowledge::Importer::Pipeline.new(store_path: path).run
@@ -31,7 +35,8 @@ namespace :apple do
       require "rb_apple_sdk_knowledge/reclassifier"
 
       sdk_version = AppleSDKKnowledge::SDK.version
-      store_path = AppleSDKKnowledge.knowledge_path(sdk_version: sdk_version)
+      kb_base_dir = ENV["APPLE_SDK_MAC_KB_BASE_DIR"]
+      store_path = AppleSDKKnowledge.knowledge_path(sdk_version: sdk_version, base_dir: kb_base_dir)
       unless File.exist?(store_path)
         abort "no knowledge DB at #{store_path}; run apple:knowledge:rebuild first"
       end

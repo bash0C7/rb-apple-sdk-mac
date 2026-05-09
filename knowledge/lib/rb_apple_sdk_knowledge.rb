@@ -7,13 +7,17 @@ require_relative "rb_apple_sdk_knowledge/importer"
 require_relative "rb_apple_sdk_knowledge/importer/kind"
 
 module AppleSDKKnowledge
-  def self.knowledge_path(sdk_version: nil)
+  def self.knowledge_path(sdk_version: nil, base_dir: nil)
     sdk_version ||= SDK.version
-    File.expand_path("../data/sdk_knowledge_#{sdk_version}.sqlite", __dir__)
+    if base_dir
+      File.join(base_dir, sdk_version, "sdk_knowledge.sqlite")
+    else
+      File.expand_path("../data/sdk_knowledge_#{sdk_version}.sqlite", __dir__)
+    end
   end
 
-  def self.open(sdk_version: nil)
-    path = knowledge_path(sdk_version: sdk_version)
+  def self.open(sdk_version: nil, base_dir: nil)
+    path = knowledge_path(sdk_version: sdk_version, base_dir: base_dir)
     raise Error, "knowledge base missing at #{path}; run `rake apple:knowledge:rebuild`" unless File.exist?(path)
     Store.open(path)
   end

@@ -1,10 +1,11 @@
 # frozen_string_literal: true
 require "rb_apple_sdk_knowledge"
+require_relative "cache_dir"
 
 module AppleSDKMac
   class KnowledgeCache
     def self.open
-      new(AppleSDKKnowledge.open)
+      new(AppleSDKKnowledge.open(base_dir: File.join(AppleSDKMac.cache_dir, "knowledge")))
     end
 
     def initialize(store)

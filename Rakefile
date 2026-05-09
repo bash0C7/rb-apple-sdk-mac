@@ -27,6 +27,19 @@ namespace :runtime do
 end
 
 namespace :apple do
+  namespace :knowledge do
+    desc "Rebuild KB SQLite into <project>/.rb-apple-sdk-mac/knowledge/ (project-scoped)"
+    task :rebuild do
+      require "fileutils"
+      require_relative "lib/apple_sdk_mac/cache_dir"
+      kb_base = File.join(AppleSDKMac.cache_dir, "knowledge")
+      FileUtils.mkdir_p(kb_base)
+      Dir.chdir(File.expand_path("knowledge", __dir__)) do
+        sh({ "APPLE_SDK_MAC_KB_BASE_DIR" => kb_base }, "bundle", "exec", "rake", "apple:knowledge:rebuild")
+      end
+    end
+  end
+
   namespace :runtime do
     desc "swift build the runtime dylib (release config) and copy generated -Swift.h into ext/"
     task :sync_header do
