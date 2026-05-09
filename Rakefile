@@ -40,6 +40,19 @@ namespace :apple do
       end
     end
 
+    desc "Wipe project-scoped Knowledge Base SQLite under .rb-apple-sdk-mac/knowledge/ (scoped — does not touch ~/.cache)"
+    task :clean do
+      require "fileutils"
+      require_relative "lib/apple_sdk_mac/cache_dir"
+      kb_base = File.join(AppleSDKMac.cache_dir, "knowledge")
+      if File.directory?(kb_base)
+        FileUtils.rm_rf(kb_base)
+        puts "cleaned: #{kb_base}"
+      else
+        puts "nothing to clean: #{kb_base} does not exist"
+      end
+    end
+
     desc "Detached rebuild via screen (CLAUDE.md ロングバッチ pattern; tail tmp/longrun/<NAME>.log)"
     task :rebuild_async do
       require "fileutils"
