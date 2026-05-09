@@ -31,8 +31,6 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "rb-apple-sdk-mac"
   spec.add_dependency "rb-foundation-model-mac"
-  spec.add_dependency "translation_mac-locale"
-  spec.add_dependency "reline-dialog-transform"
   spec.add_dependency "irb", "~> 1.18"
   spec.add_dependency "reline", "~> 0.6"
   spec.add_dependency "repl_type_completor"
