@@ -305,11 +305,10 @@ module AppleSDKMac
       def in_load
         type = @param[:type].sub(/\s*_(?:Nullable|Nonnull)\b/, "").strip
         name = @param[:name]; i = @index
-        if (route = CALLBACK_PILLAR_ROUTES[type])
-          register_branch(name, type, i, route)
-        else
-          legacy_branch(name, type, i)
+        route = CALLBACK_PILLAR_ROUTES.fetch(type) do
+          raise "callback type #{type.inspect} has no CallbackPillar route — extend CALLBACK_PILLAR_ROUTES + ext/apple_sdk_mac_runtime/callback_signatures.yml"
         end
+        register_branch(name, type, i, route)
       end
 
       private
@@ -330,17 +329,6 @@ module AppleSDKMac
                   if #{name}_slot < 0 { rb_raise(rb_eRuntimeError, "callback slot pool exhausted") }
                   let #{name}_raw = #{fn_get_fnptr}(#{name}_slot)
                   #{name} = unsafeBitCast(UnsafeRawPointer(bitPattern: UInt(#{name}_raw))!, to: #{type}.self)
-              }
-        SWIFT
-      end
-
-      def legacy_branch(name, type, i)
-        <<~SWIFT.chomp
-          let #{name}: #{type}?
-              if argv[#{i}] == Qnil {
-                  #{name} = nil
-              } else {
-                  rb_raise(rb_eRuntimeError, "non-nil callback not yet supported")
               }
         SWIFT
       end

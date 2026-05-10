@@ -1,23 +1,21 @@
 # frozen_string_literal: true
-require_relative "swift_bridge_overrides"
 
 module AppleSDKMac
   class GlueCompiler
-    # Phase 4b — high-priority resolvers for ObjC selector → Swift call
-    # expression. Tries KB-stored swift_imported_name first, then manual
-    # SWIFT_BRIDGE_OVERRIDES. Returns nil when both miss; caller (template
-    # generator) then falls through to its historical heuristic.
+    # Phase 4b — high-priority resolver for ObjC selector → Swift call
+    # expression. Tries KB-stored swift_imported_name; returns nil when the
+    # KB has no entry, in which case the caller (template generator) falls
+    # through to its historical heuristic.
     #
     # Stateless module per shallow tenet — no dependency injection ceremony,
     # caller passes kc / framework / klass / selector / params directly.
     module SwiftBridgeName
       module_function
 
-      # Returns the Swift call expression string, or nil if neither KB nor
-      # overrides have a match.
+      # Returns the Swift call expression string, or nil if the KB has no
+      # swift_imported_name for the (framework, klass, selector) triple.
       def resolve(framework:, klass:, selector:, params:, kc: nil)
-        from_kb(framework, klass, selector, params, kc) ||
-          from_overrides(framework, klass, selector, params)
+        from_kb(framework, klass, selector, params, kc)
       end
 
       def from_kb(framework, klass, selector, params, kc)
@@ -27,14 +25,6 @@ module AppleSDKMac
         return nil if name.nil? || name.to_s.empty?
 
         rebuild_from_swift_imported_name(klass, name, params)
-      end
-
-      def from_overrides(framework, klass, selector, params)
-        key = [framework.to_s, klass.to_s, selector.to_s]
-        tmpl = SWIFT_BRIDGE_OVERRIDES[key]
-        return nil unless tmpl
-        args = params.each_index.map { |i| "arg#{i}" }
-        format(tmpl, *args)
       end
 
       # Parse a Swift imported name like "devices(for:)" / "init(string:)" /

@@ -1,9 +1,6 @@
 # frozen_string_literal: true
 
 module AppleSDKMac
-  class Error < StandardError; end
-  class CompileError < Error; end
-
   class Dispatcher
     def initialize(knowledge_cache:, glue_cache:, loader:, compiler:)
       @knowledge = knowledge_cache
