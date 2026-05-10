@@ -36,7 +36,7 @@ module AppleSDKMac
 
         def initialize(kb:, template: nil)
           @kb = kb
-          @template = template || lazy_template
+          @template = template || ::AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: @kb)
         end
 
         def call(framework:, symbol:)
@@ -70,12 +70,6 @@ module AppleSDKMac
               swift_source: swift_source
             )
           end
-        end
-
-        private
-
-        def lazy_template
-          @lazy_template ||= ::AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: @kb)
         end
       end
     end
