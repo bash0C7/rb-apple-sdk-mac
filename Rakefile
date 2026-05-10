@@ -12,7 +12,12 @@ Rake::TestTask.new(:test) do |t|
   t.libs << "test"
   t.libs << "lib"
   t.libs << "tooling/lib"
-  t.test_files = FileList["test/**/*_test.rb", "knowledge/test/test_*.rb"]
+  # test/integration/ holds end-to-end suites (real-SDK assertions, examples
+  # smoke, memory leak, concurrency). Those are run explicitly by
+  # `rake test:release_quality` below; excluding them from the default glob
+  # keeps `rake test` under a few minutes for the inner-loop dev cycle.
+  t.test_files = FileList["test/**/*_test.rb", "knowledge/test/test_*.rb"] -
+                 FileList["test/integration/**/*"]
 end
 
 namespace :runtime do
