@@ -2,7 +2,6 @@
 require_relative "rb_apple_sdk_knowledge/version"
 require_relative "rb_apple_sdk_knowledge/sdk"
 require_relative "rb_apple_sdk_knowledge/store"
-require_relative "rb_apple_sdk_knowledge/search"
 require_relative "rb_apple_sdk_knowledge/importer"
 require_relative "rb_apple_sdk_knowledge/importer/kind"
 

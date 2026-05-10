@@ -176,9 +176,7 @@ module AppleSDKMac
     end
 
     def search(framework:, query:, limit: 5)
-      AppleSDKKnowledge::Search.new(@store).lexical(
-        framework: framework, query: query, limit: limit
-      )
+      @store.fts_search(framework, query, limit: limit)
     end
 
     def close
