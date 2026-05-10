@@ -105,6 +105,14 @@ module AppleSDKMac
         end
         return nil unless symbol[:kind] == "function" && symbol[:abi] == "c"
         params = parse_params(symbol[:parameters_json])
+        # Apple.discover の escape hatch: user が `params:` に `:cstring` /
+        # `:uint32` 等 raw-ABI kind を明示した場合、 Swift overlay typing を経由せず
+        # @_silgen_name 経由で C symbol を直叩きする。 これで Swift overlay 側の
+        # CFAllocator? / UnsafePointer<CChar>! 等の bridged 型 mismatch を回避し、
+        # README L8 commitment の static template path を維持する。
+        if escape_hatch_params?(params)
+          return emit_c_function_escape_hatch(framework: framework, symbol: symbol, glue_id: glue_id, params: params)
+        end
         # Knowledge-Base classification fix-up: `void *` single-pointer
         # parameters carry an in-cookie (refCon) by Apple-API convention but
         # the importer occasionally tags nullable void* as is_out_param=true
@@ -673,6 +681,138 @@ module AppleSDKMac
         end
       end
 
+
+      # Escape-hatch C function emit. Activates when Apple.discover の
+      # `params:` に `:cstring` / `:uint32` を含む raw-ABI shape が来たとき、
+      # Swift overlay 経由ではなく @_silgen_name 経由で C symbol を直接呼ぶ。
+      # README L8 commitment 「any public Apple framework API」 を escape hatch
+      # 経由でも static template path で完結させる目的。
+      ESCAPE_HATCH_KINDS = %w[opaque_ref cstring uint32 int bool float].freeze
+
+      def escape_hatch_params?(params)
+        return false if params.empty?
+        params.all? { |p|
+          ESCAPE_HATCH_KINDS.include?(p[:kind].to_s) && !p[:is_out_param]
+        } && params.any? { |p| %w[cstring uint32].include?(p[:kind].to_s) }
+      end
+
+      # @_silgen_name shadow declaration の Swift 引数型 (raw C ABI) を kind から決める。
+      def escape_hatch_swift_arg_type(kind)
+        case kind.to_s
+        when "cstring"    then "UnsafePointer<CChar>?"
+        when "uint32"     then "UInt32"
+        when "int"        then "Int64"
+        when "bool"       then "Bool"
+        when "float"      then "Double"
+        when "opaque_ref" then "UnsafeRawPointer?"
+        else                   "UnsafeRawPointer?"
+        end
+      end
+
+      # argv[i] → Swift binding の Swift 1 行を kind から決める。 Qnil 経路は
+      # rb_num2ull が raise するため pre-guard でゼロ／nil 化。
+      def escape_hatch_in_load(kind, index)
+        case kind.to_s
+        when "cstring"
+          # rb_string_value_cstr は Ruby String の内部 buffer pointer を返す。
+          # Qnil の場合は nil を渡したい (CF API は概ね NULL 受け入れ可)。
+          <<~SWIFT.chomp
+            var v#{index} = argv[#{index}]
+                let arg#{index}: UnsafePointer<CChar>? = (argv[#{index}] == Qnil) ? nil : rb_string_value_cstr(&v#{index})
+          SWIFT
+        when "uint32"
+          "let arg#{index}: UInt32 = UInt32(rb_num2ull(argv[#{index}]))"
+        when "int"
+          "let arg#{index}: Int64 = rb_num2ll(argv[#{index}])"
+        when "bool"
+          "let arg#{index}: Bool = (argv[#{index}] != Qfalse && argv[#{index}] != Qnil)"
+        when "float"
+          "let arg#{index}: Double = rb_num2dbl(argv[#{index}])"
+        when "opaque_ref"
+          # Qnil → nil pointer 化、 raw integer → UnsafeRawPointer。
+          # CFStringCreateWithCString の CFAllocatorRef alloc 引数等、
+          # NULL 許容な C ABI に nil を渡す経路。
+          <<~SWIFT.chomp
+            let arg#{index}_raw: UInt = (argv[#{index}] == Qnil) ? 0 : UInt(rb_num2ull(argv[#{index}]))
+                let arg#{index}: UnsafeRawPointer? = (arg#{index}_raw == 0) ? nil : UnsafeRawPointer(bitPattern: arg#{index}_raw)
+          SWIFT
+        else
+          raise ArgumentError, "escape_hatch_in_load: unsupported kind #{kind.inspect}"
+        end
+      end
+
+      def emit_c_function_escape_hatch(framework:, symbol:, glue_id:, params:)
+        c_symbol = symbol[:name].to_s
+        return_kind_sym = (symbol[:return_kind] || :void).to_sym
+
+        shadow_name = "__escape_#{c_symbol}"
+        arg_types = params.map { |p| escape_hatch_swift_arg_type(p[:kind]) }
+        ret_type =
+          case return_kind_sym
+          when :opaque_ref, :cftype_ref then "UnsafeRawPointer?"
+          when :int                     then "Int64"
+          when :bool                    then "Bool"
+          when :float                   then "Double"
+          when :uint32                  then "UInt32"
+          when :void                    then "Void"
+          else "UnsafeRawPointer?"
+          end
+
+        shadow_decl = <<~SWIFT.chomp
+          @_silgen_name("#{c_symbol}")
+          func #{shadow_name}(#{arg_types.each_with_index.map { |t, i| "_ a#{i}: #{t}" }.join(', ')}) -> #{ret_type}
+        SWIFT
+
+        in_loads = params.each_with_index.map { |p, i| escape_hatch_in_load(p[:kind], i) }
+        call_args = params.each_index.map { |i| "arg#{i}" }.join(", ")
+        call_expr = "#{shadow_name}(#{call_args})"
+
+        body = in_loads.dup
+        case return_kind_sym
+        when :opaque_ref, :cftype_ref
+          # CF Create/Copy 命名規約に当てはまるなら autoarc box、 それ以外は raw。
+          body << "let raw = #{call_expr}"
+          body << "let raw_uint: UInt = raw.map { UInt(bitPattern: $0) } ?? 0"
+          if cf_create_naming?(c_symbol)
+            body << "return rb_ull2inum(UInt64(runtime_arc_box_cftype(raw_uint)))"
+          else
+            body << "return rb_ull2inum(UInt64(raw_uint))"
+          end
+        when :int
+          body << "let raw = #{call_expr}"
+          body << "return rb_ll2inum(raw)"
+        when :uint32
+          body << "let raw = #{call_expr}"
+          body << "return rb_ull2inum(UInt64(raw))"
+        when :bool
+          body << "let raw = #{call_expr}"
+          body << "return raw ? Qtrue : Qfalse"
+        when :float
+          body << "let raw = #{call_expr}"
+          body << "return rb_float_new(raw)"
+        when :void
+          body << "_ = #{call_expr}"
+          body << "return Qnil"
+        else
+          body << "let raw = #{call_expr}"
+          body << "return rb_ull2inum(UInt64(UInt(bitPattern: raw)))"
+        end
+
+        swift_id = c_symbol.gsub(/[^A-Za-z0-9_]/, "_")
+        <<~SWIFT
+          import #{framework}
+          import Foundation
+
+          #{HEADER}
+          #{shadow_decl}
+          @c
+          public func glue_#{glue_id}_#{swift_id}(
+              _ argv: UnsafePointer<UInt>, _ argc: Int32
+          ) -> UInt {
+              #{body.join("\n    ")}
+          }
+        SWIFT
+      end
 
       private
 
