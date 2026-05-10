@@ -108,8 +108,6 @@ module AppleSDKMac
         )
       end
 
-      raise AppleSDKMac::DiscoveryError, "symbol not in knowledge base: #{framework}::#{canonical}" unless sym_meta
-
       result = compiler.compile(framework: framework.to_s, symbol: sym_meta)
       unless result.success?
         raise AppleSDKMac::CompileError,

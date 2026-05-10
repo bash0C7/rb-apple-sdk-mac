@@ -616,17 +616,6 @@ module AppleSDKMac
         end
       end
 
-      # selector → Swift method 名。
-      # single-segment `stringWithUTF8String:` → `stringWithUTF8String`
-      # multi-segment は init 専用が大半 (instance method 経路で本格対応)。
-      # class method の multi-segment は rare、暫定的に最初の segment を採用。
-      def swift_method_name_from_selector(selector)
-        parts = selector.split(":", -1).reject(&:empty?)
-        return selector if parts.empty?
-        return parts[0] if parts.size == 1
-        parts[0]
-      end
-
       # Class method を Swift call expression に変換。Swift 6 は
       # `+<verb>With<Type>:` shape の convenience constructors を init に rename
       # (e.g. NSString.stringWithUTF8String → NSString.init(utf8String:))。
