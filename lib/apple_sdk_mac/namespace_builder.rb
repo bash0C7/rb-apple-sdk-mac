@@ -205,8 +205,9 @@ module AppleSDKMac
     end
 
     # opaque_ref / cftype_ref return_kind 判定。
-    # Apple.discover で渡された return_kind は Symbol で、 _synthesize_symbol_record
-    # 経由で sym[:return_kind] に格納される。 proxy に wrap するのはこの 2 種類のみ。
+    # Apple.discover で渡された return_kind は Symbol で、
+    # DiscoveryShape.synthesize_symbol_record 経由で sym[:return_kind] に
+    # 格納される。 proxy に wrap するのはこの 2 種類のみ。
     def opaque_ref_return?(sym)
       kind = sym[:return_kind]
       return false if kind.nil?
