@@ -44,8 +44,7 @@ class TestImporterParametersJson < Test::Unit::TestCase
                     spy,
                     FakeSwiftParser.new,
                     FakeHeaderParser.new,
-                    consolidator,
-                    nil)
+                    consolidator)
 
       sym = spy.inserted.first
       assert_not_nil sym, "expected exactly one insert_symbol call"
@@ -82,8 +81,7 @@ class TestImporterParametersJson < Test::Unit::TestCase
                     spy,
                     FakeSwiftParser.new,
                     FakeStructHeaderParser.new,
-                    consolidator,
-                    nil)
+                    consolidator)
 
       sym = spy.inserted.first
       assert_not_nil sym, "expected exactly one insert_symbol call"

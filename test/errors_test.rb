@@ -2,8 +2,8 @@
 require "test_helper"
 require "apple_sdk_mac"
 
-# Phase 7 T19 — public exception hierarchy contract. v1.0 commits the
-# Apple::Error tree as the user-facing rescue surface.
+# public exception hierarchy contract. The Apple::Error tree is the
+# user-facing rescue surface.
 class TestErrors < Test::Unit::TestCase
   def test_apple_error_is_standard_error_subclass
     assert_operator Apple::Error, :<, StandardError
@@ -21,8 +21,8 @@ class TestErrors < Test::Unit::TestCase
     assert_operator Apple::CallError, :<, Apple::Error
   end
 
-  def test_legacy_apple_sdk_mac_error_aliases_apple_error
-    # Pre-v1.0 code used `rescue AppleSDKMac::Error`. Keep that working.
+  def test_apple_sdk_mac_error_aliases_apple_error
+    # `rescue AppleSDKMac::Error` resolves to the same class as Apple::Error.
     assert_equal Apple::Error,          AppleSDKMac::Error
     assert_equal Apple::DiscoveryError, AppleSDKMac::DiscoveryError
     assert_equal Apple::CompileError,   AppleSDKMac::CompileError

@@ -57,14 +57,13 @@ module AppleSDKMac
         "let #{@param[:name]}: Int64 = rb_num2ll(argv[#{@index}])"
       end
 
-      # Phase 7 — narrow the Int64 in_load value to the target C scalar
-      # type at the call site. swiftc 6 rejects implicit Int64 → UInt32
-      # / Int32 / CFStringEncoding conversions; we use numericCast which
-      # infers the target FixedWidthInteger type from the call site, so
-      # framework-typedef'd integers (ItemCount, CFIndex, OSStatus,
-      # OSType, CFStringEncoding) all work without requiring the typedef
-      # to be visible at glue lexical scope. For `Int64` the cast is
-      # unnecessary noise; pass through unchanged.
+      # Narrow the Int64 in_load value to the target C scalar type at the
+      # call site. swiftc 6 rejects implicit Int64 → UInt32 / Int32 /
+      # CFStringEncoding conversions; numericCast infers the target
+      # FixedWidthInteger type from the call site, so framework-typedef'd
+      # integers (ItemCount, CFIndex, OSStatus, OSType, CFStringEncoding)
+      # all work without requiring the typedef to be visible at glue scope.
+      # For `Int64` the cast is unnecessary noise; pass through unchanged.
       def call_arg
         return "&#{@param[:name]}" if @param[:is_out_param]
         ctype = scalar_type_token(@param[:type])
@@ -228,15 +227,13 @@ module AppleSDKMac
         return nil if @param[:is_out_param]
         type = ref_type(@param[:type])
         name = @param[:name]; i = @index
-        # Phase 7 — Qnil and 0-pointer both pass through as Swift nil. CF
-        # types are pervasively nullable (kCFAllocatorDefault is encoded
-        # as a NULL CFAllocatorRef, etc.), so force-unwrapping here
-        # SIGTRAPs on otherwise-valid Apple-API NULL conventions.
-        # T49 — autoarc box pointer (runtime_arc_box_cftype の戻り値) を
-        # 受け取った場合は runtime_arc_unbox_cftype で内部 CF pointer に
-        # unwrap、box でない raw pointer 直渡しは 0 が返るので raw に
-        # fall-back する。spec §3.9 round-trip 完成の前提。
-        # T50 重要: rb_num2ull は Qnil 入力で raise する。Qnil 検査を最初に。
+        # Qnil and 0-pointer both pass through as Swift nil. CF types are
+        # pervasively nullable (kCFAllocatorDefault is a NULL CFAllocatorRef,
+        # etc.), so force-unwrapping SIGTRAPs on valid Apple-API NULL conventions.
+        # autoarc box pointer (runtime_arc_box_cftype の戻り値) を受け取った場合は
+        # runtime_arc_unbox_cftype で内部 CF pointer に unwrap、 box でない raw
+        # pointer 直渡しは 0 が返るので raw に fall-back する。
+        # rb_num2ull は Qnil 入力で raise するため、 Qnil 検査を最初に行う。
         <<~SWIFT.chomp
           let #{name}: #{type}?
               if argv[#{i}] == Qnil {
@@ -259,7 +256,7 @@ module AppleSDKMac
       def call_arg
         # CFTypeRef in_load は Optional<T> 形 (Qnil → nil branch)。 既定では
         # Optional のまま渡す (Apple SDK の多くの CF API は Optional 受け付け)。
-        # T54 — Swift bridge で T (non-Optional) 必須の関数は param に
+        # Swift bridge で T (non-Optional) 必須の関数は param に
         # `nilable: false` を指定して force-unwrap (arg!) させる。
         return "&#{@param[:name]}" if @param[:is_out_param]
         return "#{@param[:name]}!" if @param[:nilable] == false
@@ -305,11 +302,10 @@ module AppleSDKMac
       def in_load
         type = @param[:type].sub(/\s*_(?:Nullable|Nonnull)\b/, "").strip
         name = @param[:name]; i = @index
-        if (route = CALLBACK_PILLAR_ROUTES[type])
-          register_branch(name, type, i, route)
-        else
-          legacy_branch(name, type, i)
+        route = CALLBACK_PILLAR_ROUTES.fetch(type) do
+          raise "callback type #{type.inspect} has no CallbackPillar route — extend CALLBACK_PILLAR_ROUTES + ext/apple_sdk_mac_runtime/callback_signatures.yml"
         end
+        register_branch(name, type, i, route)
       end
 
       private
@@ -330,17 +326,6 @@ module AppleSDKMac
                   if #{name}_slot < 0 { rb_raise(rb_eRuntimeError, "callback slot pool exhausted") }
                   let #{name}_raw = #{fn_get_fnptr}(#{name}_slot)
                   #{name} = unsafeBitCast(UnsafeRawPointer(bitPattern: UInt(#{name}_raw))!, to: #{type}.self)
-              }
-        SWIFT
-      end
-
-      def legacy_branch(name, type, i)
-        <<~SWIFT.chomp
-          let #{name}: #{type}?
-              if argv[#{i}] == Qnil {
-                  #{name} = nil
-              } else {
-                  rb_raise(rb_eRuntimeError, "non-nil callback not yet supported")
               }
         SWIFT
       end
@@ -383,13 +368,12 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["callback_non_nil"] = CallbackNonNilMarshaller
 
-    # Phase 7 T2a: noescape completion block. `void (^)(NSError *)`-style.
+    # Noescape completion block. `void (^)(NSError *)`-style.
     # @convention(block) literal lives on the Swift stack for the duration of
     # the call; the Ruby Proc is pinned in runtime_proc_registry by object_id
     # so a Ruby GC during the Apple-side execution can't reclaim it. Fired via
     # ThreadingBridge.enqueueFromAppleThread (single Int64 arg dispatch — for
-    # NSError? completions, nil → 0, non-nil → -1; richer dispatch is added
-    # alongside the persistent path in T2b/T9).
+    # NSError? completions, nil → 0, non-nil → -1).
     class BlockNilableMarshaller < Marshaller
       def in_load
         name = @param[:name]
@@ -440,14 +424,14 @@ module AppleSDKMac
         else
           # Multi-arg or non-Error: dispatcher only carries one Int64. Pass 0
           # as a heartbeat; downstream multi-arg dispatch is layered on top
-          # via the persistent-block path in T2b (BoxedBlockHandle).
+          # via the persistent-block path (BoxedBlockHandle).
           "0"
         end
       end
     end
     Marshaller::REGISTRY["block_nilable"] = BlockNilableMarshaller
 
-    # Phase 7 T2b: escaping completion block. Block outlives the call, so the
+    # Escaping completion block. Block outlives the call, so the
     # @convention(block) thunk lives in the persistent slot table (managed by
     # CallbackPillar's runtime_callback_register_block_persistent). The user
     # gets back a BoxedBlockHandle whose Ruby Box deinit calls
@@ -475,7 +459,7 @@ module AppleSDKMac
       # The Apple API takes the @convention(block) thunk, not the BoxedBlockHandle.
       # The thunk is stored in the slot table; the persistent path resolves it
       # at call site via runtime_callback_get_block_persistent_thunk(slotId).
-      # For T2b we expose the handle in `_handle` and let the call_arg fetch.
+      # We expose the handle in `_handle` and let the call_arg fetch.
       def call_arg
         # The Apple-side block parameter receives the persistent thunk pointer
         # if non-nil, else nil. CallbackPillar exposes thunk-by-slot-id via
@@ -486,9 +470,9 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["block_persistent"] = BlockPersistentMarshaller
 
-    # T52a — `() -> Void` escaping block (e.g. NSBlockOperation の
-    # +blockOperationWithBlock:)。既存 BlockPersistentMarshaller は
-    # BoxedBlockHandle + arity 1 前提なので、arity 0 / void return の
+    # `() -> Void` escaping block (e.g. NSBlockOperation の
+    # +blockOperationWithBlock:)。 BlockPersistentMarshaller は
+    # BoxedBlockHandle + arity 1 前提なので、 arity 0 / void return の
     # 直接 emit パスを別 kind として用意。
     #
     # ライフタイム: block literal が ObjC ブロックに bridge される時点で
@@ -531,7 +515,7 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["void_ptr_nilable"] = VoidPtrNilableMarshaller
 
-    # T54a — Ruby Array<Integer (opaque ref pointer)> → Swift [<OpaqueType>].
+    # Ruby Array<Integer (opaque ref pointer)> → Swift [<OpaqueType>].
     # Apple framework instance methods that take NSArray<X*>* (e.g.
     # NSOperationQueue.addOperations:waitUntilFinished:, VNImageRequestHandler
     # .performRequests:error:) require a Swift-typed array. We construct an

@@ -73,7 +73,8 @@ module AppleSDKMac
         @cache_kb.lookup_signature(
           framework: ctx.framework, klass: ctx.klass, name: ctx.prefix
         )
-      rescue
+      rescue StandardError => e
+        warn "llm_resolver: lookup_signature failed: #{e.class}: #{e.message}" if ENV["APPLE_IRB_DEBUG"]
         nil
       end
 

@@ -22,7 +22,7 @@ when "search"
   query = ARGV[2]
   abort "usage: apple-sdk-knowledge search <framework> <query>" unless framework && query
   store = AppleSDKKnowledge.open
-  results = AppleSDKKnowledge::Search.new(store).lexical(framework: framework, query: query)
+  results = store.fts_search(framework, query)
   results.each { |r| puts "#{r[:framework]}::#{r[:name]} #{r[:signature]}" }
   store.close
 else

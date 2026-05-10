@@ -7,22 +7,22 @@
 
 Runtime dynamic Ruby ↔ Apple SDK bridge for macOS. Call any public Apple framework API from Ruby with no pre-declarations.
 
-> **v1.2 status.** Swift overlay framework (AVFoundation / AppKit / Vision /
-> SwiftUI 系) の API も `bootstrap!` だけで動く。 ObjC selector → Swift
-> imported name は Knowledge Base に取り込まれ (`swift_imported_name`
-> column)、 ObjC↔Swift bridge 名前解決は `SwiftBridgeName` の 3 段
-> resolution (Knowledge Base → 手動 override → heuristic → LLM 安全網)
-> に統一された。 `examples/avspeech_synth.rb` / `examples/vision_ocr.rb`
-> が end-to-end の release-quality 検収例。 `Apple.discover` は escape hatch
-> 専用 (private framework / 第三者 framework / 自前 ObjC selector の宣言にのみ
-> 使う)、 `examples/discover_escape.rb` を参照。
+> Swift overlay framework (AVFoundation / AppKit / Vision / SwiftUI 系) の API も
+> `bootstrap!` だけで動く。 ObjC selector → Swift imported name は Knowledge
+> Base に `swift_imported_name` column として取り込まれ、 ObjC↔Swift bridge
+> 名前解決は Knowledge Base lookup → 内蔵 heuristic → LLM 安全網 の順で解決。
+> `examples/avspeech_synth.rb` / `examples/vision_ocr.rb` が end-to-end の
+> release-quality 検収例。 `Apple.discover` は escape hatch 専用 (private
+> framework / 第三者 framework / 自前 ObjC selector / Knowledge Base 分類の
+> 上書きにのみ使う)、 `examples/discover_escape.rb` を参照。
 
 ## Requirements
 
 - macOS 26+
 - Ruby 4.x master with `RUBY_BOX=1` (required for namespace isolation)
 - Xcode + Swift 6.3+
-- Sibling gems: `rb-foundation-model-mac`, `rb-apple-sdk-knowledge`, `swift_gem`
+- External sibling gems: `rb-foundation-model-mac`, `swift_gem`
+- Internal sub-gems (same repo, separate gemspecs): `knowledge/` (Apple SDK Knowledge Base ingester), `irb/` (IRB autocomplete + doc preview), `mcp/` (MCP server)
 
 ## Installation
 
@@ -51,15 +51,15 @@ Pick one of two startup styles, then just call the APIs.
 
 ```ruby
 require "apple_sdk_mac"
-AppleSDKMac.bootstrap!   # ~1 s — eager-defines Apple::<Framework> shells from the KB
+AppleSDKMac.bootstrap!   # ~1 s — eager-defines Apple::<Framework> shells from the Knowledge Base
 
 client = Apple::CoreMIDI.MIDIClientCreate("MyClient", nil, nil)
 ```
 
-After `bootstrap!`, every KB-known symbol has a Ruby method shell ready to
-go. The dispatcher compiles the Swift glue dylib inline on the first
-invocation per symbol (~1–3 s swiftc latency); subsequent calls hit the
-compiled-glue cache and dispatch in sub-millisecond time.
+After `bootstrap!`, every Knowledge-Base-known symbol has a Ruby method
+shell ready to go. The dispatcher compiles the Swift glue dylib inline on
+the first invocation per symbol (~1–3 s swiftc latency); subsequent calls
+hit the compiled-glue cache and dispatch in sub-millisecond time.
 
 ### Lightweight: per-symbol on-demand
 
@@ -84,10 +84,10 @@ section).
 `Apple.discover` is the manual escape hatch for cases the transparent path
 cannot resolve on its own:
 
-1. **The KB classification is wrong for your use case.** The knowledge base
-   sometimes labels a C parameter as `:string` when you need `:opaque_ref`,
-   tags a return as `:bool` when it's an `Int`, etc. Override the shape with
-   explicit `params:` / `return_kind:`:
+1. **You want to override the Knowledge Base classification.** The Knowledge
+   Base sometimes labels a C parameter as `:string` when your call site needs
+   `:opaque_ref`, tags a return as `:bool` when it's an `Int`, etc. Force the
+   shape with explicit `params:` / `return_kind:`:
 
    ```ruby
    Apple.discover(
@@ -96,11 +96,11 @@ cannot resolve on its own:
    )
    ```
 
-2. **The symbol isn't in the KB at all.** Private framework methods, custom
-   ObjC selectors, anything outside the indexed `*.swiftinterface` set —
-   the eager method shell never gets installed because nothing told the
-   namespace builder it exists. Declare the shape so the dispatcher knows
-   how to compile it:
+2. **The symbol isn't in the Knowledge Base at all.** Private framework
+   methods, custom ObjC selectors, anything outside the indexed
+   `*.swiftinterface` set — the eager method shell never gets installed
+   because nothing told the namespace builder it exists. Declare the shape so
+   the dispatcher knows how to compile it:
 
    ```ruby
    Apple.discover(
@@ -109,8 +109,9 @@ cannot resolve on its own:
    )
    ```
 
-3. **Pre-warm.** Even for KB-known symbols, calling `Apple.discover` at boot
-   avoids paying the swiftc latency on the first user-facing invocation.
+3. **Pre-warm.** Even for Knowledge-Base-known symbols, calling
+   `Apple.discover` at boot avoids paying the swiftc latency on the first
+   user-facing invocation.
 
 For everything else, just call the API directly. See `examples/` for more.
 
@@ -145,8 +146,8 @@ $ irb -r apple_sdk_mac -r apple_sdk_mac/irb
 
 When the Reline autocomplete popup opens, hovering an Apple SDK
 candidate fills the right-side `:show_doc` dialog with documentation
-sourced from the Apple SDK knowledge base (clang FullComment AST
-ingested by `rb-apple-sdk-knowledge`):
+sourced from the Apple SDK Knowledge Base (clang FullComment AST
+ingested by the `knowledge/` sub-gem):
 
 - ObjC / C frameworks (CoreFoundation, Security, AudioToolbox, ARKit,
   CoreMedia, etc.) ship with rich Apple-official doc strings.
@@ -165,24 +166,29 @@ Idempotent per `(framework, klass, name)`.
 
 Design notes and decision log: `docs/superpowers/specs/2026-05-08-irb-subgem-and-doc-discover-design.md`.
 
-Note that the knowledge base ingests Swift framework interfaces (`*.swiftinterface`),
+Note that the Knowledge Base ingests Swift framework interfaces (`*.swiftinterface`),
 so types appear under their Swift import names (`URL` rather than `NSURL`,
 `Data` rather than `NSData`). ObjC-only types whose selectors aren't in the
-KB (e.g. private framework methods) still need explicit `Apple.discover`
-with `klass:` and `selector:`/`class_method:`; KB-known selectors compile
-transparently on first call like everything else.
+Knowledge Base (e.g. private framework methods) still need explicit
+`Apple.discover` with `klass:` and `selector:`/`class_method:`;
+Knowledge-Base-known selectors compile transparently on first call like
+everything else.
 
 ## Architecture
 
-See `docs/superpowers/specs/2026-05-04-rb-apple-sdk-mac-design.md` in the swift_gem repo + v1.2 spec `docs/superpowers/specs/2026-05-09-v1.2-bootstrap-principle-design.md`.
+See `docs/superpowers/specs/2026-05-04-rb-apple-sdk-mac-design.md` in the
+swift_gem repo for the original design, and
+`docs/superpowers/specs/2026-05-09-v1.2-bootstrap-principle-design.md` for
+the bootstrap-principle thesis.
 
 The bridge is composed of:
 
 - **Glue Runtime** (`ext/apple_sdk_mac_runtime/`): static Swift dylib with 9 pillars (Ref Table, Marshal, Callback, ARC, Error, Async, Threading, RunLoop, Conformance) bridged to CRuby via SE-0495 `@c`.
-- **Ruby cache layer**: Config (XDG/ENV/YAML), CompiledGlueCache (SQLite + dylib FS), KnowledgeCache (consume rb-apple-sdk-knowledge).
-- **Glue Compiler pipeline**: TemplateGenerator (deterministic shape catalog) → SwiftBridgeName (Knowledge Base + override 2 段 resolver, v1.2 で追加) → LLMGenerator fallback (rb-foundation-model-mac via Ollama) → ValidationGates (allowed imports / banned APIs / glue shape) → SwiftcInvoker.
-- **Ruby runtime**: GlueLoader (dlopen + pointer cache), Dispatcher (cache miss → inline compile + invoke; transparent for KB symbols), SecurityCop (in-Box monkey patches with allow-list bypass), NamespaceBuilder (eager `Apple::<Framework>` shell definition at bootstrap), `Apple` Ruby::Box bootstrap.
-- **Knowledge Base** (`knowledge/` sub-gem): `*.swiftinterface` ingester + Swift overlay ingester (v1.2 Phase 4a で追加)、 ObjC selector → Swift imported name の対応を `symbols.swift_imported_name` に保存。
+- **Ruby cache layer**: Config (XDG/ENV/YAML), CompiledGlueCache (SQLite + dylib FS), KnowledgeCache (reads the `knowledge/` sub-gem's SQLite output).
+- **Discovery / shape resolution**: SelectorBridge (canonical method-name + acronym normalization, single source for `public_api` and `template_generator`), DiscoveryShape (`synthesize_symbol_record` + `KIND_SYM_TO_TYPE` + C-symbol param overrides).
+- **Glue Compiler pipeline**: TemplateGenerator (deterministic shape catalog) → ObjcMarshalling (ObjC `in_load` + `return_lines` emit) → SwiftBridgeName (Knowledge Base lookup; falls through to in-template heuristic) → LLMGenerator + LLMExamples (worked-example catalogue, rb-foundation-model-mac via Ollama as safety net) → ValidationGates (allowed imports / banned APIs / glue shape) → SwiftcInvoker.
+- **Ruby runtime**: GlueLoader (dlopen + pointer cache), Dispatcher (cache miss → inline compile + invoke; transparent for Knowledge-Base-known symbols), SecurityCop (in-Box monkey patches with allow-list bypass), NamespaceBuilder (eager `Apple::<Framework>` shell definition at bootstrap), `Apple` Ruby::Box bootstrap.
+- **Knowledge Base** (`knowledge/` sub-gem): `*.swiftinterface` ingester for both ObjC frameworks and Swift overlay frameworks; ObjC selector → Swift imported name correspondence is stored in `symbols.swift_imported_name`.
 
 ## Maintainer tools (`tooling/`)
 

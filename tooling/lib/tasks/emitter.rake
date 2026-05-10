@@ -1,16 +1,7 @@
 # frozen_string_literal: true
 #
-# Rake tasks for the HITL emitter-improvement workflow.
-#
-# Thin orchestrators only — every task is load → call EmitterDev module → format.
-# Module APIs live under tooling/lib/emitter_dev/. See:
-#   docs/superpowers/specs/2026-05-09-hitl-emitter-improvement-design.md  (Section 7)
-#   docs/superpowers/plans/2026-05-09-hitl-emitter-improvement.md         (Task 1.6)
-#
-# Note: CandidateRanker is a stateless module form
-# (`EmitterDev::CandidateRanker.rank(rows:, mode:, top:)`), not the
-# class form sketched in the spec. SQLite read is delegated to
-# `EmitterDev::Sources::CompileHistory#aggregate`.
+# Rake tasks for the HITL emitter-improvement workflow. Thin orchestrators —
+# every task is load → call EmitterDev module → format.
 
 require "json"
 require "fileutils"
@@ -104,19 +95,6 @@ namespace :apple do
       FileUtils.mkdir_p(File.dirname(out))
       File.write(out, bundler.compose)
       puts out
-    end
-
-    desc "List stale emitter worktrees older than DAYS days (default 7)"
-    task :cleanup_stale do
-      days  = Integer(ENV.fetch("DAYS", "7"))
-      paths = EmitterDev::WorktreeOps.stale_paths(older_than_days: days)
-      puts "stale worktrees (older than #{days}d):"
-      if paths.empty?
-        puts "  (none)"
-      else
-        paths.each { |p| puts "  #{p}" }
-        puts "remove with: git worktree remove --force <path>"
-      end
     end
 
     desc "Non-ff merge improvement branch back into base (BRANCH=name BASE=branch WORKTREE_PATH=path)"

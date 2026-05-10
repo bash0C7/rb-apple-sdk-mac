@@ -99,46 +99,9 @@ module AppleSDKMac
       end
     end
 
-    # Claude Code 風 progress spinner — `*` / `+` を 100ms 周期で交互に出す。
-    # tty? でない io には何も書かない (smoke / pipe redirect で汚れない)。
-    class Spinner
-      FRAMES = %w[* +].freeze
-
-      def initialize(io: $stderr, interval: 0.1)
-        @io = io
-        @interval = interval
-        @thread = nil
-        @running = false
-      end
-
-      def start(message)
-        return unless @io.respond_to?(:tty?) && @io.tty?
-        return if @running
-        @running = true
-        @thread = Thread.new do
-          i = 0
-          while @running
-            @io.write("\r#{FRAMES[i % FRAMES.size]} #{message}")
-            @io.flush if @io.respond_to?(:flush)
-            i += 1
-            sleep @interval
-          end
-        end
-      end
-
-      def stop
-        return unless @running
-        @running = false
-        @thread&.join
-        @thread = nil
-        @io.write("\r\e[K") if @io.respond_to?(:tty?) && @io.tty?
-        @io.flush if @io.respond_to?(:flush)
-      end
-    end
-
     # 補完で確定した method 名を Apple.discover の正しい keyword shape に
     # マッピングして同期実行する。 parameters / return_kind は明示せず、
-    # TemplateGenerator → LLMGenerator pipeline に shape 推論を任せる。
+    # compiler pipeline に shape 推論を任せる。
     class AutoDiscoverer
       def initialize(knowledge_cache:, discover_proc: nil)
         @cache = knowledge_cache
@@ -243,7 +206,7 @@ module AppleSDKMac
     @installed = false
 
     class << self
-      def install!(knowledge_cache: nil, discover_proc: nil, spinner_io: $stderr)
+      def install!(knowledge_cache: nil, discover_proc: nil)
         return if @installed
         require "irb"
         knowledge_cache ||= AppleSDKMac.knowledge_cache
@@ -252,7 +215,6 @@ module AppleSDKMac
           knowledge_cache: knowledge_cache,
           discover_proc: discover_proc
         )
-        spinner = Spinner.new(io: spinner_io)
 
         # 標準補完経路を TypeCompletor (AST/RBS, constant enumerate 無し) に切替。
         # repl_type_completor が無ければ IRB は warn して RegexpCompletor に
@@ -276,22 +238,11 @@ module AppleSDKMac
           ::IRB::Context.prepend(ContextOverride)
         end
 
-        # IRB::RelineInputMethod#run_for_first_step (or 同等) で input-method
-        # init される時、 Reline.dig_perfect_match_proc は IRB が上書きする。
-        # IRB::RelineInputMethod#initialize の super 後に再 wrap する prepend。
+        # IRB::RelineInputMethod#initialize の super 後に :show_doc dialog を
+        # chain する prepend。 hover prefetch は DocDialog#render の中で
+        # Prefetcher が走るので、 Tab 確定時の同期 discovery は不要。
         unless ::IRB::RelineInputMethod.include?(RelineInputMethodOverride)
           ::IRB::RelineInputMethod.prepend(RelineInputMethodOverride)
-        end
-        @apple_dig_perfect = lambda do |matched|
-          context = Context.parse(matched)
-          next unless context && context.receiver_kind == :class
-          message = "discovering #{context.framework}::#{context.klass}.#{context.prefix}..."
-          spinner.start(message)
-          begin
-            discoverer.run(context, context.prefix)
-          ensure
-            spinner.stop
-          end
         end
 
         @installed = true
@@ -300,7 +251,6 @@ module AppleSDKMac
       def uninstall!
         @installed = false
         @apple_provider = nil
-        @apple_dig_perfect = nil
         @apple_doc_dialog = nil
         @apple_prefetcher = nil
         @apple_llm_resolver = nil
@@ -311,7 +261,7 @@ module AppleSDKMac
       end
 
       # Internal — accessed by ContextOverride / RelineInputMethodOverride.
-      attr_reader :apple_provider, :apple_dig_perfect, :apple_doc_dialog,
+      attr_reader :apple_provider, :apple_doc_dialog,
                   :apple_prefetcher, :apple_llm_resolver
 
       private
@@ -357,9 +307,6 @@ module AppleSDKMac
         super
         if AppleSDKMac::IRB.installed?
           require "reline"
-          if AppleSDKMac::IRB.apple_dig_perfect
-            Reline.dig_perfect_match_proc = AppleSDKMac::IRB.apple_dig_perfect
-          end
           # Chain :show_doc — Apple SDK doc first, IRB RDoc fallback.
           # Apple's DocDialog renders KB-sourced text + fires prefetch.
           # When that returns nil (non-Apple input), we restore the

@@ -75,9 +75,9 @@ class TestGlueCompiler < Test::Unit::TestCase
       "has a chance to land."
   end
 
-  # T40 — exported_symbol sanitize. canonical_name "NSString.stringWithUTF8String"
+  # exported_symbol sanitize. canonical_name "NSString.stringWithUTF8String"
   # は Swift identifier として無効（dot 含む）。glue_compiler は機械的に
-  # `gsub(/[^A-Za-z0-9_]/, "_")` で swift_identifier 化する必要がある（spec §3.2）。
+  # `gsub(/[^A-Za-z0-9_]/, "_")` で swift_identifier 化する必要がある。
   class FakeTemplate
     def generate(framework:, symbol:, glue_id:)
       # 最小限の Swift スタブ。exported_symbol が Swift-safe であることを
@@ -110,7 +110,7 @@ class TestGlueCompiler < Test::Unit::TestCase
       result = compiler.compile(framework: "Foundation", symbol: sym)
       assert result.success?, "stub template + StubSwiftc should compile clean: #{result.error_detail}"
       assert_match(/\Aglue_[a-f0-9]+_NSString_stringWithUTF8String\z/, result.exported_symbol,
-        "T40: exported_symbol must sanitize non-identifier chars (got: #{result.exported_symbol.inspect})")
+        "exported_symbol must sanitize non-identifier chars (got: #{result.exported_symbol.inspect})")
       cache.close
     end
   end

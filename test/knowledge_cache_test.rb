@@ -129,7 +129,7 @@ class TestKnowledgeCache < Test::Unit::TestCase
     assert doc.is_a?(String) && !doc.empty?,
       "ARKit framework lookup must return a synthesized description even when frameworks.doc_url is empty"
     assert_match(/ARKit/i, doc)
-    # Internal "N symbols indexed" gem metadata must not leak into user-facing doc dialog (user feedback 2026-05-08).
+    # Internal "N symbols indexed" gem metadata must not leak into user-facing doc dialog.
     refute_match(/symbol/i, doc)
     refute_match(/index/i, doc)
   end
@@ -137,6 +137,40 @@ class TestKnowledgeCache < Test::Unit::TestCase
   def test_lookup_framework_documentation_returns_nil_for_unknown
     cache = AppleSDKMac.knowledge_cache
     assert_nil cache.lookup_framework_documentation(name: "NoSuchFramework__")
+  end
+
+  # Phase G — KnowledgeCache becomes the single source for cross-tool helpers
+  # (mcp StatsResource, mcp Search#fetch_cross_framework,
+  # mcp SuggestDiscoverCall#fetch_candidates). Both #stats and
+  # #search_all_frameworks are public surface; abstraction never leaks @db.
+  def test_stats_returns_framework_count_and_symbol_count_hash
+    cache = AppleSDKMac.knowledge_cache
+    s = cache.stats
+    assert_kind_of Hash, s
+    assert s.key?(:framework_count), "stats must include :framework_count"
+    assert s.key?(:symbol_count),    "stats must include :symbol_count"
+    assert s.key?(:kind_breakdown),  "stats must include :kind_breakdown"
+    assert_kind_of Integer, s[:framework_count]
+    assert_kind_of Integer, s[:symbol_count]
+    assert_kind_of Array,   s[:kind_breakdown]
+    assert_operator s[:framework_count], :>=, 1
+    assert_operator s[:symbol_count],    :>=, 1
+  end
+
+  def test_search_all_frameworks_returns_per_framework_top_hits
+    cache = AppleSDKMac.knowledge_cache
+    rows = cache.search_all_frameworks(query: "url", per_fw: 2, total: 10)
+    assert_kind_of Array, rows
+    assert_operator rows.size, :<=, 10, "respects total cap"
+    rows.each do |r|
+      assert r.key?(:framework), "row must carry :framework"
+      assert r.key?(:name),      "row must carry :name"
+      assert r.key?(:kind),      "row must carry :kind"
+    end
+    by_fw = rows.group_by { |r| r[:framework] }
+    by_fw.each_value do |fw_rows|
+      assert_operator fw_rows.size, :<=, 2, "respects per_fw cap"
+    end
   end
 
   private

@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 require "test_helper"
 
-# Phase 7 T17 / spec §9 — RSS growth budget for example dispatch loops.
-# Acceptance: after warmup + N iterations of the Phase 7 examples, RSS
+# RSS growth budget for example dispatch loops.
+# Acceptance: after warmup + N iterations of the example dispatch, RSS
 # growth ≤ 5MB. Ensures BoxedBlockHandle / BoxedCFType / opaque ref
 # autorelease paths actually release.
 #
 # Iteration count is small by default so the test runs in CI; bump
-# MEMORY_LEAK_ITERS=1000 (spec target) to exercise the full budget.
+# MEMORY_LEAK_ITERS=1000 to exercise the full budget.
 class TestMemoryLeak < Test::Unit::TestCase
   ITERS  = Integer(ENV["MEMORY_LEAK_ITERS"] || 200)
   BUDGET_MB = Float(ENV["MEMORY_LEAK_BUDGET_MB"] || 5.0)

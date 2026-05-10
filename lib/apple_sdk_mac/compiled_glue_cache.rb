@@ -4,24 +4,7 @@ require "fileutils"
 
 module AppleSDKMac
   class CompiledGlueCache
-    # Phase 7 T15 — bumped any time the template HEADER, marshaller emit, or
-    # validation gate set changes in a way that invalidates pre-bump Swift
-    # sources. v1.0 lifts this to "1.0" (was implicitly v0 / unset).
-    # T49 bump → "1.1": HEADER に runtime_threading_enqueue / register_block_persistent /
-    # arc_unbox_cftype の @_silgen_name 宣言を追加、CFTypeRefMarshaller の
-    # in_load を runtime_arc_unbox_cftype 経由 (autoarc box unwrap) に変更。
-    # T50 bump → "1.2": CFTypeRefMarshaller の Qnil ガード再構成 (rb_num2ull
-    # が Qnil で raise するバグ修正)。
-    # T54a bump → "1.3": HEADER に rb_ary_entry / runtime_rb_array_len の
-    # @_silgen_name 宣言を追加、ArrayOfOpaqueRefMarshaller を新規追加 (Ruby
-    # Array<opaque ref> → Swift [<OpaqueType>] 変換、NSMutableArray + unsafeBitCast
-    # 経由)。
-    # T53a bump → "1.4": HEADER に runtime_threading_enqueue_3 の @_silgen_name
-    # 宣言を追加、 :block_persistent Hash 形 (arity 3, typed) で multi-arg
-    # typed escaping block dispatch を emit する経路を追加。
-    # T54n bump → "1.5": HEADER に rb_ary_new / rb_ary_push 宣言追加、
-    # return_kind Hash 形 (`:array_of_opaque_ref`) で typed Swift array を Ruby
-    # Array に marshal する経路を追加。
+    # Bump on any HEADER / marshaller / gate change to invalidate prior rows.
     CACHE_SCHEMA_VERSION = "1.5"
 
     SCHEMA_SQL = <<~SQL.freeze
@@ -94,9 +77,9 @@ module AppleSDKMac
       stored = @db.execute("SELECT value FROM schema_meta WHERE key='schema_version'").first
       stored_v = stored && stored[0]
       if stored_v && stored_v != @schema_version
-        # Phase 7 T15 — schema_version bump invalidates pre-bump rows. Wipe
-        # compiled glue + history so the next discover recompiles fresh
-        # against the current template HEADER / marshaller emit shape.
+        # schema_version bump invalidates pre-bump rows. Wipe compiled glue +
+        # history so the next discover recompiles fresh against the current
+        # template HEADER / marshaller emit shape.
         @db.execute("DELETE FROM compiled_glue")
         @db.execute("DELETE FROM compile_history")
       end

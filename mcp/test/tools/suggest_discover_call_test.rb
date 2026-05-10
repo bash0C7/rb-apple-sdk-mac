@@ -18,6 +18,12 @@ class SuggestDiscoverCallTest < Test::Unit::TestCase
     def list_frameworks
       fixture.map { |r| r[:framework] }.uniq
     end
+
+    def search_all_frameworks(query:, per_fw: 3, total: 5)
+      list_frameworks.flat_map do |fw|
+        search(framework: fw, query: query, limit: per_fw).map { |r| r.merge(framework: fw) }
+      end.first(total)
+    end
   end
 
   class FakeServerContext
@@ -148,6 +154,11 @@ class SuggestDiscoverCallTest < Test::Unit::TestCase
     end
     def list_frameworks
       search_fixture.map { |r| r[:framework] }.uniq
+    end
+    def search_all_frameworks(query:, per_fw: 3, total: 5)
+      list_frameworks.flat_map do |fw|
+        search(framework: fw, query: query, limit: per_fw).map { |r| r.merge(framework: fw) }
+      end.first(total)
     end
   end
 

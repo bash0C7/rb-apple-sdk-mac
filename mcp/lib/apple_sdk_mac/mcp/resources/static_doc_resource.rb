@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# spec §5.1 — 静的 markdown を mcp/docs/resources/ から読み出す薄い handler。
+# 静的 markdown を mcp/docs/resources/ から読み出す薄い handler。
 # Resource handler は #call で markdown 文字列を返す約束。
 
 module AppleSDKMac

@@ -1,14 +1,14 @@
 # frozen_string_literal: true
 require "json"
 
-# spec §4.4 + §6 — intent → Apple.discover kwargs 生成。
+# Intent → Apple.discover kwargs 生成。
 #
 # フロー:
-#   1. KB.search で候補取得
+#   1. Knowledge Base search で候補取得
 #   2a. 0 件 → action: "no_match"
 #   2b. 1 件 → 即決、 action: "accept" + kwargs
 #   2c. 2 件以上 + server_context あり → create_form_elicitation で user に選ばせる
-#       accept / decline / cancel の 3 分岐 (chiebukuro-mcp 同パターン)
+#       accept / decline / cancel の 3 分岐
 #   2d. 2 件以上 + server_context なし → action: "candidates" でリスト返却 (host が
 #       elicitation 非対応の場合の fallback)
 
@@ -79,13 +79,7 @@ module AppleSDKMac
           if framework
             @kb.search(framework: framework, query: intent, limit: SEARCH_LIMIT).map { |r| r.merge(framework: framework) }
           else
-            @kb.list_frameworks.flat_map { |fw|
-              begin
-                @kb.search(framework: fw, query: intent, limit: 3).map { |r| r.merge(framework: fw) }
-              rescue StandardError
-                []
-              end
-            }.first(SEARCH_LIMIT)
+            @kb.search_all_frameworks(query: intent, per_fw: 3, total: SEARCH_LIMIT)
           end
         end
 

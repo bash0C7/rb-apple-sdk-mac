@@ -1,17 +1,12 @@
 # frozen_string_literal: true
 require "sqlite3"
-require "sqlite_vec"
 
 module AppleSDKKnowledge
   class Store
-    # Phase 7 / spec §5 — bump for cf_create_rule + objc_kind + swift_kind
-    # columns. ingest population of those columns is staged for v1.1; the
-    # column shape is committed at v1.0 so the mac gem's schema_version
-    # invalidation path doesn't have to thrash on later bumps.
-    # v4 — adds swift_imported_name TEXT for Swift overlay importer (Task 4a.2).
-    # The Glue Compiler emitter (Phase 4b) reads this column to bridge ObjC
-    # method selectors to their resolved Swift import name.
-    SCHEMA_VERSION = 4
+    # Bumped when the on-disk schema shape changes. Bumping invalidates any
+    # existing Knowledge Base SQLite at the project-scoped path; the next
+    # `apple:knowledge:rebuild` regenerates it.
+    SCHEMA_VERSION = 7
 
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;
@@ -32,21 +27,22 @@ module AppleSDKKnowledge
       );
 
       CREATE TABLE IF NOT EXISTS symbols (
-        id              INTEGER PRIMARY KEY,
-        framework_id    INTEGER REFERENCES frameworks(id),
-        name            TEXT NOT NULL,
-        parent_id       INTEGER REFERENCES symbols(id),
-        kind            TEXT NOT NULL,
-        signature       TEXT,
-        abi             TEXT NOT NULL,
-        documentation   TEXT,
-        return_type     TEXT,
-        parameters_json TEXT,
-        availability    TEXT,
-        deprecated      INTEGER DEFAULT 0,
+        id                   INTEGER PRIMARY KEY,
+        framework_id         INTEGER REFERENCES frameworks(id),
+        name                 TEXT NOT NULL,
+        parent_id            INTEGER REFERENCES symbols(id),
+        kind                 TEXT NOT NULL,
+        signature            TEXT,
+        abi                  TEXT NOT NULL,
+        documentation        TEXT,
+        return_type          TEXT,
+        parameters_json      TEXT,
+        availability         TEXT,
+        deprecated           INTEGER DEFAULT 0,
         requires_main_thread INTEGER DEFAULT 0,
-        content_hash    TEXT NOT NULL UNIQUE,
-        fields_json     TEXT
+        content_hash         TEXT NOT NULL UNIQUE,
+        fields_json          TEXT,
+        swift_imported_name  TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_symbols_framework_name ON symbols(framework_id, name);
@@ -59,11 +55,6 @@ module AppleSDKKnowledge
         content = 'symbols',
         content_rowid = 'id'
       );
-
-      CREATE VIRTUAL TABLE IF NOT EXISTS symbols_vec USING vec0(
-        symbol_id INTEGER PRIMARY KEY,
-        embedding FLOAT[768]
-      );
     SQL
 
     attr_reader :db, :path
@@ -75,35 +66,15 @@ module AppleSDKKnowledge
     def initialize(path)
       @path = path
       @db = SQLite3::Database.new(path)
-      @db.enable_load_extension(true)
-      SqliteVec.load(@db)
-      @db.enable_load_extension(false)
       @db.results_as_hash = false
     end
 
     def migrate!
       @db.execute_batch(SCHEMA_SQL)
-      ensure_column!("symbols", "fields_json", "TEXT")
-      # Phase 7 / spec §5 — Apple-API-classification columns. The mac
-      # gem's TemplateGenerator already prefers symbol[:cf_create_rule]
-      # for CF auto-ARC routing (falling back to the Create/Copy naming
-      # heuristic when null); objc_kind / swift_kind unblock the
-      # ObjC method dispatch + Swift initializer / property paths.
-      ensure_column!("symbols", "cf_create_rule",      "INTEGER DEFAULT 0")
-      ensure_column!("symbols", "objc_kind",            "TEXT")
-      ensure_column!("symbols", "swift_kind",           "TEXT")
-      # v4 — Swift overlay importer writes ObjC selector → Swift import name here.
-      ensure_column!("symbols", "swift_imported_name", "TEXT")
       @db.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
         ["schema_version", SCHEMA_VERSION.to_s]
       )
-    end
-
-    def ensure_column!(table, col, type)
-      cols = @db.execute("PRAGMA table_info(#{table})").map { |r| r[1] }
-      return if cols.include?(col)
-      @db.execute("ALTER TABLE #{table} ADD COLUMN #{col} #{type}")
     end
 
     def insert_framework(name:, swift_module:, category: nil, doc_url: nil, min_macos: nil)
@@ -120,16 +91,9 @@ module AppleSDKKnowledge
                        deprecated: 0, requires_main_thread: 0, fields_json: nil,
                        swift_imported_name: nil)
       # UPSERT on content_hash: a re-import (e.g. apple:knowledge:rebuild
-      # under a newer classifier or schema) must overwrite the existing row
-      # so updated parameters_json / fields_json / swift_imported_name land.
-      # Plain INSERT would raise ConstraintException, which the importer used
-      # to swallow — leaving stale rows from prior schema versions.
-      #
-      # swift_imported_name (Swift overlay importer, schema v4) must ride the
-      # same INSERT ... ON CONFLICT statement: a prior implementation wrote
-      # it via a separate UPDATE, which left an observable partial-state
-      # window and could be skipped on the conflict path, leaving stale
-      # values in the column on re-import.
+      # under a newer classifier) must overwrite the existing row so
+      # updated parameters_json / fields_json / swift_imported_name land
+      # atomically in one statement.
       @db.execute(
         <<~SQL,
           INSERT INTO symbols
@@ -181,18 +145,6 @@ module AppleSDKKnowledge
       @db.execute(sql, [sanitized, framework_name, limit]).map do |row|
         { name: row[0], kind: row[1], signature: row[2], framework: row[3] }
       end
-    end
-
-    def vec_insert(symbol_id, embedding)
-      blob = embedding.pack("f*")
-      # vec0 virtual tables silently ignore INSERT OR REPLACE and raise
-      # SQLite3::SQLException on UNIQUE PK collision. Explicit DELETE first
-      # makes re-import on content_hash repeats deterministic.
-      @db.execute("DELETE FROM symbols_vec WHERE symbol_id = ?", [symbol_id])
-      @db.execute(
-        "INSERT INTO symbols_vec(symbol_id, embedding) VALUES (?, ?)",
-        [symbol_id, blob]
-      )
     end
 
     def find_framework_id_by_name(name)

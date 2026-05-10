@@ -2,8 +2,8 @@
 require "json"
 require "securerandom"
 
-# spec §4.5 — TemplateGenerator#generate だけ呼んで Swift glue source 文字列を
-# 返す (swiftc は走らせない)。 親 gem 強依存ポイント:
+# TemplateGenerator#generate だけ呼んで Swift glue source 文字列を返す
+# (swiftc は走らせない)。 親 gem 強依存ポイント:
 # AppleSDKMac::GlueCompiler::TemplateGenerator を直接呼ぶ。
 #
 # trust-but-verify ループ: AI が「ユーザが Apple.discover 走らせたら↓の Swift が
@@ -36,7 +36,7 @@ module AppleSDKMac
 
         def initialize(kb:, template: nil)
           @kb = kb
-          @template = template || lazy_template
+          @template = template || ::AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: @kb)
         end
 
         def call(framework:, symbol:)
@@ -70,12 +70,6 @@ module AppleSDKMac
               swift_source: swift_source
             )
           end
-        end
-
-        private
-
-        def lazy_template
-          @lazy_template ||= ::AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: @kb)
         end
       end
     end

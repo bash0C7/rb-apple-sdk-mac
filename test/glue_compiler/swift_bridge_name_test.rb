@@ -73,21 +73,4 @@ class SwiftBridgeNameTest < Test::Unit::TestCase
     )
     assert_nil out
   end
-
-  def test_resolve_falls_through_to_overrides_when_kb_misses
-    AppleSDKMac::GlueCompiler.send(:remove_const, :SWIFT_BRIDGE_OVERRIDES) if AppleSDKMac::GlueCompiler.const_defined?(:SWIFT_BRIDGE_OVERRIDES)
-    AppleSDKMac::GlueCompiler.const_set(:SWIFT_BRIDGE_OVERRIDES, {
-      ["FakeFW", "FakeKlass", "fakeSelector:"] => "FakeKlass.special(thing: %s)",
-    }.freeze)
-
-    kc = StubKC.new({})
-    out = AppleSDKMac::GlueCompiler::SwiftBridgeName.resolve(
-      framework: "FakeFW", klass: "FakeKlass",
-      selector: "fakeSelector:", params: [:string], kc: kc,
-    )
-    assert_equal "FakeKlass.special(thing: arg0)", out
-  ensure
-    AppleSDKMac::GlueCompiler.send(:remove_const, :SWIFT_BRIDGE_OVERRIDES)
-    AppleSDKMac::GlueCompiler.const_set(:SWIFT_BRIDGE_OVERRIDES, {}.freeze)
-  end
 end

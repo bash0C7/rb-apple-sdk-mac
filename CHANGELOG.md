@@ -2,6 +2,107 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] — post-v1.2 simplification
+
+「最新の現実だけ写す」 = phase tag / TDD task ID / "previously" 形のコメント
+全廃、 dead schema column / placeholder file / parallel test file 全削除、
+1053L の glue emitter を 4 single-responsibility module に split し直し、
+release_quality 全 example を omit なしで透過。 public API surface は v1.2
+と同一 (`AppleSDKMac.bootstrap!` / `Apple.discover` / `Apple::<FW>::<Klass>.<method>`
+全 signature 不変)。
+
+### Removed
+- **Reclassifier (`apple:knowledge:reclassify` rake task) + reclassifier.rb +
+  reclassifier_test.** `apple:knowledge:rebuild` が canonical 復旧 path に
+  揃ったため、 in-place reclassification は不要。
+- **Embedder placeholder + `symbols_vec` virtual table + `Store#vec_insert`.**
+  zero-vector を書き続けるだけの dead infrastructure を削除 (real Foundation
+  Models embedder 実装は v1.3 以降の別議論)。
+- **Knowledge Base schema v4 reserved columns: `cf_create_rule`, `objc_kind`,
+  `swift_kind`.** どの ingester も書かず常に NULL だった。 schema を
+  `swift_imported_name` のみに縮減。
+- **`AppleSDKKnowledge::Search` thin facade.** `lexical` メソッドが
+  `Store#fts_search` に delegate するだけだったので caller (irb sub-gem) を
+  直叩きに変更し facade 削除。
+- **`SwiftBridgeOverrides` empty Hash placeholder + `from_overrides` resolver
+  branch.** 一度も埋まらなかった Hash の経路を削除し、 ObjC↔Swift bridge
+  resolver を Knowledge Base lookup → 内蔵 heuristic → LLM 安全網 の 3 段
+  に落ち着かせた (manual override 段は廃止)。
+- **`CallbackNilableMarshaller#legacy_branch` (always-raise dead).**
+- **IRB Spinner class + `Reline.dig_perfect_match_proc=` sync discovery hook.**
+  `Prefetcher` が hover 経由で既に async に走らせており二重だった。
+- **MCP `ServerFacade` `method_missing` indirection.** test-only
+  `tool_classes`/`resource_list` reader は `Server` の `attr_reader` 直で
+  足りた。
+- **MCP `StatsResource` の SQLite 直叩き.** `KnowledgeCache#stats` 経由化で
+  cross-tool helper を 1 箇所に集約。
+- **MCP `tools/search.rb` + `tools/suggest_discover_call.rb` の cross-framework
+  loop 重複.** `KnowledgeCache#search_all_frameworks(query:, per_fw:, total:)`
+  に一本化。
+- **`tooling/lib/emitter_dev/SMOKE.txt`** (0-byte tracked smoke residue).
+- **`apple:emitter:cleanup_stale` rake task + `WorktreeOps.stale_paths`
+  /`filter_stale` + 該当 test** (unreferenced)。
+- **`examples/{apple_sdk_mac.swift, async_demo.rb, irb_completion_try.rb,
+  objc_classmethod.rb}.`** broken stub / runtime self-test fixture demo
+  (Apple SDK 未経由) / README 重複 / discover_escape にマージ。
+- **`test/integration/{examples_v12_e2e_test, coremidi_smoke_test}.rb`.**
+  `examples_smoke_test.rb` が同等以上の strict assertion で覆っており冗長。
+- **`test/template_generator_test.rb` (root, 751L)** を
+  `test/glue_compiler/template_generator_test.rb` (subdir 版) にマージ。
+- **`test/{apple_sdk_mac/, irb_completion/, concurrency/}` 単一ファイル
+  / 空ディレクトリ.** `bundle gem` skeleton 残骸 + flatten。
+- **`Store#ensure_column!` + v3→v4 ALTER TABLE migration path.** v4 stable
+  + 「rebuild が canonical 復旧」 で migration code 不要。 `SCHEMA_SQL` に
+  inline 化。
+- **100+ `T<NN>` TDD task ID コメント / `Phase 7` / `Phase 4[ab]` prefix /
+  "previously" / "Bug X fix" archaeology コメント** を全 .rb / .c / Rakefile
+  / docs から scrub。 history は `git log` が持つ。
+
+### Changed
+- **glue_compiler を 4 single-responsibility module に split.**
+  TemplateGenerator (1053→751L) / llm_generator (567→244L) / public_api
+  (349→196L) を以下に分解:
+  - `SelectorBridge` — `canonical_method_name` + `lower_first_camel`。
+    public_api と template_generator に重複していた acronym 変換 logic を
+    1 箇所に統合し、 latent bug (片方だけ更新される rev drift) を解消。
+  - `DiscoveryShape` — `synthesize_symbol_record` + `KIND_SYM_TO_TYPE` +
+    C-symbol param overrides。 public_api から symbol-record domain を分離。
+  - `ObjcMarshalling` — ObjC `in_load` (旧 L731-892) + ObjC `return_lines`
+    (旧 L897-971) を template_generator から split。
+  - `LLMExamples` — 11 件の worked example 定数 + `KEEP_FOR_FAMILY` map を
+    llm_generator から split。 `INSTRUCTIONS` 構築は llm_examples 経由に。
+- **ext/apple_sdk_mac_runtime の `Test` submodule を `RB_APPLE_SDK_MAC_RUNTIME_TEST=1`
+  env-gate 化.** production gem 出荷時に test helper (13 個の `rb_*_test`
+  関数) が露出しない。 test_helper.rb で env を立てる。
+- **Knowledge `SCHEMA_VERSION` を 4 → 7 に bump.** schema collapse + inline
+  化。
+- **silent rescue 2 箇所を class-limited rescue + warn 化.**
+  `diagnostics.rb` (`APPLE_DEBUG=1` で warn)、 `irb/llm_resolver.rb`
+  (`APPLE_IRB_DEBUG=1` で warn)。 global CLAUDE.md「No silent exception
+  swallowing」 rule に揃えた。
+- **`Rakefile :test` glob から `test/integration/` を除外.**
+  `rake test:release_quality` 経由のみで integration を実行。 default
+  `rake test` の wall time が 50+ min → ~10 sec に短縮。
+- **MCP `tools/dry_run_template.rb` `lazy_template` (2 行 method) を
+  `initialize` default に inline.**
+
+### Added
+- **TemplateGenerator catalog で `[:opaque_ref, :cstring, :uint32] -> :opaque_ref`
+  shape を静的 cover (#37).** `examples/discover_escape.rb` の Case 1
+  (CFStringCreateWithCString) が LLM safety net 経由でなく deterministic
+  template path で完結するようになった。
+  `compile_history.generator='template'` で test verify。
+- **`KnowledgeCache#stats` + `#search_all_frameworks(query:, per_fw:, total:)`.**
+  MCP cross-tool helper の single source of truth。
+- **`test/runtime_test_module_gating_test.rb`.** `Test` submodule の env-gate
+  契約を test で lock down。
+- **`knowledge/test/test_importer_pipeline_idempotence.rb`.** fixture-based、
+  real-SDK 不要、 50min → 1sec に短縮 (#36)。
+
+### Reference
+- Spec: `docs/superpowers/specs/2026-05-10-post-v1.2-simplification-design.md`
+- Predecessor: `docs/superpowers/specs/2026-05-09-v1.2-bootstrap-principle-design.md`
+
 ## [Unreleased] — v1.2 bootstrap-principle
 
 長期改善が組み込まれた状態 + README 通り安全確実な実行が継続できる状態 — この

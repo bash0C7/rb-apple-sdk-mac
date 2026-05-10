@@ -103,7 +103,7 @@ class TestLLMGenerator < Test::Unit::TestCase
     refute_match(/ErrorBridge/, instructions,
       "ErrorBridge.swift was deleted in commit b262e18; raise via @_silgen_name rb_raise.")
     refute_match(/ConformanceBridge/, instructions,
-      "ConformanceBridge.lookup does not exist with the signature the prompt previously implied; " \
+      "ConformanceBridge.lookup does not exist with the prompt-implied signature; " \
       "the runtime ConformanceBridge has register/release/lookup(handle:) only.")
   end
 
@@ -167,7 +167,7 @@ class TestLLMGenerator < Test::Unit::TestCase
     assert_match(/rb_hash_aset/, instructions)
   end
 
-  # Phase 7 T3a — async Worked Examples E1-E4. These constrain the LLM to a
+  # T3a — async Worked Examples E1-E4. These constrain the LLM to a
   # single fixed async-shape so ValidationGates can mechanically verify each
   # generated glue file (DispatchSemaphore + Task { do { try await ... } catch
   # { captured = error } sema.signal() } sema.wait() + post-wait raise).
@@ -198,7 +198,7 @@ class TestLLMGenerator < Test::Unit::TestCase
     assert_match(/await\s+MainActor\.run/, ins)
   end
 
-  # Phase 7 T3b — ObjC Worked Examples F1, F2, G. ObjC method dispatch via
+  # T3b — ObjC Worked Examples F1, F2, G. ObjC method dispatch via
   # Swift's bridged class names; no manual objc_msgSend.
   def test_instructions_contain_f1_alloc_init
     ins = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS

@@ -3,7 +3,7 @@ require "test_helper"
 require "open3"
 require "tmpdir"
 
-# Phase 7 / v1.0 — README L26-34 canonical snippet must run verbatim and
+# README L26-34 canonical snippet must run verbatim and
 # produce a non-zero MIDIClientRef. This is THE acceptance gate: as long
 # as this test is green, the central README claim holds.
 #

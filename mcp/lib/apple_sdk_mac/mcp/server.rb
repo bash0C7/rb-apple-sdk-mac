@@ -2,17 +2,16 @@
 require "json"
 require "time"
 
-# spec §3 — Server / ServerFacade。 chiebukuro-mcp の Server class を rb-apple-sdk-mac
-# 用に最小化。 v0.1 では tools = [probe_capabilities] のみ、 resources = [] (空)。
-# 後続 phase で search / get_symbol_info / list_klass_methods / suggest_discover_call /
-# dry_run_template / validate_call、 Resources を追加する。
+# Server。 tools = [search, get_symbol_info, list_klass_methods,
+# suggest_discover_call, dry_run_template, validate_call, probe_capabilities]、
+# resources = [static_doc, framework_list, stats]。
 
 module AppleSDKMac
   module MCP
     class Server
-      # spec §7 — 各 MCP tool 呼び出しを wrap して構造化 JSON ログを stderr に
-      # 1 行吐く。 chiebukuro-mcp の wrap_with_log_proc 同形 (db_name は本 server
-      # では不要なので除去)。 tool 内 block 末尾の Response を return する。
+      attr_reader :tool_classes, :resource_list
+      # 各 MCP tool 呼び出しを wrap して構造化 JSON ログを stderr に 1 行吐く。
+      # tool 内 block 末尾の Response を return する。
       class << self
         def wrap_with_log(tool_name:, &block)
           t0     = Time.now
@@ -57,14 +56,14 @@ module AppleSDKMac
       end
 
       def build_mcp_server
-        tools     = build_tools
-        resources, resource_handlers = build_resources_and_handlers
+        @tool_classes  = build_tools
+        @resource_list, resource_handlers = build_resources_and_handlers
 
         mcp_server = ::MCP::Server.new(
           name:      "rb-apple-sdk-mac-mcp",
           version:   AppleSdkMac::VERSION,
-          tools:     tools,
-          resources: resources
+          tools:     @tool_classes,
+          resources: @resource_list
         )
 
         mcp_server.resources_read_handler do |params|
@@ -74,13 +73,13 @@ module AppleSDKMac
           [{ uri: uri, mimeType: "text/markdown", text: handler.call }]
         end
 
-        ServerFacade.new(mcp_server, tools, resources)
+        mcp_server
       end
 
       def run
         require "mcp/server/transports/stdio_transport"
-        facade    = build_mcp_server
-        transport = ::MCP::Server::Transports::StdioTransport.new(facade)
+        mcp_server = build_mcp_server
+        transport  = ::MCP::Server::Transports::StdioTransport.new(mcp_server)
         transport.open
       end
 
@@ -146,31 +145,6 @@ module AppleSDKMac
         handlers[stats_uri] = Resources::StatsResource.new(kb: kb)
 
         [resources, handlers]
-      end
-
-      # MCP::Server のラッパー。 テストが期待する tool_classes / resource_list
-      # interface を提供しつつ、 他のメソッド呼び出しは MCP::Server にデリゲート
-      # する。 chiebukuro-mcp の ServerFacade と同じ流儀。
-      class ServerFacade
-        attr_reader :tool_classes, :resource_list
-
-        def initialize(mcp_server, tools, resources)
-          @mcp_server    = mcp_server
-          @tool_classes  = tools
-          @resource_list = resources
-        end
-
-        def respond_to_missing?(name, include_private = false)
-          @mcp_server.respond_to?(name, include_private) || super
-        end
-
-        def method_missing(name, *args, **kwargs, &block)
-          if @mcp_server.respond_to?(name)
-            @mcp_server.send(name, *args, **kwargs, &block)
-          else
-            super
-          end
-        end
       end
     end
   end

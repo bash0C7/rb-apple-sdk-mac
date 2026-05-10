@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 module AppleSDKMac
-  # Phase 7 / v1.0 — public exception hierarchy. All Apple framework dispatch
-  # paths surface failures through these classes; raw swiftc / clang errors
-  # are wrapped (CompileError) rather than escaping to user rescue blocks.
+  # Public exception hierarchy. All Apple framework dispatch paths surface
+  # failures through these classes; raw swiftc / clang errors are wrapped
+  # (CompileError) rather than escaping to user rescue blocks.
   #
   # Implementation note: the implementations are defined under AppleSDKMac
   # (not Apple) because Apple is a Ruby::Box that gets reset late in the
@@ -16,7 +16,7 @@ module AppleSDKMac
 
   # Raised when Apple.discover(...) cannot resolve a symbol or shape:
   # - keyword combination not recognized
-  # - symbol absent from KnowledgeCache (after LLM-fallback exhaust)
+  # - symbol absent from Knowledge Base (after LLM-fallback exhaust)
   # - generic `type_args:` resolution failure
   class DiscoveryError < Error; end
 

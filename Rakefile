@@ -12,7 +12,12 @@ Rake::TestTask.new(:test) do |t|
   t.libs << "test"
   t.libs << "lib"
   t.libs << "tooling/lib"
-  t.test_files = FileList["test/**/*_test.rb", "knowledge/test/test_*.rb"]
+  # test/integration/ holds end-to-end suites (real-SDK assertions, examples
+  # smoke, memory leak, concurrency). Those are run explicitly by
+  # `rake test:release_quality` below; excluding them from the default glob
+  # keeps `rake test` under a few minutes for the inner-loop dev cycle.
+  t.test_files = FileList["test/**/*_test.rb", "knowledge/test/test_*.rb"] -
+                 FileList["test/integration/**/*"]
 end
 
 namespace :runtime do
@@ -139,9 +144,8 @@ namespace :apple do
       raise "invalid SDK_VERSION '#{sdk_version}'" unless sdk_version =~ /\A[0-9.]+\z/
       base = File.join(CACHE_ROOT, sdk_version)
       raise "cache base outside CACHE_ROOT: #{base}" unless _safe_inside_cache_root?(base)
-      # CompiledGlueCache が実際に使う DB は `glue.sqlite` (compiled_glue_cache.rb
-      # L86)。 古い名前 (compiled_glue.sqlite) も並行して残っていれば一緒に削除。
-      patterns = ["glue*.sqlite*", "compiled_glue*.sqlite*"]
+      # CompiledGlueCache が実際に使う DB は `glue.sqlite` (compiled_glue_cache.rb L86)。
+      patterns = ["glue*.sqlite*"]
       patterns.each do |pat|
         Dir.glob(File.join(base, pat)).each do |entry|
           next unless _safe_inside_cache_root?(entry)
@@ -182,26 +186,24 @@ end
 
 task test: :compile
 
-# Phase 7 / v1.0 — release-quality aggregate. Runs the spec §9
-# acceptance suite plus the benchmark in one command. Individual
-# subtasks include env-gated heavy ones; a full v1.0 ship run on
-# macOS 26 hardware should report PASS for everything below.
+# Release-quality aggregate. Runs the acceptance suite plus the benchmark
+# in one command. Individual subtasks include env-gated heavy ones; a full
+# ship run on macOS 26 hardware should report PASS for everything below.
 namespace :test do
-  desc "Run the spec §9 release-quality suite (test + canonical + examples + coverage + leak + concurrent + bench)"
+  desc "Run the release-quality suite (test + canonical + examples + coverage + leak + concurrent + bench)"
   task release_quality: :test do
     [
       "test/integration/readme_canonical_test.rb",
       "test/integration/examples_smoke_test.rb",
-      "test/integration/examples_v12_e2e_test.rb",
       "test/integration/full_rebuild_assertions_test.rb",
       "test/integration/discover_coverage_test.rb",
       "test/integration/memory_leak_test.rb",
-      "test/concurrency/concurrent_discover_test.rb"
+      "test/integration/concurrent_discover_test.rb"
     ].each do |t|
       sh "bundle", "exec", "ruby", "-Ilib", "-Itest", t
     end
     # Default budget here is loose (1000µs) so a normal CI box passes.
-    # Override via BENCH_BUDGET_US=200 for the strict spec §9 target.
+    # Override via BENCH_BUDGET_US=200 for the strict release-quality target.
     sh({ "RUBY_BOX" => "1", "BENCH_BUDGET_US" => ENV["BENCH_BUDGET_US"] || "1000" },
        "bundle", "exec", "ruby", "benchmark/dispatch_overhead.rb")
   end

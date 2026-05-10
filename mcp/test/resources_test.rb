@@ -10,12 +10,9 @@ class ResourcesTest < Test::Unit::TestCase
     def lookup_symbol(framework:, symbol:); nil; end
     def list_klass_methods(framework:, klass:); []; end
     def list_framework_symbols(framework:, kinds: nil); []; end
-    def db; FakeDB.new; end
-
-    class FakeDB
-      def execute(_sql, *_)
-        [[10, 100]]
-      end
+    def stats
+      { framework_count: list_frameworks.size, symbol_count: 100,
+        kind_breakdown: [["function", 60], ["struct", 40]] }
     end
   end
 
@@ -35,13 +32,15 @@ class ResourcesTest < Test::Unit::TestCase
   ].freeze
 
   def test_resources_list_has_eight_entries
-    facade = AppleSDKMac::MCP::Server.new(kb: @kb).build_mcp_server
-    assert_equal 8, facade.resource_list.size
+    server = AppleSDKMac::MCP::Server.new(kb: @kb)
+    server.build_mcp_server
+    assert_equal 8, server.resource_list.size
   end
 
   def test_all_expected_uris_present
-    facade = AppleSDKMac::MCP::Server.new(kb: @kb).build_mcp_server
-    uris = facade.resource_list.map(&:uri)
+    server = AppleSDKMac::MCP::Server.new(kb: @kb)
+    server.build_mcp_server
+    uris = server.resource_list.map(&:uri)
     EXPECTED_URIS.each do |expected|
       assert_includes uris, expected
     end

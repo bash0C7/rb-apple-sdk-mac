@@ -2,7 +2,7 @@ import Foundation
 
 public enum CallbackBridge {
     nonisolated(unsafe) public static var rubyDispatcher: (@convention(c) (UInt64, Int64) -> Void)?
-    // T53a — N-arg dispatcher for typed multi-arg blocks. Ruby C ext registers
+    // N-arg dispatcher for typed multi-arg blocks. Ruby C ext registers
     // ruby_callback_dispatcher_n via runtime_callback_set_dispatcher_n.
     nonisolated(unsafe) public static var rubyDispatcherN: (@convention(c) (UInt64, Int32, UnsafePointer<Int64>) -> Void)?
 

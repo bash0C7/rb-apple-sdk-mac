@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 require "test_helper"
 require "sqlite3"
-require "sqlite_vec"
 
 # Asserts post-rebuild Knowledge Base invariants. Run AFTER
 # `bundle exec rake apple:knowledge:clean` + `bundle exec rake apple:knowledge:rebuild`.
@@ -22,11 +21,6 @@ class FullRebuildAssertionsTest < Test::Unit::TestCase
   def setup
     omit "Knowledge Base SQLite missing — run `bundle exec rake apple:knowledge:rebuild` first" if KB_PATH.nil? || !File.exist?(KB_PATH)
     @db = SQLite3::Database.new(KB_PATH)
-    # symbols_vec is a vec0 virtual table — querying it requires the
-    # sqlite-vec extension loaded on this connection, same as Store#initialize.
-    @db.enable_load_extension(true)
-    SqliteVec.load(@db)
-    @db.enable_load_extension(false)
   end
 
   def teardown
@@ -83,10 +77,32 @@ class FullRebuildAssertionsTest < Test::Unit::TestCase
     assert_includes cols, "swift_imported_name"
   end
 
-  def test_symbols_vec_table_exists_and_has_rows
-    count = @db.execute("SELECT COUNT(*) FROM symbols_vec").first.first
-    # embedder ON で rebuild した前提。 0 なら embedder path 全 skip された
-    # (FAST=1 残存 / Embedder.available? false)。 spec は populated 期待。
-    assert_operator count, :>=, 1000, "symbols_vec has #{count} rows (embedder may not have run)"
+  # IRB autocomplete needs class→member linkage. parent_id must be populated
+  # for instance_method rows whose parser-side parent_name was non-nil.
+  # Lifted from knowledge/test/test_importer_integration.rb (which ran a full
+  # real-SDK Pipeline.run per test method, ~17 min each); the same invariant
+  # is asserted against the standing Knowledge Base SQLite.
+  def test_instance_methods_have_parent_id_populated
+    count = @db.execute(
+      "SELECT COUNT(*) FROM symbols WHERE kind = 'instance_method' AND parent_id IS NOT NULL"
+    ).first.first
+    assert_operator count, :>, 100,
+      "expected >100 instance_methods with parent_id, got #{count}"
+  end
+
+  # parent_id must resolve back to a real type row (class/struct/protocol/
+  # enum_module/actor). Orphans indicate a parser/consolidator regression.
+  def test_instance_method_parent_id_resolves_to_a_type_row
+    orphans = @db.execute(<<~SQL).first.first
+      SELECT COUNT(*) FROM symbols c
+      WHERE c.kind = 'instance_method'
+        AND c.parent_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM symbols p
+          WHERE p.id = c.parent_id
+            AND p.kind IN ('class', 'struct', 'protocol', 'enum_module', 'actor')
+        )
+    SQL
+    assert_equal 0, orphans, "instance_method.parent_id must reference a real type row"
   end
 end

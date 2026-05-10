@@ -6,7 +6,7 @@ require "fileutils"
 require "apple_sdk_mac/compiled_glue_cache"
 require "apple_sdk_mac/diagnostics"
 
-# Phase 7 T19 — Apple.diagnostics JSON dump. Spec §9 acceptance:
+# Apple.diagnostics JSON dump. Spec §9 acceptance:
 # "JSON: cache stats / recent LLM attempts (last 16) / last 16 validation
 # failures / pillar runtime stats. Sufficient for issue reproduction."
 #

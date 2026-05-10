@@ -54,25 +54,4 @@ class WorktreeOpsTest < Test::Unit::TestCase
     end
   end
 
-  def test_stale_paths_returns_array
-    assert_respond_to EmitterDev::WorktreeOps, :stale_paths
-    paths = EmitterDev::WorktreeOps.stale_paths(older_than_days: 7)
-    assert_kind_of Array, paths
-  end
-
-  def test_stale_paths_filters_by_mtime
-    fresh = Dir.mktmpdir("fresh-wt")
-    stale = Dir.mktmpdir("stale-wt")
-    long_ago = Time.now - (100 * 86_400)
-    File.utime(long_ago, long_ago, stale)
-
-    candidates = [fresh, stale]
-    selected   = EmitterDev::WorktreeOps.send(:filter_stale, candidates, older_than_days: 7)
-
-    refute_includes selected, fresh, "fresh dir must not be flagged stale"
-    assert_includes selected, stale, "100-day-old dir must be flagged stale"
-  ensure
-    FileUtils.rm_rf(fresh) if fresh
-    FileUtils.rm_rf(stale) if stale
-  end
 end

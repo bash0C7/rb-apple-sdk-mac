@@ -40,7 +40,7 @@ class TestCallbackPillar < Test::Unit::TestCase
     assert_equal [42], received
   end
 
-  # Phase 7 T2c: persistent (escaping) block slot table. Decoupled from the
+  # T2c: persistent (escaping) block slot table. Decoupled from the
   # typed per-signature slot pools above; auto-incrementing slot ids; lifetime
   # tied to BoxedBlockHandle on the Ruby side.
   def test_register_block_persistent_returns_nonzero_slot_id

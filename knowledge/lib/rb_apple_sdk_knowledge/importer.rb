@@ -5,32 +5,26 @@ require_relative "importer/swift_interface_parser"
 require_relative "importer/swift_overlay"
 require_relative "importer/header_parser"
 require_relative "importer/consolidator"
-require_relative "importer/embedder"
 require_relative "store"
 
 module AppleSDKKnowledge
   module Importer
     class Pipeline
-      def initialize(store_path:, fast: ENV["RB_APPLE_SDK_KNOWLEDGE_FAST"] == "1",
-                     offline: ENV["RB_APPLE_SDK_KNOWLEDGE_OFFLINE"] == "1",
-                     resolver: nil)
+      def initialize(store_path:, resolver: nil)
         @store_path = store_path
-        @fast = fast
-        @offline = offline
         @resolver = resolver
       end
 
       def run
         resolver      = @resolver || SDKResolver.new
         store         = AppleSDKKnowledge::Store.open(@store_path)
-        embedder      = @fast ? nil : Embedder.new
         swift_parser  = SwiftInterfaceParser.new
         header_parser = HeaderParser.new(sdk_path: resolver.sdk_path)
         consolidator  = Consolidator.new
         swift_overlay = SwiftOverlay.new(store)
 
         resolver.frameworks.each do |fw|
-          process_framework(fw, store, swift_parser, header_parser, consolidator, embedder)
+          process_framework(fw, store, swift_parser, header_parser, consolidator)
           import_swift_overlay(fw, swift_overlay)
         end
 
@@ -44,7 +38,7 @@ module AppleSDKKnowledge
 
       PARENT_KINDS = %w[class struct protocol enum_module actor].freeze
 
-      def process_framework(fw, store, swift_parser, header_parser, consolidator, embedder)
+      def process_framework(fw, store, swift_parser, header_parser, consolidator)
         fw_id = store.find_framework_id_by_name(fw.name)
         fw_id ||= store.insert_framework(name: fw.name, swift_module: fw.name)
 
@@ -62,7 +56,7 @@ module AppleSDKKnowledge
 
         parent_id_by_name = {}
         parents.each do |sym|
-          id = insert_one(store, fw_id, sym, nil, embedder)
+          id = insert_one(store, fw_id, sym, nil)
           parent_id_by_name[sym[:name]] = id if id
         end
 
@@ -71,12 +65,12 @@ module AppleSDKKnowledge
         # (e.g. extensions on types from another framework — out of scope for v1).
         children.each do |sym|
           parent_id = sym[:parent_name] && parent_id_by_name[sym[:parent_name]]
-          insert_one(store, fw_id, sym, parent_id, embedder)
+          insert_one(store, fw_id, sym, parent_id)
         end
       end
 
-      def insert_one(store, fw_id, sym, parent_id, embedder)
-        symbol_id = store.insert_symbol(
+      def insert_one(store, fw_id, sym, parent_id)
+        store.insert_symbol(
           framework_id: fw_id,
           name: sym[:name],
           kind: sym[:kind],
@@ -89,11 +83,6 @@ module AppleSDKKnowledge
           fields_json: sym[:fields] && JSON.generate(sym[:fields]),
           content_hash: sym[:content_hash]
         )
-        if embedder && embedder.available?
-          text = "#{sym[:name]} #{sym[:signature]} #{sym[:documentation]}"
-          store.vec_insert(symbol_id, embedder.embed(text))
-        end
-        symbol_id
       rescue SQLite3::ConstraintException
         # symbol already exists from a prior run (content_hash UNIQUE): skip silently
         nil

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require "json"
 
-# spec §4.3 — クラス子要素列挙。
+# クラス子要素列挙。
 # 親 gem の KnowledgeCache#list_klass_methods を呼び、 instance_method /
 # class_method / property / init / enum_case 等の子 record 配列を返す。
 # 用途: Apple::Foundation::URL.<TAB> で見える候補と同じ列を AI に提示する。

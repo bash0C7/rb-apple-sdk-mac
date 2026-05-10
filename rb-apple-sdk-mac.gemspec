@@ -42,6 +42,5 @@ Gem::Specification.new do |spec|
   spec.add_dependency "rb-foundation-model-mac"
   spec.add_dependency "rb-apple-sdk-knowledge"
   spec.add_dependency "sqlite3", "~> 2.0"
-  spec.add_dependency "sqlite-vec", "~> 0.1"
   spec.add_development_dependency "test-unit", "~> 3.6"
 end

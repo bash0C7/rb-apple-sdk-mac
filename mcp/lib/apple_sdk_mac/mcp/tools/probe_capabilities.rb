@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 require "json"
 
-# spec §4.7 — MCP host が elicitation / sampling capability を実装しとるかを
-# 実地で確認するツール。 chiebukuro-mcp の ProbeTool と同方式: 実際に
-# server_context.create_form_elicitation / create_sampling_message を呼んで、
-# 例外で判定する。 mcp gem の client_capabilities hash は host 側 transport の
-# 実装で必ずしも populate されないため、 hash 覗きより実呼びの方が信頼できる。
+# MCP host が elicitation / sampling capability を実装しとるかを実地で確認する
+# ツール。 server_context.create_form_elicitation / create_sampling_message を
+# 実際に呼んで例外で判定する。 mcp gem の client_capabilities hash は host 側
+# transport の実装で必ずしも populate されないため、 hash 覗きより実呼びの方が
+# 信頼できる。
 #
 # 出力は JSON。 elicitation/sampling 各々 status (supported/unsupported) と
 # 補助情報 (action / model) もしくは error message を含む。

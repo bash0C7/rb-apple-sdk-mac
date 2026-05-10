@@ -2,8 +2,8 @@
 require "json"
 
 module AppleSDKMac
-  # Phase 7 T19 / spec §9 — Apple.diagnostics JSON dump for issue
-  # reproduction. Returns a Hash that's safe to JSON.dump and contains:
+  # Apple.diagnostics JSON dump for issue reproduction.
+  # Returns a Hash that's safe to JSON.dump and contains:
   # - :cache              — CompiledGlueCache row count + schema/sdk version
   # - :llm_attempts_recent — last 16 compile_history rows
   # - :validation_failures_recent — last 16 history rows with error_stage='validation'
@@ -67,7 +67,8 @@ module AppleSDKMac
 
     def self.safe_call
       yield
-    rescue StandardError
+    rescue StandardError => e
+      warn "diagnostics: safe_call swallowed #{e.class}: #{e.message}" if ENV["APPLE_DEBUG"]
       nil
     end
   end

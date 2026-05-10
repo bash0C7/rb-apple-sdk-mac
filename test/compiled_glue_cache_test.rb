@@ -34,7 +34,7 @@ class TestCompiledGlueCache < Test::Unit::TestCase
     assert_equal "template", rec[:generator]
   end
 
-  # Phase 7 T15 — schema_version mismatch evicts rows. When the mac gem bumps
+  # schema_version mismatch evicts rows. When the mac gem bumps
   # CACHE_SCHEMA_VERSION (template HEADER, marshaller emit, etc. change in
   # ways that invalidate stored Swift sources), reopening the cache must
   # evict the stale dylibs so the next discover recompiles instead of

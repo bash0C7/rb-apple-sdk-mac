@@ -25,20 +25,16 @@ A few examples take optional positional args (download URL, OCR fixture path, MI
 
 | File | Framework / pillar | Status (2026-05-09, feature/v1.2-bootstrap-principle) |
 |---|---|---|
-| `async_demo.rb` | Swift `async` / `await` round-trip (Async pillar, Worked Example E1) | ✅ exits 0 with `async OK` |
 | `async_taskgroup.rb` | NSOperationQueue + NSBlockOperation true parallelism | ✅ exits 0 with `OperationQueue OK` |
 | `audio_device_count.rb` | CoreAudio `AudioObjectGetPropertyDataSize` (int out-param) | ⚠️ broken on this branch — `TypeError: no implicit conversion of Hash into Integer` at `glue_loader.rb:19`. Expected: this example is the canary the v1.2 IntMarshaller `out_handling` refactor (Phase 3) targets; will go green once the static emitter for int out-params lands. |
 | `avspeech_synth.rb` | AVFoundation Speech Synthesis (`AVSpeechSynthesizer.speak`) | ✅ runs — produces audible speech, run with sound off if you do not want that |
 | `cf_string_create.rb` | CoreFoundation `CFStringCreateWithCString` round-trip via auto-ARC `BoxedCFType` | ✅ exits 0 with `auto-ARC OK — runtime BoxedCFType owns release` |
 | `coremidi_endpoint_count.rb` | CoreMIDI `MIDIGetNumberOfSources` / `MIDIGetNumberOfDestinations` | ✅ exits 0 — output reflects the actual MIDI hardware state (`0` if nothing connected) |
 | `coremidi_receive.rb` | CoreMIDI client + input port + 2-second receive loop (CallbackPillar persistent slot) | ✅ exits 0 with `done` |
+| `discover_escape.rb` | Apple.discover escape-hatch demo: (1) CF function direct via [:opaque_ref, :cstring, :uint32] -> :opaque_ref shape, (2) ObjC class method via `Apple.discover(class_method:)` (`+[NSString stringWithUTF8String:]` → Swift 6 init-bridge) | ✅ exits 0, both `box=` and `ptr=` lines printed |
 | `irb_completion_demo.rb` | Headless smoke of the `apple_sdk_mac/irb` Completor (no TTY required) | ✅ exits 0 with `irb_completion_demo OK` |
-| `irb_completion_try.rb` | Interactive IRB launcher — drops you into `irb` with `Apple::` ready to TAB | n/a (interactive — does not exit on its own; type `exit` to leave) |
-| `objc_classmethod.rb` | ObjC class method via `Apple.discover(class_method:)` (`+[NSString stringWithUTF8String:]` → Swift 6 init-bridge) | ✅ exits 0 with `objc class method OK` |
 | `urlsession_download.rb` | NSURLSession real HTTP `dataTaskWithURL:completionHandler:` (BlockPersistentMarshaller) | ✅ exits 0 — needs network |
 | `vision_ocr.rb` | Vision `VNRecognizeTextRequest` against `fixtures/ocr_hello.png` | ✅ exits 0 — needs the fixture |
-
-`apple_sdk_mac.swift` is a placeholder for a self-contained Swift CLI counterpart and is not currently functional (see its TODO header).
 
 ## Fixtures
 

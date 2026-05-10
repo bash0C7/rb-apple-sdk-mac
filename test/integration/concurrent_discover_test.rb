@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require "test_helper"
 
-# Phase 7 T18 / spec §9 — thread-safety acceptance. 16 threads × 100
+# thread-safety acceptance. 16 threads × 100
 # discover/dispatch calls against the shared cache, registry, and
 # dispatcher must complete with:
 # - no race / no exception
