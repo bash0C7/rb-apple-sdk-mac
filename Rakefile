@@ -139,9 +139,8 @@ namespace :apple do
       raise "invalid SDK_VERSION '#{sdk_version}'" unless sdk_version =~ /\A[0-9.]+\z/
       base = File.join(CACHE_ROOT, sdk_version)
       raise "cache base outside CACHE_ROOT: #{base}" unless _safe_inside_cache_root?(base)
-      # CompiledGlueCache が実際に使う DB は `glue.sqlite` (compiled_glue_cache.rb
-      # L86)。 古い名前 (compiled_glue.sqlite) も並行して残っていれば一緒に削除。
-      patterns = ["glue*.sqlite*", "compiled_glue*.sqlite*"]
+      # CompiledGlueCache が実際に使う DB は `glue.sqlite` (compiled_glue_cache.rb L86)。
+      patterns = ["glue*.sqlite*"]
       patterns.each do |pat|
         Dir.glob(File.join(base, pat)).each do |entry|
           next unless _safe_inside_cache_root?(entry)
