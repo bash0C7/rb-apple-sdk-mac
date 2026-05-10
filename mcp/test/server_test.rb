@@ -17,62 +17,71 @@ class ServerTest < Test::Unit::TestCase
     @fake_kb = FakeKB.new([])
   end
 
-  def test_build_mcp_server_returns_facade
-    facade = AppleSDKMac::MCP::Server.new(kb: @fake_kb).build_mcp_server
-    assert_kind_of AppleSDKMac::MCP::Server::ServerFacade, facade
+  def test_build_mcp_server_returns_mcp_server
+    server = AppleSDKMac::MCP::Server.new(kb: @fake_kb)
+    mcp_server = server.build_mcp_server
+    assert_kind_of ::MCP::Server, mcp_server
   end
 
   def test_probe_capabilities_tool_present
-    facade = AppleSDKMac::MCP::Server.new(kb: @fake_kb).build_mcp_server
-    tool_names = facade.tool_classes.map(&:tool_name)
+    server = AppleSDKMac::MCP::Server.new(kb: @fake_kb)
+    server.build_mcp_server
+    tool_names = server.tool_classes.map(&:tool_name)
     assert_includes tool_names, "apple_sdk_mac_probe_capabilities"
   end
 
   def test_search_tool_present
-    facade = AppleSDKMac::MCP::Server.new(kb: @fake_kb).build_mcp_server
-    tool_names = facade.tool_classes.map(&:tool_name)
+    server = AppleSDKMac::MCP::Server.new(kb: @fake_kb)
+    server.build_mcp_server
+    tool_names = server.tool_classes.map(&:tool_name)
     assert_includes tool_names, "apple_sdk_mac_search"
   end
 
   def test_get_symbol_info_tool_present
-    facade = AppleSDKMac::MCP::Server.new(kb: @fake_kb).build_mcp_server
-    tool_names = facade.tool_classes.map(&:tool_name)
+    server = AppleSDKMac::MCP::Server.new(kb: @fake_kb)
+    server.build_mcp_server
+    tool_names = server.tool_classes.map(&:tool_name)
     assert_includes tool_names, "apple_sdk_mac_get_symbol_info"
   end
 
   def test_list_klass_methods_tool_present
-    facade = AppleSDKMac::MCP::Server.new(kb: @fake_kb).build_mcp_server
-    tool_names = facade.tool_classes.map(&:tool_name)
+    server = AppleSDKMac::MCP::Server.new(kb: @fake_kb)
+    server.build_mcp_server
+    tool_names = server.tool_classes.map(&:tool_name)
     assert_includes tool_names, "apple_sdk_mac_list_klass_methods"
   end
 
   def test_suggest_discover_call_tool_present
-    facade = AppleSDKMac::MCP::Server.new(kb: @fake_kb).build_mcp_server
-    tool_names = facade.tool_classes.map(&:tool_name)
+    server = AppleSDKMac::MCP::Server.new(kb: @fake_kb)
+    server.build_mcp_server
+    tool_names = server.tool_classes.map(&:tool_name)
     assert_includes tool_names, "apple_sdk_mac_suggest_discover_call"
   end
 
   def test_dry_run_template_tool_present
-    facade = AppleSDKMac::MCP::Server.new(kb: @fake_kb).build_mcp_server
-    tool_names = facade.tool_classes.map(&:tool_name)
+    server = AppleSDKMac::MCP::Server.new(kb: @fake_kb)
+    server.build_mcp_server
+    tool_names = server.tool_classes.map(&:tool_name)
     assert_includes tool_names, "apple_sdk_mac_dry_run_template"
   end
 
   def test_validate_call_tool_present
-    facade = AppleSDKMac::MCP::Server.new(kb: @fake_kb).build_mcp_server
-    tool_names = facade.tool_classes.map(&:tool_name)
+    server = AppleSDKMac::MCP::Server.new(kb: @fake_kb)
+    server.build_mcp_server
+    tool_names = server.tool_classes.map(&:tool_name)
     assert_includes tool_names, "apple_sdk_mac_validate_call"
   end
 
   def test_resources_registered
-    # v0.6 + v0.7 で 8 個の Resources。 v0.2 までは 0 件、 v0.6 で増える。
-    facade = AppleSDKMac::MCP::Server.new(kb: @fake_kb).build_mcp_server
-    assert_equal 8, facade.resource_list.size
+    # 8 個の Resources (静的 markdown 6 + KB 動的 2)。
+    server = AppleSDKMac::MCP::Server.new(kb: @fake_kb)
+    server.build_mcp_server
+    assert_equal 8, server.resource_list.size
   end
 
-  def test_facade_responds_to_mcp_server_methods
-    facade = AppleSDKMac::MCP::Server.new(kb: @fake_kb).build_mcp_server
-    assert_respond_to facade, :name
+  def test_build_mcp_server_response_responds_to_mcp_server_methods
+    mcp_server = AppleSDKMac::MCP::Server.new(kb: @fake_kb).build_mcp_server
+    assert_respond_to mcp_server, :name
   end
 
   # Phase D — wrap_with_log は block を実行しつつ stderr に 1 行 JSON を吐き、
