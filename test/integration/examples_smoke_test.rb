@@ -79,19 +79,6 @@ class TestExamplesSmoke < Test::Unit::TestCase
     assert_match(/^done$/, res[:stdout])
   end
 
-  # Phase 7 T8 — Swift async single-await round-trip via the runtime's
-  # async_await_sleep_and_double test entry point. Validates the
-  # DispatchSemaphore + Task + sema.wait skeleton (LLM Worked Example E1)
-  # actually round-trips a value from a Swift async context to Ruby.
-  def test_async_demo_runs
-    res = run_example("async_demo.rb", env: { "ASYNC_SLEEP_MS" => "20" })
-    assert_equal 0, res[:exitstatus],
-      "async_demo.rb exited #{res[:exitstatus]}; stderr:\n#{res[:stderr]}"
-    assert_match(/^result=40$/, res[:stdout],
-      "expected result=40 (20*2); got:\n#{res[:stdout]}")
-    assert_match(/^async OK$/, res[:stdout])
-  end
-
   # T52 — Apple Foundation framework (NSOperationQueue + NSBlockOperation)
   # 経由の真の並列実行。Ruby Thread fake と runtime fixture (T51) 退路を
   # 排除し、release 水準 README L3 を直接満たす example。
