@@ -67,7 +67,8 @@ module AppleSDKMac
 
     def self.safe_call
       yield
-    rescue StandardError
+    rescue StandardError => e
+      warn "diagnostics: safe_call swallowed #{e.class}: #{e.message}" if ENV["APPLE_DEBUG"]
       nil
     end
   end

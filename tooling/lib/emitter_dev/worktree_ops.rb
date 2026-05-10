@@ -33,25 +33,5 @@ module EmitterDev
       _, err, status = Open3.capture3("git", "worktree", "remove", path)
       raise WorktreeError, "worktree remove failed: #{err}" unless status.success?
     end
-
-    # Returns paths of git worktrees whose directory mtime is older than
-    # `older_than_days` days ago. Caller is responsible for invoking
-    # `git worktree remove` (we never auto-delete; HITL gate principle —
-    # only present, do not destroy).
-    def stale_paths(older_than_days:)
-      out, _, status = Open3.capture3("git", "worktree", "list", "--porcelain")
-      return [] unless status.success?
-
-      paths = out.scan(/^worktree (.+)$/).flatten
-      filter_stale(paths, older_than_days: older_than_days)
-    end
-
-    def filter_stale(paths, older_than_days:)
-      cutoff = Time.now - (older_than_days * 86_400)
-      paths.select do |p|
-        next false unless File.directory?(p)
-        File.mtime(p) < cutoff
-      end
-    end
   end
 end

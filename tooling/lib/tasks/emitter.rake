@@ -106,19 +106,6 @@ namespace :apple do
       puts out
     end
 
-    desc "List stale emitter worktrees older than DAYS days (default 7)"
-    task :cleanup_stale do
-      days  = Integer(ENV.fetch("DAYS", "7"))
-      paths = EmitterDev::WorktreeOps.stale_paths(older_than_days: days)
-      puts "stale worktrees (older than #{days}d):"
-      if paths.empty?
-        puts "  (none)"
-      else
-        paths.each { |p| puts "  #{p}" }
-        puts "remove with: git worktree remove --force <path>"
-      end
-    end
-
     desc "Non-ff merge improvement branch back into base (BRANCH=name BASE=branch WORKTREE_PATH=path)"
     task :merge do
       branch = ENV.fetch("BRANCH")
