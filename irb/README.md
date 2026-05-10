@@ -22,7 +22,7 @@ Apple-prefixed completion delegates to a dedicated provider; non-Apple input is 
 irb/                                            # this sub-gem
 ├── apple_sdk_mac-irb.gemspec                   # path-deps: rb-apple-sdk-mac, rb-foundation-model-mac, irb, reline, repl_type_completor, sqlite3
 ├── Gemfile                                     # path overrides matching mcp/ sub-gem convention
-├── lib/apple_sdk_mac/irb.rb                    # entry: Context / CandidateProvider / Completor / Spinner / AutoDiscoverer / install!
+├── lib/apple_sdk_mac/irb.rb                    # entry: Context / CandidateProvider / Completor / AutoDiscoverer / install!
 ├── lib/apple_sdk_mac/irb/doc_resolver.rb       # KB row → :show_doc payload
 ├── lib/apple_sdk_mac/irb/doc_dialog.rb         # Reline :show_doc proc, chained with IRB's RDoc fallback
 ├── lib/apple_sdk_mac/irb/prefetcher.rb         # idempotent per-(framework,klass,name) background discover
