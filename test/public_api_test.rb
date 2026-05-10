@@ -179,7 +179,7 @@ class TestPublicApiDiscoverPolymorphic < Test::Unit::TestCase
   def test_transient_overlays_db_records
     cache = AppleSDKMac.knowledge_cache
     db_rec = cache.lookup_symbol(framework: "CoreMIDI", symbol: "MIDIClientCreate")
-    skip "MIDIClientCreate not in KB; cannot test overlay" unless db_rec
+    omit "MIDIClientCreate not in Knowledge Base; cannot test overlay" unless db_rec
     overlay = { id: -2, name: "MIDIClientCreate", kind: "stub_for_test",
                 signature: nil, abi: nil, documentation: nil,
                 parameters_json: "[]", requires_main_thread: false,
