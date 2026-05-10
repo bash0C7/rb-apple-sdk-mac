@@ -1,5 +1,6 @@
 #include <ruby.h>
 #include <dlfcn.h>
+#include <stdlib.h>
 #include "AppleSDKMacRuntime-Swift.h"
 
 // proc_registry lives in the Swift runtime dylib (see appleProcRegistry in
@@ -226,21 +227,28 @@ void Init_apple_sdk_mac_runtime(void) {
     rb_define_singleton_method(module, "conformance_register_handlers", rb_conformance_register, 1);
     rb_define_singleton_method(module, "conformance_release_handlers", rb_conformance_release, 1);
 
-    VALUE test_module = rb_define_module_under(module, "Test");
-    rb_define_singleton_method(test_module, "callback_register", rb_callback_register_test, 0);
-    rb_define_singleton_method(test_module, "callback_invoke", rb_callback_invoke_test, 2);
-    rb_define_singleton_method(test_module, "threading_enqueue_from_thread", rb_threading_enqueue, 2);
-    rb_define_singleton_method(test_module, "ref_retain_object", rb_ref_retain_test, 1);
-    rb_define_singleton_method(test_module, "ref_lookup_object_id", rb_ref_lookup_test, 1);
-    rb_define_singleton_method(test_module, "marshal_string_round_trip", rb_marshal_string_rt, 1);
-    rb_define_singleton_method(test_module, "marshal_int_round_trip", rb_marshal_int_rt, 1);
-    rb_define_singleton_method(test_module, "marshal_array_to_swift_count", rb_marshal_array_count, 1);
-    rb_define_singleton_method(test_module, "raise_runtime_error", rb_raise_runtime_error_test, 1);
-    rb_define_singleton_method(test_module, "raise_argument_error", rb_raise_argument_error_test, 1);
-    rb_define_singleton_method(test_module, "arc_release_counter_init", rb_arc_counter_init, 0);
-    rb_define_singleton_method(test_module, "arc_release_counter_value", rb_arc_counter_value, 1);
-    rb_define_singleton_method(test_module, "async_await_sleep_and_double", rb_async_await_sleep, 1);
-    rb_define_singleton_method(test_module, "async_taskgroup_double", rb_async_taskgroup_double, 3);
+    // Test submodule is env-gated so production gem installs don't expose
+    // runtime probe helpers. test_helper.rb sets RB_APPLE_SDK_MAC_RUNTIME_TEST=1
+    // before requiring apple_sdk_mac so the *_bridge_test.rb suites can reach
+    // these methods. Without the env, AppleSDKMacRuntime::Test stays undefined
+    // and the underlying C functions remain compiled-in but unregistered.
+    if (getenv("RB_APPLE_SDK_MAC_RUNTIME_TEST") != NULL) {
+        VALUE test_module = rb_define_module_under(module, "Test");
+        rb_define_singleton_method(test_module, "callback_register", rb_callback_register_test, 0);
+        rb_define_singleton_method(test_module, "callback_invoke", rb_callback_invoke_test, 2);
+        rb_define_singleton_method(test_module, "threading_enqueue_from_thread", rb_threading_enqueue, 2);
+        rb_define_singleton_method(test_module, "ref_retain_object", rb_ref_retain_test, 1);
+        rb_define_singleton_method(test_module, "ref_lookup_object_id", rb_ref_lookup_test, 1);
+        rb_define_singleton_method(test_module, "marshal_string_round_trip", rb_marshal_string_rt, 1);
+        rb_define_singleton_method(test_module, "marshal_int_round_trip", rb_marshal_int_rt, 1);
+        rb_define_singleton_method(test_module, "marshal_array_to_swift_count", rb_marshal_array_count, 1);
+        rb_define_singleton_method(test_module, "raise_runtime_error", rb_raise_runtime_error_test, 1);
+        rb_define_singleton_method(test_module, "raise_argument_error", rb_raise_argument_error_test, 1);
+        rb_define_singleton_method(test_module, "arc_release_counter_init", rb_arc_counter_init, 0);
+        rb_define_singleton_method(test_module, "arc_release_counter_value", rb_arc_counter_value, 1);
+        rb_define_singleton_method(test_module, "async_await_sleep_and_double", rb_async_await_sleep, 1);
+        rb_define_singleton_method(test_module, "async_taskgroup_double", rb_async_taskgroup_double, 3);
+    }
 
     VALUE callback_pillar_module = rb_define_module_under(module, "CallbackPillar");
     rb_define_singleton_method(callback_pillar_module, "register_midi_notify", rb_callback_pillar_register_midi_notify, 1);
