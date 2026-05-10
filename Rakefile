@@ -195,7 +195,7 @@ namespace :test do
       "test/integration/full_rebuild_assertions_test.rb",
       "test/integration/discover_coverage_test.rb",
       "test/integration/memory_leak_test.rb",
-      "test/concurrency/concurrent_discover_test.rb"
+      "test/integration/concurrent_discover_test.rb"
     ].each do |t|
       sh "bundle", "exec", "ruby", "-Ilib", "-Itest", t
     end
