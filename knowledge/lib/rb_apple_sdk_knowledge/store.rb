@@ -6,7 +6,7 @@ module AppleSDKKnowledge
     # Bumped when the on-disk schema shape changes. Bumping invalidates any
     # existing Knowledge Base SQLite at the project-scoped path; the next
     # `apple:knowledge:rebuild` regenerates it.
-    SCHEMA_VERSION = 5
+    SCHEMA_VERSION = 6
 
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;
@@ -71,15 +71,7 @@ module AppleSDKKnowledge
     def migrate!
       @db.execute_batch(SCHEMA_SQL)
       ensure_column!("symbols", "fields_json", "TEXT")
-      # Phase 7 / spec §5 — Apple-API-classification columns. The mac
-      # gem's TemplateGenerator already prefers symbol[:cf_create_rule]
-      # for CF auto-ARC routing (falling back to the Create/Copy naming
-      # heuristic when null); objc_kind / swift_kind unblock the
-      # ObjC method dispatch + Swift initializer / property paths.
-      ensure_column!("symbols", "cf_create_rule",      "INTEGER DEFAULT 0")
-      ensure_column!("symbols", "objc_kind",            "TEXT")
-      ensure_column!("symbols", "swift_kind",           "TEXT")
-      # v4 — Swift overlay importer writes ObjC selector → Swift import name here.
+      # Swift overlay importer writes ObjC selector → Swift import name here.
       ensure_column!("symbols", "swift_imported_name", "TEXT")
       @db.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",

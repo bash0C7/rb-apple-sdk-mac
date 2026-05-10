@@ -977,14 +977,10 @@ module AppleSDKMac
         JSON.parse(json, symbolize_names: true)
       end
 
-      # Phase 7 T4 — when the knowledge record marks a symbol with
-      # cf_create_rule (clang AST CF_RETURNS_RETAINED / Create / Copy naming
-      # heuristic), upgrade a CF*Ref return to cftype_ref_autoarc so the
-      # auto-ARC path fires.
-      # T50 — Apple.discover の return_kind: override が来た場合 (synth record
-      # に :return_kind が入っている)、signature regex を bypass してそれを
-      # 直接使う。`int` override は status_int (OSStatus check 付き) ではなく
-      # plain int として marshal される。
+      # When Apple.discover passes an explicit return_kind override (e.g.
+      # `int` for a status code that should not trigger OSStatus checking),
+      # the signature regex is bypassed and the override drives marshaller
+      # selection directly.
       RETURN_KIND_OVERRIDE_TO_TEMPLATE = {
         int: "plain_int", bool: "bool", float: "float", void: "void",
         string: "string", opaque_ref: "opaque_ref",
@@ -997,11 +993,9 @@ module AppleSDKMac
         end
         kind = return_kind(symbol[:signature])
         return kind unless kind == "cftype_ref"
-        return "cftype_ref_autoarc" if symbol[:cf_create_rule]
-        # Spec §5: naming-prefix heuristic ("Create" / "Copy") fills the gap
-        # when the clang AST attribute is missing. Per CF ownership rules,
-        # any CF*Create* / CF*Copy* function returns a +1-retained reference
-        # the caller must release — so it's auto-ARC eligible.
+        # Per CF ownership rules, any CF*Create* / CF*Copy* function returns
+        # a +1-retained reference the caller must release — so it's auto-ARC
+        # eligible. The naming-prefix heuristic is the canonical signal.
         return "cftype_ref_autoarc" if cf_create_naming?(symbol[:name])
         kind
       end
