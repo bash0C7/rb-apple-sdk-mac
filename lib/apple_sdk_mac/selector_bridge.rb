@@ -6,9 +6,10 @@ module AppleSDKMac
   #
   # Used by both the public Apple.discover synthesis path (public_api.rb)
   # and the TemplateGenerator's swift_init_call / swift_call_for_class_method
-  # selector→Swift label rewrites (template_generator.rb). Sharing one
-  # implementation prevents the two sites from drifting (which previously
-  # produced subtle init/non-init or acronym-handling divergences).
+  # selector→Swift label rewrites (template_generator.rb). One canonical
+  # implementation keeps acronym handling (URL→url, IRB→irb, XMLDoc→xmlDoc)
+  # and init-form detection (initWithFrame: → init form) consistent across
+  # both call sites.
   module SelectorBridge
     module_function
 
