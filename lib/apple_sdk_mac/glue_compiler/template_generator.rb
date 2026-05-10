@@ -3,6 +3,7 @@ require "json"
 require "set"
 require_relative "marshallers"
 require_relative "swift_bridge_name"
+require_relative "../selector_bridge"
 
 module AppleSDKMac
   class GlueCompiler
@@ -517,7 +518,7 @@ module AppleSDKMac
           if (m = sole.match(/\A([a-z][a-zA-Z0-9]*?)#{prep}([A-Z]\w*)\z/))
             verb = m[1]
             type_part = m[2]
-            label = lower_first_camel_local(prep + type_part)
+            label = AppleSDKMac::SelectorBridge.lower_first_camel(prep + type_part)
             return [verb, label]
           end
         end
@@ -618,7 +619,7 @@ module AppleSDKMac
         parts = selector.split(":", -1).reject(&:empty?)
         # parts[0] starts with "init" — drop "init" + optional bridge prefix
         head = parts[0].sub(/\Ainit/, "").sub(/\A(With|From|By|Using|For)/, "")
-        head = lower_first_camel_local(head)
+        head = AppleSDKMac::SelectorBridge.lower_first_camel(head)
         labels = head.empty? ? parts[1..] : ([head] + parts[1..])
         if labels.empty?
           # `init` selector with no labels (rare).
@@ -670,7 +671,7 @@ module AppleSDKMac
           #    label は lowerCamel(<Preposition><Type>)。e.g. sleepForTimeInterval
           #    → Thread.sleep(forTimeInterval: arg0).
           if (m = sole.match(/\A([A-Za-z][a-zA-Z0-9]*?)With([A-Z]\w*)\z/))
-            label = lower_first_camel_local(m[2])
+            label = AppleSDKMac::SelectorBridge.lower_first_camel(m[2])
             # utf8String / cString init bridges は raw UnsafePointer<CChar>
             # を expect (deprecated だが Swift 6 でも残存)。 :string in_load の
             # Swift String 化に伴い、 これらの label の場合は cstr 補助名を渡す。
@@ -687,31 +688,11 @@ module AppleSDKMac
           # multi-segment class method: 最初の segment を init label の頭に
           # 持ち、残りを segment label に対応させる convenience init form。
           head = parts[0].sub(/\A[a-z]+With/, "")
-          head = lower_first_camel_local(head)
+          head = AppleSDKMac::SelectorBridge.lower_first_camel(head)
           labels = head.empty? ? parts[1..] : ([head] + parts[1..])
           args = params.each_index.map { |i| "arg#{i}" }
           label_args = labels.zip(args).map { |l, a| "#{l}: #{a}" }.join(", ")
           "#{klass}(#{label_args})"
-        end
-      end
-
-      # acronym-aware first-word lowercase (Apple ObjC→Swift bridging rule)。
-      # CGImage→cgImage, URL→url, HTTPHeader→httpHeader, Image→image,
-      # UTF8String→utf8String (acronym + digit boundary も全 lowercase 化)。
-      def lower_first_camel_local(s)
-        return "" if s.empty?
-        m = s.match(/\A[A-Z]+/)
-        return s[0].downcase + (s[1..] || "") unless m
-        run = m[0]
-        return s.downcase if run.length == s.length
-        return s[0].downcase + s[1..] if run.length == 1
-        next_char = s[run.length]
-        if next_char =~ /[a-z]/
-          # 最後 upper letter が次の word を始める: 残りの acronym を lowercase。
-          run[0..-2].downcase + run[-1] + s[run.length..]
-        else
-          # acronym 後が digit / 非 letter → run 全体を lowercase。
-          run.downcase + s[run.length..]
         end
       end
 

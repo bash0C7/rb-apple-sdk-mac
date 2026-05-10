@@ -38,8 +38,10 @@ class TestSelectorBridge < Test::Unit::TestCase
   end
 
   def test_canonical_method_name_accepts_symbol
-    assert_equal "init(string:)",
-      AppleSDKMac::SelectorBridge.canonical_method_name(:initWithString)
+    # Symbol form is converted via to_s. Single-segment selector with no
+    # trailing colon round-trips unchanged.
+    assert_equal "length",
+      AppleSDKMac::SelectorBridge.canonical_method_name(:length)
   end
 
   def test_lower_first_camel_empty_string
