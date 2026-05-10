@@ -223,24 +223,25 @@ class TestExamplesSmoke < Test::Unit::TestCase
       res[:stdout],
       "discover_escape.rb did not print expected NSString pointer")
 
-    # Static catalog assertion: the compiled-glue cache history must show
-    # generator='template' for the CF symbol on the most recent attempt.
+    # Static catalog assertion: the compiled-glue cache must record the CF
+    # symbol's resolved generator as 'template' (deterministic static path),
+    # not 'llm' (LLM safety net fallback). compiled_glue persists per
+    # successful compile; compile_history records each attempt and is bypassed
+    # when the lookup hits a cached row, so it's the wrong source for "what
+    # generator produced the live glue". compiled_glue is the canonical record.
     require "apple_sdk_mac/compiled_glue_cache"
     require "apple_sdk_mac/cache_dir"
-    require "apple_sdk_knowledge"
+    require "rb_apple_sdk_knowledge"
     cache = AppleSDKMac::CompiledGlueCache.open(
       AppleSDKMac.cache_dir, sdk_version: AppleSDKKnowledge::SDK.version
     )
-    rows = cache.db.execute(<<~SQL)
-      SELECT generator FROM compile_history
-      WHERE symbol = 'CFStringCreateWithCString'
-      ORDER BY id DESC LIMIT 1
-    SQL
+    rec = cache.lookup(framework: "CoreFoundation", symbol: "CFStringCreateWithCString")
     cache.close
-    refute_empty rows,
-      "compile_history has no row for CFStringCreateWithCString"
-    assert_equal "template", rows.first.first,
-      "expected static template path; got generator=#{rows.first.first.inspect} " \
+    refute_nil rec,
+      "compiled_glue has no row for CoreFoundation::CFStringCreateWithCString " \
+      "after running discover_escape — example did not actually compile"
+    assert_equal "template", rec[:generator],
+      "expected static template path; got generator=#{rec[:generator].inspect} " \
       "— TemplateGenerator catalog gap for [:opaque_ref, :cstring, :uint32] -> :opaque_ref"
   end
 end
