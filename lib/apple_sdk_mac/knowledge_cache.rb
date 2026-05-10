@@ -179,6 +179,33 @@ module AppleSDKMac
       @store.fts_search(framework, query, limit: limit)
     end
 
+    # Knowledge Base 統計 — frameworks 数、 symbols 数、 kind 内訳の Hash。
+    # mcp StatsResource が consume する single source。 caller が直接 @db を
+    # 触らないよう abstraction を保つ。 :kind_breakdown は [[kind, count], ...]
+    # を count desc で返す。
+    def stats
+      fw_count = @db.execute("SELECT COUNT(*) FROM frameworks").first.first
+      sym_count = @db.execute("SELECT COUNT(*) FROM symbols").first.first
+      kinds = @db.execute(
+        "SELECT kind, COUNT(*) FROM symbols GROUP BY kind ORDER BY COUNT(*) DESC"
+      ).map { |r| [r[0], r[1]] }
+      { framework_count: fw_count, symbol_count: sym_count, kind_breakdown: kinds }
+    end
+
+    # 全 framework に対して #search を回し、 各 framework から per_fw 件まで
+    # 拾った flat Array を total 件で cap して返す。 mcp Search#fetch_cross_framework
+    # と SuggestDiscoverCall#fetch_candidates の重複 loop を一本化する helper。
+    # row には framework が merge される。 framework 単位の search 失敗は
+    # 黙って skip (Knowledge Base に schema mismatch 等の局所的問題がある場合に
+    # 1 framework の不調で全体検索が落ちないため)。
+    def search_all_frameworks(query:, per_fw: 3, total: 5)
+      list_frameworks.flat_map do |fw|
+        search(framework: fw, query: query, limit: per_fw).map { |r| r.merge(framework: fw) }
+      rescue StandardError
+        []
+      end.first(total)
+    end
+
     def close
       @store.close
     end
