@@ -211,4 +211,37 @@ class TestExamplesSmoke < Test::Unit::TestCase
     assert_match(/^result=\d+$/, res[:stdout],
       "result must be a non-zero integer (raw NSString pointer)")
   end
+
+  # discover_escape は Apple.discover の escape hatch を [:opaque_ref, :cstring,
+  # :uint32] -> :opaque_ref shape で叩く。 README L8 の commitment を裏付ける
+  # ため、 LLM safety net に落ちず static template path で完結することを assert。
+  # compile_history.generator = 'template' が静的 catalog 解決の証跡。
+  def test_discover_escape_example_uses_static_template_path
+    res = run_example("discover_escape.rb")
+    assert_equal 0, res[:exitstatus],
+      "discover_escape.rb exited #{res[:exitstatus]}; stderr:\n#{res[:stderr]}"
+    assert_match(/discover_escape: CFStringCreateWithCString returned box=\d+/,
+      res[:stdout],
+      "discover_escape.rb did not print expected box pointer")
+
+    # Static catalog assertion: the compiled-glue cache history must show
+    # generator='template' for this symbol on the most recent attempt.
+    require "apple_sdk_mac/compiled_glue_cache"
+    require "apple_sdk_mac/cache_dir"
+    require "apple_sdk_knowledge"
+    cache = AppleSDKMac::CompiledGlueCache.open(
+      AppleSDKMac.cache_dir, sdk_version: AppleSDKKnowledge::SDK.version
+    )
+    rows = cache.db.execute(<<~SQL)
+      SELECT generator FROM compile_history
+      WHERE symbol = 'CFStringCreateWithCString'
+      ORDER BY id DESC LIMIT 1
+    SQL
+    cache.close
+    refute_empty rows,
+      "compile_history has no row for CFStringCreateWithCString"
+    assert_equal "template", rows.first.first,
+      "expected static template path; got generator=#{rows.first.first.inspect} " \
+      "— TemplateGenerator catalog gap for [:opaque_ref, :cstring, :uint32] -> :opaque_ref"
+  end
 end
