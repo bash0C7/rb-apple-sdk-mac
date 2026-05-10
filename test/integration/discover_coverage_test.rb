@@ -12,8 +12,8 @@ require "test_helper"
 # the DB record alone. We do NOT compile glue here.
 class TestDiscoverCoverage < Test::Unit::TestCase
   # Vocabulary derived from rb-apple-sdk-knowledge classifier output
-  # (kind column populated by reclassifier.rb) plus the v1.0 synthesized
-  # kinds Apple.discover registers into the transient lookup tier.
+  # plus the synthesized kinds Apple.discover registers into the transient
+  # lookup tier.
   KIND_VOCABULARY = %w[
     function global_constant enum_case struct class_method instance_method
     instance_property protocol enum_module class typealias initializer
