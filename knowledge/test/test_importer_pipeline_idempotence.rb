@@ -70,4 +70,36 @@ class TestImporterPipelineIdempotence < Test::Unit::TestCase
   ensure
     ENV.delete("RB_APPLE_SDK_KNOWLEDGE_FAST")
   end
+
+  # Asserts Pipeline wires SwiftOverlay into the rebuild flow: given a
+  # framework dir whose .swiftinterface contains a Swift overlay extension,
+  # the resulting SQLite holds rows with swift_imported_name populated and
+  # the reconstructed ObjC selector. Lifted from
+  # knowledge/test/importer/swift_overlay_pipeline_test.rb
+  # (test_pipeline_writes_swift_imported_name_for_overlay_decls).
+  def test_pipeline_wires_swift_overlay_into_rebuild_flow
+    db_path = File.join(@tmp, "kb.sqlite")
+    ENV["RB_APPLE_SDK_KNOWLEDGE_FAST"] = "1"
+    AppleSDKKnowledge::Importer::Pipeline.new(
+      store_path: db_path,
+      resolver:   FakeResolver.new(frameworks: [@fw]),
+    ).run
+
+    store = AppleSDKKnowledge::Store.open(db_path)
+    rows = store.db.execute(<<~SQL)
+      SELECT name, swift_imported_name, kind
+      FROM symbols
+      WHERE swift_imported_name IS NOT NULL
+    SQL
+    store.close
+
+    assert_operator rows.size, :>=, 1,
+      "Pipeline must populate at least 1 swift_imported_name when a framework " \
+      "has Swift overlay declarations (got #{rows.size} rows)"
+    selectors = rows.map(&:first)
+    assert_includes selectors, "devicesWithMediaType:",
+      "ObjC selector for `class func devices(for mediaType:)` must be reconstructed"
+  ensure
+    ENV.delete("RB_APPLE_SDK_KNOWLEDGE_FAST")
+  end
 end

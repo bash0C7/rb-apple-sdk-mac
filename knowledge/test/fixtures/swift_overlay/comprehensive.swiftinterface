@@ -1,0 +1,57 @@
+// Comprehensive fixture exercising every public-surface invariant of
+// SwiftOverlay#import! via a single import! call.
+//
+// IMPORTANT: comments here must not contain the bareword "ext" + "ension"
+// followed by an identifier (the EXTENSION_HEADER_RE scans the whole
+// source, comments included).
+
+// 1. class_func label != internal -> devicesWithMediaType:
+extension AVCaptureDevice {
+  @available(macOS 10.7, *)
+  open class func devices(for mediaType: AVMediaType) -> [AVCaptureDevice]
+  open class func defaultDevice() -> AVCaptureDevice
+  open func lockForConfiguration() throws
+}
+
+// 2. multiple params: label == internal first, then plain label
+extension AVCaptureSession {
+  open func setFormat(format: AVCaptureDevice.Format, for conn: AVCaptureConnection)
+}
+
+// 3. underscore label drops first suffix
+extension AVAudioPlayer {
+  open func play(_ flag: Bool)
+}
+
+// 4. init variants: no-arg + single-labeled
+extension AVCaptureInput {
+  public init()
+  public init(device: AVCaptureDevice)
+}
+
+// 5. instance_var + class_var
+extension AVAudioSession {
+  open var category: String { get }
+  open class var shared: AVAudioSession { get }
+}
+
+// 6. module-qualified header -> klass = last dotted segment
+extension Foundation.URL {
+  public init?(string: Swift.String)
+  public var absoluteString: Swift.String { get }
+}
+
+// 7. header with conformance clause
+extension Foundation.TermOfAddress : Swift.Codable {
+  public func encode(to encoder: any Swift.Encoder) throws
+}
+
+// 8. header with where clause + generic in func
+extension Foundation._KeyValueCodingAndObservingPublishing where Self : ObjectiveC.NSObject {
+  public func publisher<Value>(for keyPath: Swift.KeyPath<Self, Value>) -> Swift.Int
+}
+
+// 9. nested type (3 segments) -> klass = "ParseStrategy"
+extension Foundation.URL.ParseStrategy {
+  public func parse(_ value: Swift.String) throws -> Foundation.URL
+}
