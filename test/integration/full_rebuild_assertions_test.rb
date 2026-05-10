@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 require "test_helper"
 require "sqlite3"
-require "sqlite_vec"
 
 # Asserts post-rebuild Knowledge Base invariants. Run AFTER
 # `bundle exec rake apple:knowledge:clean` + `bundle exec rake apple:knowledge:rebuild`.
@@ -22,11 +21,6 @@ class FullRebuildAssertionsTest < Test::Unit::TestCase
   def setup
     omit "Knowledge Base SQLite missing — run `bundle exec rake apple:knowledge:rebuild` first" if KB_PATH.nil? || !File.exist?(KB_PATH)
     @db = SQLite3::Database.new(KB_PATH)
-    # symbols_vec is a vec0 virtual table — querying it requires the
-    # sqlite-vec extension loaded on this connection, same as Store#initialize.
-    @db.enable_load_extension(true)
-    SqliteVec.load(@db)
-    @db.enable_load_extension(false)
   end
 
   def teardown
@@ -81,12 +75,5 @@ class FullRebuildAssertionsTest < Test::Unit::TestCase
   def test_schema_has_swift_imported_name_column
     cols = @db.execute("PRAGMA table_info(symbols)").map { |r| r[1] }
     assert_includes cols, "swift_imported_name"
-  end
-
-  def test_symbols_vec_table_exists_and_has_rows
-    count = @db.execute("SELECT COUNT(*) FROM symbols_vec").first.first
-    # embedder ON で rebuild した前提。 0 なら embedder path 全 skip された
-    # (FAST=1 残存 / Embedder.available? false)。 spec は populated 期待。
-    assert_operator count, :>=, 1000, "symbols_vec has #{count} rows (embedder may not have run)"
   end
 end

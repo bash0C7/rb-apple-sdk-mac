@@ -1,17 +1,12 @@
 # frozen_string_literal: true
 require "sqlite3"
-require "sqlite_vec"
 
 module AppleSDKKnowledge
   class Store
-    # Phase 7 / spec §5 — bump for cf_create_rule + objc_kind + swift_kind
-    # columns. ingest population of those columns is staged for v1.1; the
-    # column shape is committed at v1.0 so the mac gem's schema_version
-    # invalidation path doesn't have to thrash on later bumps.
-    # v4 — adds swift_imported_name TEXT for Swift overlay importer (Task 4a.2).
-    # The Glue Compiler emitter (Phase 4b) reads this column to bridge ObjC
-    # method selectors to their resolved Swift import name.
-    SCHEMA_VERSION = 4
+    # Bumped when the on-disk schema shape changes. Bumping invalidates any
+    # existing Knowledge Base SQLite at the project-scoped path; the next
+    # `apple:knowledge:rebuild` regenerates it.
+    SCHEMA_VERSION = 5
 
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;
@@ -59,11 +54,6 @@ module AppleSDKKnowledge
         content = 'symbols',
         content_rowid = 'id'
       );
-
-      CREATE VIRTUAL TABLE IF NOT EXISTS symbols_vec USING vec0(
-        symbol_id INTEGER PRIMARY KEY,
-        embedding FLOAT[768]
-      );
     SQL
 
     attr_reader :db, :path
@@ -75,9 +65,6 @@ module AppleSDKKnowledge
     def initialize(path)
       @path = path
       @db = SQLite3::Database.new(path)
-      @db.enable_load_extension(true)
-      SqliteVec.load(@db)
-      @db.enable_load_extension(false)
       @db.results_as_hash = false
     end
 
@@ -181,18 +168,6 @@ module AppleSDKKnowledge
       @db.execute(sql, [sanitized, framework_name, limit]).map do |row|
         { name: row[0], kind: row[1], signature: row[2], framework: row[3] }
       end
-    end
-
-    def vec_insert(symbol_id, embedding)
-      blob = embedding.pack("f*")
-      # vec0 virtual tables silently ignore INSERT OR REPLACE and raise
-      # SQLite3::SQLException on UNIQUE PK collision. Explicit DELETE first
-      # makes re-import on content_hash repeats deterministic.
-      @db.execute("DELETE FROM symbols_vec WHERE symbol_id = ?", [symbol_id])
-      @db.execute(
-        "INSERT INTO symbols_vec(symbol_id, embedding) VALUES (?, ?)",
-        [symbol_id, blob]
-      )
     end
 
     def find_framework_id_by_name(name)

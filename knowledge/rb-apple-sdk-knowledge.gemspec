@@ -34,13 +34,9 @@ Gem::Specification.new do |spec|
 
     Run the following to build the local SDK knowledge base:
       bundle exec rake apple:knowledge:rebuild
-
-    By default this can take several minutes. To skip embedding generation:
-      RB_APPLE_SDK_KNOWLEDGE_FAST=1 bundle exec rake apple:knowledge:rebuild
   MSG
 
   spec.add_dependency "sqlite3", "~> 2.0"
-  spec.add_dependency "sqlite-vec", "~> 0.1"
   spec.add_development_dependency "test-unit", "~> 3.6"
   spec.add_development_dependency "rake", "~> 13.0"
 end
