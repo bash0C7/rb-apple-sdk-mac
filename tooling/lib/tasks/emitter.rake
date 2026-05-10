@@ -1,16 +1,7 @@
 # frozen_string_literal: true
 #
-# Rake tasks for the HITL emitter-improvement workflow.
-#
-# Thin orchestrators only — every task is load → call EmitterDev module → format.
-# Module APIs live under tooling/lib/emitter_dev/. See:
-#   docs/superpowers/specs/2026-05-09-hitl-emitter-improvement-design.md  (Section 7)
-#   docs/superpowers/plans/2026-05-09-hitl-emitter-improvement.md         (Task 1.6)
-#
-# Note: CandidateRanker is a stateless module form
-# (`EmitterDev::CandidateRanker.rank(rows:, mode:, top:)`), not the
-# class form sketched in the spec. SQLite read is delegated to
-# `EmitterDev::Sources::CompileHistory#aggregate`.
+# Rake tasks for the HITL emitter-improvement workflow. Thin orchestrators —
+# every task is load → call EmitterDev module → format.
 
 require "json"
 require "fileutils"

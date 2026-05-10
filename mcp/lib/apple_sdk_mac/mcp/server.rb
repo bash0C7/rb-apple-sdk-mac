@@ -2,17 +2,15 @@
 require "json"
 require "time"
 
-# spec §3 — Server / ServerFacade。 chiebukuro-mcp の Server class を rb-apple-sdk-mac
-# 用に最小化。 v0.1 では tools = [probe_capabilities] のみ、 resources = [] (空)。
-# 後続 phase で search / get_symbol_info / list_klass_methods / suggest_discover_call /
-# dry_run_template / validate_call、 Resources を追加する。
+# Server / ServerFacade。 tools = [search, get_symbol_info, list_klass_methods,
+# suggest_discover_call, dry_run_template, validate_call, probe_capabilities]、
+# resources = [static_doc, framework_list, stats]。
 
 module AppleSDKMac
   module MCP
     class Server
-      # spec §7 — 各 MCP tool 呼び出しを wrap して構造化 JSON ログを stderr に
-      # 1 行吐く。 chiebukuro-mcp の wrap_with_log_proc 同形 (db_name は本 server
-      # では不要なので除去)。 tool 内 block 末尾の Response を return する。
+      # 各 MCP tool 呼び出しを wrap して構造化 JSON ログを stderr に 1 行吐く。
+      # tool 内 block 末尾の Response を return する。
       class << self
         def wrap_with_log(tool_name:, &block)
           t0     = Time.now
@@ -150,7 +148,7 @@ module AppleSDKMac
 
       # MCP::Server のラッパー。 テストが期待する tool_classes / resource_list
       # interface を提供しつつ、 他のメソッド呼び出しは MCP::Server にデリゲート
-      # する。 chiebukuro-mcp の ServerFacade と同じ流儀。
+      # する。
       class ServerFacade
         attr_reader :tool_classes, :resource_list
 

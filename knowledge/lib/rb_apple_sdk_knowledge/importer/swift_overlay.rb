@@ -302,9 +302,7 @@ module AppleSDKKnowledge
 
         # Single atomic INSERT ... ON CONFLICT — swift_imported_name rides
         # along so a re-import under the same content_hash updates this
-        # column in the same statement. The earlier two-statement pattern
-        # (insert + separate UPDATE) left a partial-state window and could
-        # leave the column stale on the conflict path.
+        # column in the same statement.
         @store.insert_symbol(
           framework_id:        fw_id,
           name:                selector,
@@ -318,9 +316,8 @@ module AppleSDKKnowledge
       end
 
       # Maps parser-internal :symbol kinds to canonical Knowledge Base kind
-      # strings. Canonical values (verified empirically via
-      #   SELECT DISTINCT kind FROM symbols
-      # against the Phase 7 sdk_knowledge.sqlite) are:
+      # strings. Canonical values (verified via SELECT DISTINCT kind FROM
+      # symbols on a populated sdk_knowledge.sqlite):
       #   actor, class, class_method, enum_case, enum_module, function,
       #   global_constant, instance_method, instance_property, protocol, struct
       #

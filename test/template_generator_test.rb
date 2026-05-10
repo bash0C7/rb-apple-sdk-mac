@@ -194,7 +194,7 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_nil swift, "non-catalog callback_non_nil must not produce glue"
   end
 
-  # Phase 6 (callback pillar): MIDINotifyProc routes to CallbackPillar register
+  # (callback pillar): MIDINotifyProc routes to CallbackPillar register
   # instead of rb_raise stub.
   def test_callback_nilable_midinotifyproc_emits_callback_pillar_register
     sym = {
@@ -285,7 +285,7 @@ class TestTemplateGenerator < Test::Unit::TestCase
     end
   end
 
-  # Phase 7 T2a: BlockNilableMarshaller — noescape completion blocks.
+  # T2a: BlockNilableMarshaller — noescape completion blocks.
   # __attribute__((noescape)) lifetime; the @convention(block) literal lives
   # on the Swift stack for the duration of the call. The Ruby Proc is pinned
   # in the runtime proc registry by object_id so it survives the call without
@@ -308,16 +308,16 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/runtime_proc_registry_get\(\)/, swift)
     assert_match(/ThreadingBridge\.enqueueFromAppleThread/, swift)
     # block_nilable must NOT call into the persistent slot table.
-    # T48 で HEADER に @_silgen_name 宣言が入ったので、`func register_block_persistent
+    # HEADER に @_silgen_name 宣言があるため、 `func register_block_persistent
     # (_ procId:` (declaration) と call site (`register_block_persistent(<var>)`) を
-    # 区別する。call site は underscore-prefix の引数 label を持たない。
+    # 区別する。 call site は underscore-prefix の引数 label を持たない。
     refute_match(/runtime_callback_register_block_persistent\([^_]/, swift,
       "block_nilable must NOT call runtime_callback_register_block_persistent")
     assert_match(/if argv\[0\] == Qnil/, swift)
     assert_match(/completion = nil/, swift)
   end
 
-  # Phase 7 T2b: BlockPersistentMarshaller — escaping completion blocks.
+  # T2b: BlockPersistentMarshaller — escaping completion blocks.
   # No __attribute__((noescape)); the block must outlive the call. We register
   # a slot on the persistent slot table via runtime_callback_register_block_persistent
   # and wrap the slot id in a BoxedBlockHandle. The Box's deinit unregisters
@@ -342,11 +342,10 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/if argv\[0\] == Qnil/, swift)
   end
 
-  # T42 — kind=objc_method_class が template path で Swift glue を出す。
+  # kind=objc_method_class が template path で Swift glue を出す。
   # Apple.discover の class_method: shape は LLM ではなく決定論的 template で
-  # 解決されること（spec §3.4.1）。selector → Swift call form は T43 で
-  # init-bridge / class-method の dual emit に。ここでは emit 自体と shape
-  # invariants をピン止めする。
+  # 解決されること。 selector → Swift call form は init-bridge / class-method
+  # の dual emit。 ここでは emit 自体と shape invariants をピン止めする。
   def test_objc_method_class_emits_template_glue_with_correct_shape
     sym = {
       name: "NSString.stringWithUTF8String",
@@ -356,16 +355,16 @@ class TestTemplateGenerator < Test::Unit::TestCase
       signature: nil, abi: nil, parameters_json: "[]"
     }
     swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "ocm1")
-    refute_nil swift, "T42: objc_method_class must produce template glue, not fall to LLM"
+    refute_nil swift, "objc_method_class must produce template glue, not fall to LLM"
     assert_match(/import Foundation/, swift)
     assert_match(/glue_ocm1_NSString_stringWithUTF8String/, swift,
-      "T42: exported func name must be sanitized swift_identifier")
+      "exported func name must be sanitized swift_identifier")
     assert_match(/Unmanaged\.passRetained/, swift,
-      "T42: opaque_ref return must passRetain the ObjC instance pointer")
+      "opaque_ref return must passRetain the ObjC instance pointer")
     assert_match(/rb_ull2inum/, swift)
   end
 
-  # T43 — Swift 6 は `<verb>With<Type>:` shape の ObjC convenience constructors
+  # Swift 6 は `<verb>With<Type>:` shape の ObjC convenience constructors
   # を init に rename する (NS_SWIFT_NAME / API_RENAMED)。emit_objc_class_method
   # はこの形式を検出し `Klass(label: arg)` init form を出す。
   # `+stringWithUTF8String:` → `NSString(utf8String: arg0)`。
@@ -379,13 +378,13 @@ class TestTemplateGenerator < Test::Unit::TestCase
     }
     swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "ocm1")
     refute_nil swift
-    # T53c — utf8String は historically raw cstr を取る init bridge なので
+    # utf8String は historically raw cstr を取る init bridge なので
     # Swift String 化された arg0 ではなく cstr 補助名 arg0_cstr を渡す。
     assert_match(/NSString\(utf8String:\s*arg0_cstr\)/, swift,
-      "T43+T53c: <verb>With<Type>: → init(<type>: arg0_cstr) Swift bridging form")
+      "<verb>With<Type>: → init(<type>: arg0_cstr) Swift bridging form")
   end
 
-  # T43 — class method で init-bridge に当てはまらないものは class method form。
+  # class method で init-bridge に当てはまらないものは class method form。
   # `+date` selector の場合 NSDate.date()。selector に `With` 単語が無いので
   # fall through。
   def test_objc_class_method_uses_class_method_form_for_non_init_bridge
@@ -398,12 +397,12 @@ class TestTemplateGenerator < Test::Unit::TestCase
     }
     swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "ocm3")
     refute_nil swift
-    # T52e — NSDate は Swift 6 で Date に rename (NS-strip)。
+    # NSDate は Swift 6 で Date に rename (NS-strip)。
     assert_match(/Date\.date\(\)/, swift,
-      "T43+T52e: non-bridged class methods keep Klass.swiftMethod form (NS-stripped)")
+      "non-bridged class methods keep Klass.swiftMethod form (NS-stripped)")
   end
 
-  # T42 — int param marshaling は kind=int で rb_num2ll 経由。
+  # int param marshaling は kind=int で rb_num2ll 経由。
   def test_objc_method_class_with_int_param_emits_int_in_load
     sym = {
       name: "MyClass.makeWithInt",
@@ -415,13 +414,13 @@ class TestTemplateGenerator < Test::Unit::TestCase
     swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "ocm2")
     refute_nil swift
     assert_match(/rb_num2ll\(argv\[0\]\)/, swift,
-      "T42: int param uses rb_num2ll for argv[0]")
-    # T43 — `makeWithInt:` matches <verb>With<Type>:, so init form.
+      "int param uses rb_num2ll for argv[0]")
+    # `makeWithInt:` matches <verb>With<Type>:, so init form.
     assert_match(/MyClass\(int:\s*arg0\)/, swift)
   end
 
-  # T44 — kind=objc_method_instance、receiver = argv[0]、引数は argv[1..]。
-  # spec §3.4.2 の receiver bitCast pattern を emit すること。
+  # kind=objc_method_instance、receiver = argv[0]、引数は argv[1..]。
+  # ObjC instance method receiver bitCast pattern を emit すること。
   def test_objc_method_instance_emits_receiver_load_and_method_call
     sym = {
       name: "NSString.length",
@@ -435,18 +434,18 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/import Foundation/, swift)
     # receiver = argv[0]
     assert_match(/let receiver = unsafeBitCast/, swift,
-      "T44: receiver は argv[0] から OpaquePointer + bitCast で取得")
+      "receiver は argv[0] から OpaquePointer + bitCast で取得")
     assert_match(/to:\s*NSString\.self/, swift,
-      "T44: bitCast ターゲットは objc_class の Swift 名")
-    # T53g — zero-arg + non-void return は ObjC property bridge form (parens なし)。
+      "bitCast ターゲットは objc_class の Swift 名")
+    # zero-arg + non-void return は ObjC property bridge form (parens なし)。
     assert_match(/receiver\.length\b/, swift)
     refute_match(/receiver\.length\(\)/, swift,
-      "T53g: zero-arg property bridge は parens なし")
+      "zero-arg property bridge は parens なし")
     # int 戻り値
     assert_match(/rb_ll2inum/, swift)
   end
 
-  # T44 — instance method with arg: argv[0]=receiver, argv[1]=user arg。
+  # instance method with arg: argv[0]=receiver, argv[1]=user arg。
   def test_objc_method_instance_with_arg_uses_argv_offset_1
     sym = {
       name: "NSString.characterAtIndex",
@@ -460,13 +459,13 @@ class TestTemplateGenerator < Test::Unit::TestCase
     assert_match(/let receiver = unsafeBitCast/, swift)
     # First user arg loaded from argv[1] (not argv[0]).
     assert_match(/rb_num2ll\(argv\[1\]\)/, swift,
-      "T44: 引数 index は receiver 用 +1 offset (argv[1] が user arg0)")
+      "引数 index は receiver 用 +1 offset (argv[1] が user arg0)")
     refute_match(/rb_num2ll\(argv\[0\]\)/, swift,
-      "T44: argv[0] は receiver 専用、user arg として使ってはいけない")
+      "argv[0] は receiver 専用、user arg として使ってはいけない")
     assert_match(/receiver\.characterAtIndex\(arg0\)/, swift)
   end
 
-  # T44 — selector が `init*` で始まる場合は Swift init form (no receiver)。
+  # selector が `init*` で始まる場合は Swift init form (no receiver)。
   # ObjC `+alloc/-init` chain は Swift で `Klass(label: arg)` に統合されている。
   def test_objc_method_instance_init_selector_emits_swift_init_form
     sym = {
@@ -480,15 +479,15 @@ class TestTemplateGenerator < Test::Unit::TestCase
     swift = @gen.generate(framework: "Vision", symbol: sym, glue_id: "oim3")
     refute_nil swift
     refute_match(/let receiver = unsafeBitCast/, swift,
-      "T44: init shape は receiver を持たない")
+      "init shape は receiver を持たない")
     assert_match(/VNImageRequestHandler\(cgImage:\s*arg0,\s*options:\s*arg1\)/, swift,
-      "T44: init multi-segment は Swift bridged init(cgImage:options:) form")
+      "init multi-segment は Swift bridged init(cgImage:options:) form")
     assert_match(/Unmanaged\.passRetained/, swift,
-      "T44: opaque_ref 戻り値は +1 retained pointer")
+      "opaque_ref 戻り値は +1 retained pointer")
   end
 
-  # T45 — kind=swift_init は Swift initializer 直接呼び出し form。
-  # spec §3.4.3 の `guard let v = Klass(args) else { return Qnil }` shape。
+  # kind=swift_init は Swift initializer 直接呼び出し form。
+  # Swift initializer の `guard let v = Klass(args) else { return Qnil }` shape。
   def test_swift_init_no_args_emits_klass_paren_call
     sym = {
       name: "VNRecognizeTextRequest.init()",
@@ -499,11 +498,11 @@ class TestTemplateGenerator < Test::Unit::TestCase
       signature: nil, abi: nil, parameters_json: "[]"
     }
     swift = @gen.generate(framework: "Vision", symbol: sym, glue_id: "swi1")
-    refute_nil swift, "T45: swift_init must produce template glue"
+    refute_nil swift, "swift_init must produce template glue"
     assert_match(/import Vision/, swift)
     assert_match(/VNRecognizeTextRequest\(\)/, swift)
     assert_match(/Unmanaged\.passRetained/, swift,
-      "T45: opaque_ref 戻り値は +1 retained pointer")
+      "opaque_ref 戻り値は +1 retained pointer")
   end
 
   def test_swift_init_single_label_emits_init_with_arg
@@ -511,7 +510,7 @@ class TestTemplateGenerator < Test::Unit::TestCase
       name: "URL.init(string:)",
       kind: "swift_init",
       swift_class: "URL",
-      # T54t — failable init は initializer 文字列に `?` を含めて指定。
+      # failable init は initializer 文字列に `?` を含めて指定。
       # URL.init?(string:) は failable なので `init?(string:)` で渡す。
       swift_initializer: "init?(string:)",
       params: [:string], return_kind: :opaque_ref,
@@ -520,9 +519,9 @@ class TestTemplateGenerator < Test::Unit::TestCase
     swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "swi2")
     refute_nil swift
     assert_match(/URL\(string:\s*arg0\)/, swift,
-      "T45: init(string:) → URL(string: arg0)")
+      "init(string:) → URL(string: arg0)")
     assert_match(/guard let v = URL\(.*\) else \{ return Qnil \}/, swift,
-      "T45+T54t: failable init (?) は guard let で nil 時に Qnil 返す")
+      "failable init (?) は guard let で nil 時に Qnil 返す")
   end
 
   def test_swift_init_multi_label_emits_each_label
@@ -537,11 +536,11 @@ class TestTemplateGenerator < Test::Unit::TestCase
     swift = @gen.generate(framework: "Vision", symbol: sym, glue_id: "swi3")
     refute_nil swift
     assert_match(/VNImageRequestHandler\(cgImage:\s*arg0,\s*options:\s*arg1\)/, swift,
-      "T45: multi-label init は labeled args full set")
+      "multi-label init は labeled args full set")
   end
 
-  # T46 — kind=swift_property は class-side static property access form。
-  # spec §3.4.4 base shape。NSURLSession.shared, ProcessInfo.processInfo etc.
+  # kind=swift_property は class-side static property access form。
+  # Swift property base shape。 NSURLSession.shared, ProcessInfo.processInfo 等。
   # 戻り値 marshaling は return_kind に従う。
   def test_swift_property_static_emits_klass_dot_property
     sym = {
@@ -553,13 +552,13 @@ class TestTemplateGenerator < Test::Unit::TestCase
       signature: nil, abi: nil, parameters_json: "[]"
     }
     swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "swp1")
-    refute_nil swift, "T46: swift_property must produce template glue"
+    refute_nil swift, "swift_property must produce template glue"
     assert_match(/import Foundation/, swift)
-    # T53d — NSURLSession は Swift 6 で URLSession に rename (NS-strip)。
+    # NSURLSession は Swift 6 で URLSession に rename (NS-strip)。
     assert_match(/let raw = URLSession\.shared/, swift,
-      "T46+T53d: static property access form `Klass.prop` (NS-stripped)")
+      "static property access form `Klass.prop` (NS-stripped)")
     assert_match(/Unmanaged\.passRetained/, swift,
-      "T46: opaque_ref 戻り値は passRetained で raw pointer")
+      "opaque_ref 戻り値は passRetained で raw pointer")
   end
 
   def test_swift_property_returns_int
@@ -575,10 +574,10 @@ class TestTemplateGenerator < Test::Unit::TestCase
     refute_nil swift
     assert_match(/let raw = ProcessInfo\.processInfo/, swift)
     assert_match(/rb_ll2inum/, swift,
-      "T46: int 戻り値は rb_ll2inum")
+      "int 戻り値は rb_ll2inum")
   end
 
-  # T47 — kind=swift_func 同期形式。spec §3.4.5。
+  # kind=swift_func 同期形式。
   # top-level: runtime_async_test_taskgroup_double(arg0, arg1, arg2)
   def test_swift_func_sync_top_level_emits_func_call
     sym = {
@@ -589,15 +588,15 @@ class TestTemplateGenerator < Test::Unit::TestCase
       signature: nil, abi: nil, parameters_json: "[]"
     }
     swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "swf1")
-    refute_nil swift, "T47: swift_func must produce template glue"
+    refute_nil swift, "swift_func must produce template glue"
     assert_match(/let raw = runtime_marshal_int_round_trip\(arg0\)/, swift,
-      "T47: top-level swift func は そのまま <func>(args) 形式")
+      "top-level swift func は そのまま <func>(args) 形式")
     refute_match(/DispatchSemaphore/, swift,
-      "T47: 同期 func は async skeleton 含まない")
+      "同期 func は async skeleton 含まない")
     assert_match(/rb_ll2inum/, swift)
   end
 
-  # T47 — Klass 付き static method。`Klass.<func>(args)`。
+  # Klass 付き static method。`Klass.<func>(args)`。
   def test_swift_func_sync_with_klass_emits_static_call
     sym = {
       name: "URL.someStaticHelper",
@@ -610,11 +609,11 @@ class TestTemplateGenerator < Test::Unit::TestCase
     swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "swf2")
     refute_nil swift
     assert_match(/let raw = URL\.someStaticHelper\(\)/, swift,
-      "T47: swift_class があれば Klass.func form")
+      "swift_class があれば Klass.func form")
   end
 
-  # T47 — async swift_func は DispatchSemaphore + Task + sema.wait skeleton
-  # (spec §3.6 / E1 worked example shape)。ValidationGates.async_shape 通過。
+  # async swift_func は DispatchSemaphore + Task + sema.wait skeleton
+  #。ValidationGates.async_shape 通過。
   def test_swift_func_async_emits_dispatchsemaphore_skeleton
     sym = {
       name: "runtime_async_test_taskgroup_double",
@@ -625,17 +624,17 @@ class TestTemplateGenerator < Test::Unit::TestCase
       signature: nil, abi: nil, parameters_json: "[]"
     }
     swift = @gen.generate(framework: "Foundation", symbol: sym, glue_id: "swfa1")
-    refute_nil swift, "T47: async swift_func も template path で emit"
+    refute_nil swift, "async swift_func も template path で emit"
     assert_match(/DispatchSemaphore\(value:\s*0\)/, swift,
-      "T47: async は DispatchSemaphore で sync 化")
-    assert_match(/Task\s*\{/, swift, "T47: async は Task block 内で実行")
+      "async は DispatchSemaphore で sync 化")
+    assert_match(/Task\s*\{/, swift, "async は Task block 内で実行")
     assert_match(/try await runtime_async_test_taskgroup_double\(arg0,\s*arg1,\s*arg2\)/, swift)
     assert_match(/sema\.wait\(\)/, swift)
     assert_match(/sema\.signal\(\)/, swift)
-    assert_match(/captured/, swift, "T47: error を post-wait raise 用に capture")
+    assert_match(/captured/, swift, "error を post-wait raise 用に capture")
   end
 
-  # T48 — escaping completion block path。NSURLSession.dataTask(with:completionHandler:)
+  # escaping completion block path。NSURLSession.dataTask(with:completionHandler:)
   # 形式 (instance method + multi-segment selector + 末尾 :block_persistent param)。
   # Ruby Proc を proc_registry に pin し、closure を組んで Apple に渡す。
   # closure 内で runtime_threading_enqueue を呼んで Ruby callback を起動する。
@@ -653,33 +652,33 @@ class TestTemplateGenerator < Test::Unit::TestCase
     # receiver = argv[0], opaque_ref URL = argv[1], block_persistent = argv[2]
     assert_match(/let receiver = unsafeBitCast/, swift)
     assert_match(/rb_obj_id\(argv\[2\]\)/, swift,
-      "T48: block_persistent param は argv[2] (receiver +1, opaque_ref +1)")
+      "block_persistent param は argv[2] (receiver +1, opaque_ref +1)")
     # Proc を runtime_proc_registry に pin
     assert_match(/rb_hash_aset\(runtime_proc_registry_get\(\)/, swift)
     # persistent slot register (cleanup 用 handle 確保)
     assert_match(/runtime_callback_register_block_persistent/, swift)
     # closure 構築 — URLSession の signature
     assert_match(/let arg1: \(Data\?, URLResponse\?, Error\?\) -> Void/, swift,
-      "T48: completion block の Swift signature")
+      "completion block の Swift signature")
     # closure 内で runtime_threading_enqueue 経由で Ruby に enqueue
     assert_match(/runtime_threading_enqueue/, swift,
-      "T48: closure 内は @_silgen_name 経由で ThreadingBridge を呼ぶ")
+      "closure 内は @_silgen_name 経由で ThreadingBridge を呼ぶ")
     # call site は label 付き
     assert_match(/receiver\.dataTask\(with:\s*arg0,\s*completionHandler:\s*arg1\)/, swift,
-      "T48: multi-segment selector の Swift bridged label-aware call form")
+      "multi-segment selector の Swift bridged label-aware call form")
   end
 
-  # T48 — HEADER に runtime_threading_enqueue の @_silgen_name 宣言が必要。
+  # HEADER に runtime_threading_enqueue の @_silgen_name 宣言が必要。
   def test_header_includes_runtime_threading_enqueue_silgen_name
     h = AppleSDKMac::GlueCompiler::TemplateGenerator::HEADER
     assert_match(/@_silgen_name\("runtime_threading_enqueue"\)/, h,
-      "T48: closure からの enqueue ルートを @_silgen_name で参照可能に")
+      "closure からの enqueue ルートを @_silgen_name で参照可能に")
     assert_match(/@_silgen_name\("runtime_callback_register_block_persistent"\)/, h,
-      "T48: persistent slot register も @_silgen_name 経由")
+      "persistent slot register も @_silgen_name 経由")
   end
 
-  # T49 — CFTypeRefMarshaller in_load は runtime_arc_unbox_cftype 経由で
-  # autoarc box pointer を unwrap する。spec §3.9 round-trip 完成の前提。
+  # CFTypeRefMarshaller in_load は runtime_arc_unbox_cftype 経由で
+  # autoarc box pointer を unwrap する (round-trip 完成の前提)。
   # box でない raw CF pointer を渡されたケースは unbox が 0 を返すので
   # raw input にフォールバックする (CFTypeRefMarshaller の実装契約)。
   def test_cftype_ref_marshaller_unboxes_via_runtime_arc_unbox_cftype
@@ -692,17 +691,17 @@ class TestTemplateGenerator < Test::Unit::TestCase
     swift = @gen.generate(framework: "CoreFoundation", symbol: sym, glue_id: "cfgl1")
     refute_nil swift
     assert_match(/runtime_arc_unbox_cftype/, swift,
-      "T49: cftype_ref param 経由の入力は runtime_arc_unbox_cftype で unwrap")
+      "cftype_ref param 経由の入力は runtime_arc_unbox_cftype で unwrap")
   end
 
-  # T49 — HEADER に runtime_arc_unbox_cftype の @_silgen_name 宣言が必要。
+  # HEADER に runtime_arc_unbox_cftype の @_silgen_name 宣言が必要。
   def test_header_includes_runtime_arc_unbox_cftype_silgen_name
     h = AppleSDKMac::GlueCompiler::TemplateGenerator::HEADER
     assert_match(/@_silgen_name\("runtime_arc_unbox_cftype"\)/, h,
-      "T49: glue から runtime_arc_unbox_cftype を呼べるよう HEADER で declare")
+      "glue から runtime_arc_unbox_cftype を呼べるよう HEADER で declare")
   end
 
-  # Phase 7 T4: CF Create-rule auto-ARC. A symbol whose knowledge record has
+  # T4: CF Create-rule auto-ARC. A symbol whose knowledge record has
   # cf_create_rule=true gets its CF-typed return value automatically wrapped
   # via the runtime ARC pillar's runtime_arc_box_cftype entry point. The
   # entry point performs the Unmanaged.takeRetainedValue + BoxedCFType wrap

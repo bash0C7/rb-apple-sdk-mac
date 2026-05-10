@@ -40,10 +40,10 @@ class TestDispatcher < Test::Unit::TestCase
     assert_equal [["/tmp/g.dylib", "glue_g_MIDIDispose"]], loader.calls
   end
 
-  # T40 — dispatcher は cache.lookup を **sym_meta[:name] = canonical_name** 経由で
-  # 行う必要がある（spec §3.2 / G5）。user-facing symbol arg と canonical_name が
-  # 一致しないケース（user が KB の alias を渡した、selector colon の有無、等）
-  # でも cache hit を取れる contract をピン止めする。
+  # dispatcher は cache.lookup を **sym_meta[:name] = canonical_name** 経由で
+  # 行う必要がある。 user-facing symbol arg と canonical_name が一致しない
+  # ケース (user が Knowledge Base の alias を渡した、 selector colon の有無、 等) でも
+  # cache hit を取れる contract をピン止めする。
   class FakeKnowledgeCanonical
     def lookup_symbol(framework:, symbol:)
       # user passed "alias_name" but canonical name in synth/DB is "NSString.stringWithUTF8String"

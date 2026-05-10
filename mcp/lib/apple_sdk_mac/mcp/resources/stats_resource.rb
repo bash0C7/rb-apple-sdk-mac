@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# spec §5.2 — KB metadata (frameworks 数 / symbols 数 / kind 内訳) を markdown で返す。
+# Knowledge Base metadata (frameworks 数 / symbols 数 / kind 内訳) を markdown で返す。
 
 module AppleSDKMac
   module MCP

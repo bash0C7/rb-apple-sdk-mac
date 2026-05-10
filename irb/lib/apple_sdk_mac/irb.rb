@@ -138,7 +138,7 @@ module AppleSDKMac
 
     # 補完で確定した method 名を Apple.discover の正しい keyword shape に
     # マッピングして同期実行する。 parameters / return_kind は明示せず、
-    # TemplateGenerator → LLMGenerator pipeline に shape 推論を任せる。
+    # compiler pipeline に shape 推論を任せる。
     class AutoDiscoverer
       def initialize(knowledge_cache:, discover_proc: nil)
         @cache = knowledge_cache

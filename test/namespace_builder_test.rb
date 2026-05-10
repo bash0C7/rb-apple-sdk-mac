@@ -41,7 +41,7 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     assert coremidi.const_defined?(:MIDIClientRef)
   end
 
-  # T41 — per-symbol install API. Apple.discover synthesizes a transient
+  # per-symbol install API. Apple.discover synthesizes a transient
   # symbol record; install_one must put exactly that one record into the
   # namespace without re-iterating the entire DB (G2 fix). Returns the
   # installed proxy/module so Apple.discover can verify install path.
@@ -69,7 +69,7 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     assert_equal [["CoreMIDI", "MIDIClientCreate", ["hi"]]], calls
   end
 
-  # T41 — :method_under_klass routing for objc_method_class.
+  # :method_under_klass routing for objc_method_class.
   # canonical_name "NSString.stringWithUTF8String" splits into klass+method;
   # install_one ensures Apple::Foundation::NSString proxy class exists, and
   # defines singleton method `stringWithUTF8String` that dispatches with
@@ -92,10 +92,10 @@ class TestNamespaceBuilder < Test::Unit::TestCase
 
     assert box.const_defined?(:Foundation)
     fw = box.const_get(:Foundation)
-    assert fw.const_defined?(:NSString), "T41: proxy class Apple::Foundation::NSString must be ensured"
+    assert fw.const_defined?(:NSString), "proxy class Apple::Foundation::NSString must be ensured"
     klass = fw.const_get(:NSString)
     assert_respond_to klass, :stringWithUTF8String,
-      "T41: singleton method derived from canonical_name part after dot"
+      "singleton method derived from canonical_name part after dot"
 
     result = klass.stringWithUTF8String("hello")
     assert_equal "result_value", result
@@ -103,7 +103,7 @@ class TestNamespaceBuilder < Test::Unit::TestCase
       "dispatcher must be called with canonical_name (= sym_record[:name])"
   end
 
-  # T41 — :method_under_klass routing for objc_method_instance.
+  # :method_under_klass routing for objc_method_instance.
   # The proxy class is the same; the method receives an instance handle as
   # its first arg (passed through the args array unchanged at this layer —
   # the glue side handles receiver vs argument routing).
@@ -130,13 +130,13 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     # sanitized for Ruby identifier safety (parens / colons → underscores).
     expected_method = :init_cgImage_options
     assert_respond_to klass, expected_method,
-      "T41: instance method's Ruby identifier must be the canonical part-after-dot, sanitized"
+      "instance method's Ruby identifier must be the canonical part-after-dot, sanitized"
 
     klass.public_send(expected_method, 0xCAFE, nil)
     assert_equal [["Vision", "VNImageRequestHandler.init(cgImage:options:)", [0xCAFE, nil]]], calls
   end
 
-  # T41 — :method_under_klass routing for swift_init / swift_property.
+  # :method_under_klass routing for swift_init / swift_property.
   def test_install_one_swift_init_installs_under_klass
     box = Module.new
     builder = AppleSDKMac::NamespaceBuilder.new(
@@ -152,7 +152,7 @@ class TestNamespaceBuilder < Test::Unit::TestCase
 
     klass = box.const_get(:Foundation).const_get(:URL)
     assert_respond_to klass, :init_string,
-      "T41: swift_init Ruby identifier sanitized from canonical 'init(string:)'"
+      "swift_init Ruby identifier sanitized from canonical 'init(string:)'"
   end
 
   def test_install_one_swift_property_installs_under_klass
@@ -172,8 +172,8 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     assert_respond_to klass, :processIdentifier
   end
 
-  # T52b — proxy class instance method receiver + from_ref helper.
-  # spec § 4.5.1: queue.addOperations_waitUntilFinished(ops, true) のような
+  # proxy class instance method receiver + from_ref helper.
+  # queue.addOperations_waitUntilFinished(ops, true) のような
   # instance method 呼び出しを Apple.discover 経由で透過化する基盤。
   # 既存 install_one (objc_method_instance) は class singleton method として
   # 登録していたが、本機構では proxy class の instance method として登録し、
@@ -195,12 +195,12 @@ class TestNamespaceBuilder < Test::Unit::TestCase
 
     klass = box.const_get(:Foundation).const_get(:NSOperationQueue)
     assert_respond_to klass, :from_ref,
-      "T52b: proxy class must expose .from_ref(raw_int) class helper"
+      "proxy class must expose .from_ref(raw_int) class helper"
 
     inst = klass.from_ref(0xCAFEBABE)
     assert_kind_of klass, inst
     assert_equal 0xCAFEBABE, inst.__opaque_ref,
-      "T52b: from_ref(int) instance must retain raw opaque ref"
+      "from_ref(int) instance must retain raw opaque ref"
   end
 
   def test_objc_instance_method_routes_via_proxy_instance_with_receiver_prepend
@@ -222,7 +222,7 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     klass = box.const_get(:Foundation).const_get(:NSOperationQueue)
     inst = klass.from_ref(0xCAFEBABE)
     assert_respond_to inst, :addOperations_waitUntilFinished,
-      "T52b: objc_method_instance must install as proxy class instance method"
+      "objc_method_instance must install as proxy class instance method"
 
     inst.addOperations_waitUntilFinished([1, 2, 3], true)
     assert_equal [[
@@ -230,10 +230,10 @@ class TestNamespaceBuilder < Test::Unit::TestCase
       "NSOperationQueue.addOperations:waitUntilFinished:",
       [0xCAFEBABE, [1, 2, 3], true]
     ]], calls,
-      "T52b: receiver opaque ref must be prepended to dispatcher args"
+      "receiver opaque ref must be prepended to dispatcher args"
   end
 
-  # T53j — Apple.discover の return_klass: opt で proxy auto-wrap class を
+  # Apple.discover の return_klass: opt で proxy auto-wrap class を
   # 受信側 (klass:) と異なる class に明示指定可能にする。 NSURLSession#dataTask
   # は NSURLSessionDataTask を返すため、 receiver class (NSURLSession) で wrap
   # すると NSURLSessionDataTask の instance method (resume 等) が見えない。
@@ -258,7 +258,7 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     result = session.dataTaskWithURL_completionHandler(0x0, nil)
     task_klass = fw.const_get(:NSURLSessionDataTask)
     assert_kind_of task_klass, result,
-      "T53j: return_klass: で指定した class の proxy instance が返るべき"
+      "return_klass: で指定した class の proxy instance が返るべき"
     assert_equal raw, result.__opaque_ref
   end
 
@@ -279,13 +279,13 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     klass = box.const_get(:Foundation).const_get(:NSOperationQueue)
     inst = klass.init
     assert_kind_of klass, inst,
-      "T52b: swift_init with return_kind :opaque_ref must auto-wrap dispatcher result into proxy instance"
+      "swift_init with return_kind :opaque_ref must auto-wrap dispatcher result into proxy instance"
     assert_equal raw, inst.__opaque_ref,
-      "T52b: wrapped instance must retain dispatcher-returned raw opaque ref"
+      "wrapped instance must retain dispatcher-returned raw opaque ref"
   end
 
-  # T52h — proxy instance → raw opaque ref Integer unwrap on dispatcher call。
-  # T52b の auto-wrap で Apple::FW::Klass.method(...) の opaque_ref 戻り値が
+  # proxy instance → raw opaque ref Integer unwrap on dispatcher call。
+  # auto-wrap で Apple::FW::Klass.method(...) の opaque_ref 戻り値が
   # proxy instance になるが、その instance を引数として再度 instance method
   # に渡すケース (queue.addOperations_waitUntilFinished(ops, true) など) で
   # dispatcher.call に渡る args は raw Integer に unwrap されている必要がある
@@ -313,7 +313,7 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     queue.addOperation(op)
 
     assert_equal [[0xCAFE, 0xBABE]], calls,
-      "T52h: single proxy instance arg must be unwrapped to raw __opaque_ref Integer"
+      "single proxy instance arg must be unwrapped to raw __opaque_ref Integer"
   end
 
   def test_dispatcher_args_unwrap_array_of_proxy_instances_recursively
@@ -339,10 +339,10 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     queue.addOperations_waitUntilFinished([op1, op2], true)
 
     assert_equal [[0xCAFE, [0x1111, 0x2222], true]], calls,
-      "T52h: Array of proxy instances must be unwrapped element-wise to raw Integer Array"
+      "Array of proxy instances must be unwrapped element-wise to raw Integer Array"
   end
 
-  # T54w — C function path も proxy unwrap を適用。 Apple.discover(:symbol)
+  # C function path も proxy unwrap を適用。 Apple.discover(:symbol)
   # 経由で discover した C 関数 (`CGImageSourceCreateWithURL` 等) の引数列に
   # Apple proxy instance (`Apple::Foundation::NSURL.urlWithString(...)` の戻り
   # 値) を渡すケースで、 dispatcher.call の args が raw Integer に unwrap
@@ -372,10 +372,10 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     box.const_get(:ImageIO).CGImageSourceCreateWithURL(url_proxy, nil)
 
     assert_equal [[0xDEAD, nil]], calls,
-      "T54w: C function 経路でも proxy instance arg は raw Integer に unwrap"
+      "C function 経路でも proxy instance arg は raw Integer に unwrap"
   end
 
-  # T41 — swift_func (top-level / static) maps to :method on the framework
+  # swift_func (top-level / static) maps to :method on the framework
   # module, NOT under a klass. canonical_name has no dot for top-level.
   def test_install_one_swift_func_top_level_installs_on_framework_module
     box = Module.new

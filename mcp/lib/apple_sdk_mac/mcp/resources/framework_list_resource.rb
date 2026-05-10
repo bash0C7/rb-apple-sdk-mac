@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# spec §5.2 — KB から framework 一覧 + symbol 数を markdown 表で返す。
+# Knowledge Base から framework 一覧 + symbol 数を markdown 表で返す。
 
 module AppleSDKMac
   module MCP

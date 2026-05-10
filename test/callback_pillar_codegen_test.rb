@@ -48,7 +48,7 @@ class TestCallbackPillarCodegen < Test::Unit::TestCase
     end
   end
 
-  # Phase 7 (Block parameters / callback catalog expansion):
+  # (Block parameters / callback catalog expansion):
   # The codegen must template the trampoline parameter list from YAML, not
   # hardcode the MIDINotifyProc shape. This unlocks adding MIDIReadProc and any
   # future C-callback signature without re-touching the codegen Ruby file.

@@ -68,7 +68,7 @@ class TestCoreMIDISmoke < Test::Unit::TestCase
   # shape as MIDISend without needing a real subscriber/destination, so
   # it's the smoke target — same struct_in_pointer Marshaller path.
   def test_send_packet_via_midi_received
-    # Phase 7 — full-suite mode hits a CoreMIDI runloop / port state
+    # full-suite mode hits a CoreMIDI runloop / port state
     # bleed when run alongside test_receive_notification: MIDIClientCreate
     # itself returns OSStatus from the second client of the session even
     # though the call shape is correct. Run in isolation passes

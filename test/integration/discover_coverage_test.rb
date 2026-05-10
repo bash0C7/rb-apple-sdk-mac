@@ -1,15 +1,14 @@
 # frozen_string_literal: true
 require "test_helper"
 
-# Phase 7 T13 / spec §6 macro coverage. Random-samples 1000 symbols
-# from the KnowledgeCache and asserts every one resolves to a kind the
-# v1.0 catalog recognizes. This is the safety net for "any public Apple
-# framework API is reachable" — if a kind shows up in the DB that the
-# Glue Compiler / Apple.discover dispatch cannot route, this test
-# surfaces it before users hit it.
+# Macro coverage. Random-samples symbols from the KnowledgeCache and
+# asserts every one resolves to a kind the catalog recognizes. Safety
+# net for "any public Apple framework API is reachable" — if a kind
+# shows up in the DB that Apple.discover dispatch cannot route, this
+# test surfaces it before users hit it.
 #
-# Per spec L466-468 this is a no-LLM check: kind MUST be derivable from
-# the DB record alone. We do NOT compile glue here.
+# This is a no-LLM check: kind MUST be derivable from the DB record
+# alone. No glue is compiled here.
 class TestDiscoverCoverage < Test::Unit::TestCase
   # Vocabulary derived from rb-apple-sdk-knowledge classifier output
   # plus the synthesized kinds Apple.discover registers into the transient
@@ -40,7 +39,7 @@ class TestDiscoverCoverage < Test::Unit::TestCase
     unknown = sample.reject { |r| KIND_VOCABULARY.include?(r[1]) }
     if unknown.any?
       head = unknown.first(10).map { |r| "#{r[2]}::#{r[0]} (kind=#{r[1].inspect})" }
-      flunk "found #{unknown.size}/#{sample.size} symbols with kind outside v1.0 catalog. " \
+      flunk "found #{unknown.size}/#{sample.size} symbols with kind outside the catalog. " \
             "First 10:\n  - #{head.join("\n  - ")}"
     end
   end
@@ -54,9 +53,8 @@ class TestDiscoverCoverage < Test::Unit::TestCase
     found = db.execute("SELECT DISTINCT kind FROM symbols").flatten
     catalog_kinds_in_db = KIND_VOCABULARY & found
     # Expect at least 6 of the catalog kinds to be present (function,
-    # global_constant, enum_case, struct, class_method, etc.). v1.0
-    # synthesized kinds (block_nilable etc.) are populated only after
-    # the T14 sibling-repo migration; not a regression today.
+    # global_constant, enum_case, struct, class_method, etc.). Synthesized
+    # kinds (block_nilable etc.) are populated as the importer evolves.
     assert_operator catalog_kinds_in_db.size, :>=, 6,
       "expected at least 6 catalog kinds in KB; found: #{catalog_kinds_in_db.inspect}"
   end

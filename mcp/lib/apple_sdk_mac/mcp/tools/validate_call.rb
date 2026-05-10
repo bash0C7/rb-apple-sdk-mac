@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 require "json"
 
-# spec §4.6 — Ruby コード片の Apple.discover / Apple::FW.method 呼び出しを
-# KB に対して検証。 swiftc は走らせない (重い)。 regex で抽出 → KB lookup_symbol
-# で存在確認、 不存在シンボルを issues として返す。
+# Ruby コード片の Apple.discover / Apple::FW.method 呼び出しを Knowledge Base
+# に対して検証する。 swiftc は走らせない (重い)。 regex で抽出 →
+# lookup_symbol で存在確認、 不存在シンボルを issues として返す。
 
 module AppleSDKMac
   module MCP
@@ -65,9 +65,8 @@ module AppleSDKMac
           end
 
           # klass あり時は parent_id JOIN で検証する KnowledgeCache#lookup_klass_method
-          # 経由。 KB symbols table は klass を parent_id で持つので flat name
-          # lookup_symbol("Klass.method") では絶対 hit せん (Phase F follow-up,
-          # memory `validate_call_kb_canonical_mismatch.md`)。
+          # 経由。 Knowledge Base の symbols table は klass を parent_id で持つので
+          # flat name lookup_symbol("Klass.method") では hit しない。
           extract_direct_calls(ruby_code).each do |framework, klass, method|
             total += 1
             record = if klass

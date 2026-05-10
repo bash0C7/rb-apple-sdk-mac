@@ -129,7 +129,7 @@ class TestKnowledgeCache < Test::Unit::TestCase
     assert doc.is_a?(String) && !doc.empty?,
       "ARKit framework lookup must return a synthesized description even when frameworks.doc_url is empty"
     assert_match(/ARKit/i, doc)
-    # Internal "N symbols indexed" gem metadata must not leak into user-facing doc dialog (user feedback 2026-05-08).
+    # Internal "N symbols indexed" gem metadata must not leak into user-facing doc dialog.
     refute_match(/symbol/i, doc)
     refute_match(/index/i, doc)
   end
