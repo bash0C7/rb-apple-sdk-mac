@@ -76,4 +76,33 @@ class FullRebuildAssertionsTest < Test::Unit::TestCase
     cols = @db.execute("PRAGMA table_info(symbols)").map { |r| r[1] }
     assert_includes cols, "swift_imported_name"
   end
+
+  # IRB autocomplete needs class→member linkage. parent_id must be populated
+  # for instance_method rows whose parser-side parent_name was non-nil.
+  # Lifted from knowledge/test/test_importer_integration.rb (which ran a full
+  # real-SDK Pipeline.run per test method, ~17 min each); the same invariant
+  # is asserted against the standing Knowledge Base SQLite.
+  def test_instance_methods_have_parent_id_populated
+    count = @db.execute(
+      "SELECT COUNT(*) FROM symbols WHERE kind = 'instance_method' AND parent_id IS NOT NULL"
+    ).first.first
+    assert_operator count, :>, 100,
+      "expected >100 instance_methods with parent_id, got #{count}"
+  end
+
+  # parent_id must resolve back to a real type row (class/struct/protocol/
+  # enum_module/actor). Orphans indicate a parser/consolidator regression.
+  def test_instance_method_parent_id_resolves_to_a_type_row
+    orphans = @db.execute(<<~SQL).first.first
+      SELECT COUNT(*) FROM symbols c
+      WHERE c.kind = 'instance_method'
+        AND c.parent_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM symbols p
+          WHERE p.id = c.parent_id
+            AND p.kind IN ('class', 'struct', 'protocol', 'enum_module', 'actor')
+        )
+    SQL
+    assert_equal 0, orphans, "instance_method.parent_id must reference a real type row"
+  end
 end
