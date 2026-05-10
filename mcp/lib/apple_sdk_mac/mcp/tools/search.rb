@@ -86,13 +86,7 @@ module AppleSDKMac
         end
 
         def fetch_cross_framework(query:, limit:)
-          @kb.list_frameworks.flat_map do |fw|
-            @kb.search(framework: fw, query: query, limit: PER_FRAMEWORK_FETCH).map do |r|
-              r.merge(framework: fw)
-            end
-          rescue StandardError
-            []
-          end
+          @kb.search_all_frameworks(query: query, per_fw: PER_FRAMEWORK_FETCH, total: limit)
         end
 
         def filter_kinds(rows, kinds)

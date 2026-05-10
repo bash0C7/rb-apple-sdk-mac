@@ -79,13 +79,7 @@ module AppleSDKMac
           if framework
             @kb.search(framework: framework, query: intent, limit: SEARCH_LIMIT).map { |r| r.merge(framework: framework) }
           else
-            @kb.list_frameworks.flat_map { |fw|
-              begin
-                @kb.search(framework: fw, query: intent, limit: 3).map { |r| r.merge(framework: fw) }
-              rescue StandardError
-                []
-              end
-            }.first(SEARCH_LIMIT)
+            @kb.search_all_frameworks(query: intent, per_fw: 3, total: SEARCH_LIMIT)
           end
         end
 

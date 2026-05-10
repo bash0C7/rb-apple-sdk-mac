@@ -24,6 +24,12 @@ class SearchTest < Test::Unit::TestCase
     def list_frameworks
       fixture.map { |r| r[:framework] }.uniq
     end
+
+    def search_all_frameworks(query:, per_fw: 3, total: 5)
+      list_frameworks.flat_map do |fw|
+        search(framework: fw, query: query, limit: per_fw).map { |r| r.merge(framework: fw) }
+      end.first(total)
+    end
   end
 
   def setup
@@ -91,6 +97,7 @@ class SearchTest < Test::Unit::TestCase
       []
     end
     def list_frameworks; []; end
+    def search_all_frameworks(query:, per_fw: 3, total: 5); []; end
   end
 
   def test_multi_token_natural_phrase_is_or_joined
