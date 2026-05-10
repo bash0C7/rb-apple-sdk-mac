@@ -200,32 +200,31 @@ class TestExamplesSmoke < Test::Unit::TestCase
       "DEFERRED 退路は禁止 (release_quality 命題)")
   end
 
-  def test_objc_classmethod_actually_returns_nsstring_pointer
-    res = run_example("objc_classmethod.rb")
-    assert_equal 0, res[:exitstatus],
-      "objc_classmethod.rb exited #{res[:exitstatus]}; stderr:\n#{res[:stderr]}"
-    assert_match(/^objc class method OK$/, res[:stdout],
-      "expected 'objc class method OK' (no DEFERRED); got:\n#{res[:stdout]}")
-    refute_match(/DEFERRED/, res[:stdout],
-      "DEFERRED 退路は禁止 (release_quality 命題)")
-    assert_match(/^result=\d+$/, res[:stdout],
-      "result must be a non-zero integer (raw NSString pointer)")
-  end
-
-  # discover_escape は Apple.discover の escape hatch を [:opaque_ref, :cstring,
-  # :uint32] -> :opaque_ref shape で叩く。 README L8 の commitment を裏付ける
-  # ため、 LLM safety net に落ちず static template path で完結することを assert。
-  # compile_history.generator = 'template' が静的 catalog 解決の証跡。
-  def test_discover_escape_example_uses_static_template_path
+  # discover_escape は Apple.discover の escape hatch を 2 通り示す:
+  #   Case 1: C function 直叩き — [:opaque_ref, :cstring, :uint32] -> :opaque_ref
+  #     shape で CFStringCreateWithCString を呼ぶ。 README L8 の commitment を
+  #     裏付けるため、 LLM safety net に落ちず static template path で完結する
+  #     ことを assert (compile_history.generator='template')。
+  #   Case 2: ObjC class method — +[NSString stringWithUTF8String:] を
+  #     Apple.discover(class_method:) 経由で。 emit_objc_class_method の Swift 6
+  #     init-bridge で +1-retained NSString 戻り raw pointer を返す。
+  def test_discover_escape_example_covers_cf_and_nsstring_paths
     res = run_example("discover_escape.rb")
     assert_equal 0, res[:exitstatus],
       "discover_escape.rb exited #{res[:exitstatus]}; stderr:\n#{res[:stderr]}"
+    refute_match(/DEFERRED/, res[:stdout],
+      "DEFERRED 退路は禁止 (release_quality 命題)")
+    # Case 1: CF function 直叩き
     assert_match(/discover_escape: CFStringCreateWithCString returned box=\d+/,
       res[:stdout],
-      "discover_escape.rb did not print expected box pointer")
+      "discover_escape.rb did not print expected box pointer for CF case")
+    # Case 2: ObjC class method (Swift 6 init-bridge form)
+    assert_match(/discover_escape: NSString\.stringWithUTF8String returned ptr=\d+/,
+      res[:stdout],
+      "discover_escape.rb did not print expected NSString pointer")
 
     # Static catalog assertion: the compiled-glue cache history must show
-    # generator='template' for this symbol on the most recent attempt.
+    # generator='template' for the CF symbol on the most recent attempt.
     require "apple_sdk_mac/compiled_glue_cache"
     require "apple_sdk_mac/cache_dir"
     require "apple_sdk_knowledge"

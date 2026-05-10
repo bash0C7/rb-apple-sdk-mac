@@ -31,8 +31,8 @@ A few examples take optional positional args (download URL, OCR fixture path, MI
 | `cf_string_create.rb` | CoreFoundation `CFStringCreateWithCString` round-trip via auto-ARC `BoxedCFType` | ✅ exits 0 with `auto-ARC OK — runtime BoxedCFType owns release` |
 | `coremidi_endpoint_count.rb` | CoreMIDI `MIDIGetNumberOfSources` / `MIDIGetNumberOfDestinations` | ✅ exits 0 — output reflects the actual MIDI hardware state (`0` if nothing connected) |
 | `coremidi_receive.rb` | CoreMIDI client + input port + 2-second receive loop (CallbackPillar persistent slot) | ✅ exits 0 with `done` |
+| `discover_escape.rb` | Apple.discover escape-hatch demo: (1) CF function direct via [:opaque_ref, :cstring, :uint32] -> :opaque_ref shape, (2) ObjC class method via `Apple.discover(class_method:)` (`+[NSString stringWithUTF8String:]` → Swift 6 init-bridge) | ✅ exits 0, both `box=` and `ptr=` lines printed |
 | `irb_completion_demo.rb` | Headless smoke of the `apple_sdk_mac/irb` Completor (no TTY required) | ✅ exits 0 with `irb_completion_demo OK` |
-| `objc_classmethod.rb` | ObjC class method via `Apple.discover(class_method:)` (`+[NSString stringWithUTF8String:]` → Swift 6 init-bridge) | ✅ exits 0 with `objc class method OK` |
 | `urlsession_download.rb` | NSURLSession real HTTP `dataTaskWithURL:completionHandler:` (BlockPersistentMarshaller) | ✅ exits 0 — needs network |
 | `vision_ocr.rb` | Vision `VNRecognizeTextRequest` against `fixtures/ocr_hello.png` | ✅ exits 0 — needs the fixture |
 
