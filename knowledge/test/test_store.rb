@@ -25,14 +25,31 @@ class TestStore < Test::Unit::TestCase
     store.close
   end
 
-  def test_open_creates_fts_and_vec_virtual_tables
+  def test_open_creates_fts_virtual_table
     store = AppleSDKKnowledge::Store.open(@db_path)
     tables = store.db.execute(<<~SQL).flatten
       SELECT name FROM sqlite_master ORDER BY name
     SQL
     assert_includes tables, "symbols_fts"
-    assert_includes tables, "symbols_vec"
     store.close
+  end
+
+  # Embedder is gone; the symbols_vec virtual table and Store#vec_insert
+  # were placeholder scaffolding for a Foundation Models embedder that
+  # only ever wrote zero-vectors. They're removed so the schema reflects
+  # the current state.
+  def test_symbols_vec_table_absent_after_migrate
+    store = AppleSDKKnowledge::Store.open(@db_path)
+    tables = store.db.execute(
+      "SELECT name FROM sqlite_master ORDER BY name"
+    ).flatten
+    refute_includes tables, "symbols_vec"
+    store.close
+  end
+
+  def test_vec_insert_method_undefined
+    refute AppleSDKKnowledge::Store.instance_methods.include?(:vec_insert),
+      "Store#vec_insert must be removed alongside the symbols_vec table"
   end
 
   def test_insert_framework_and_select
@@ -158,30 +175,4 @@ class TestStore < Test::Unit::TestCase
     store.close
   end
 
-  def test_vec_insert_is_idempotent_on_same_symbol_id
-    Dir.mktmpdir do |dir|
-      store = AppleSDKKnowledge::Store.open(File.join(dir, "test.sqlite"))
-      fw_id = store.insert_framework(name: "TestFW", swift_module: "TestFW")
-      sym_id = store.insert_symbol(
-        framework_id: fw_id, name: "foo", kind: "function",
-        abi: "swift", content_hash: "h1", signature: "func foo()"
-      )
-
-      embedding = Array.new(768) { 0.1 }
-      assert_nothing_raised do
-        store.vec_insert(sym_id, embedding)
-        # Second insert with SAME symbol_id — vec0 virtual table has UNIQUE PK
-        # on symbol_id and does NOT honor INSERT OR REPLACE. Must succeed by
-        # DELETE + INSERT (or equivalent idempotent path) without raising
-        # SQLite3::SQLException "UNIQUE constraint failed".
-        store.vec_insert(sym_id, embedding)
-      end
-
-      count = store.db.execute(
-        "SELECT COUNT(*) FROM symbols_vec WHERE symbol_id = ?", [sym_id]
-      ).first.first
-      assert_equal 1, count, "expected exactly 1 row after idempotent re-insert, got #{count}"
-      store.close
-    end
-  end
 end
