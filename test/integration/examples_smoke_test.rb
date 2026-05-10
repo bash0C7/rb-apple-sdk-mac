@@ -200,6 +200,21 @@ class TestExamplesSmoke < Test::Unit::TestCase
   # により `+stringWithUTF8String:` → `NSString(utf8String: arg0)` に decoded、
   # 戻り値は +1-retained NSString pointer。DEFERRED 退路は許可しない (spec §6 /
   # release_quality_completion_required.md)。
+  # Phase 4 verification gate (v1.2 spec § 4.5 acceptance) — avspeech_synth.rb
+  # は AVFoundation Swift overlay framework を bootstrap! のみで discover →
+  # init → speak まで通す。 実音声 device は CI / headless で未提供なことが
+  # あるため、 'speak issued' 行 (= bootstrap が完走した証跡) を必須にし、
+  # 実再生完了 ('speak completed OK') は audio device 依存なので強制しない。
+  def test_avspeech_synth_bootstrap_completes_through_speak_call
+    res = run_example("avspeech_synth.rb", timeout: 35)
+    assert_match(/speak issued: /, res[:stdout],
+      "Phase 4 verification: AVSpeechSynthesizer.init / AVSpeechUtterance.init_string / " \
+      "synthesizer.speak が bootstrap! のみで通って 'speak issued:' 行に到達せなあかん。 " \
+      "stderr=#{res[:stderr]}")
+    refute_match(/DEFERRED/, res[:stdout],
+      "Phase 4 verification: DEFERRED 退路は禁止 (release_quality 命題)")
+  end
+
   def test_objc_classmethod_actually_returns_nsstring_pointer
     res = run_example("objc_classmethod.rb")
     assert_equal 0, res[:exitstatus],

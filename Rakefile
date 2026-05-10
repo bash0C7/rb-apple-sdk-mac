@@ -11,7 +11,8 @@ end
 Rake::TestTask.new(:test) do |t|
   t.libs << "test"
   t.libs << "lib"
-  t.test_files = FileList["test/**/*_test.rb"]
+  t.libs << "tooling/lib"
+  t.test_files = FileList["test/**/*_test.rb", "knowledge/test/test_*.rb"]
 end
 
 namespace :runtime do
@@ -27,6 +28,50 @@ namespace :runtime do
 end
 
 namespace :apple do
+  namespace :knowledge do
+    desc "Rebuild KB SQLite into <project>/.rb-apple-sdk-mac/knowledge/ (project-scoped)"
+    task :rebuild do
+      require "fileutils"
+      require_relative "lib/apple_sdk_mac/cache_dir"
+      kb_base = File.join(AppleSDKMac.cache_dir, "knowledge")
+      FileUtils.mkdir_p(kb_base)
+      Dir.chdir(File.expand_path("knowledge", __dir__)) do
+        sh({ "APPLE_SDK_MAC_KB_BASE_DIR" => kb_base }, "bundle", "exec", "rake", "apple:knowledge:rebuild")
+      end
+    end
+
+    desc "Wipe project-scoped Knowledge Base SQLite under .rb-apple-sdk-mac/knowledge/ (scoped — does not touch ~/.cache)"
+    task :clean do
+      require "fileutils"
+      require_relative "lib/apple_sdk_mac/cache_dir"
+      kb_base = File.join(AppleSDKMac.cache_dir, "knowledge")
+      if File.directory?(kb_base)
+        FileUtils.rm_rf(kb_base)
+        puts "cleaned: #{kb_base}"
+      else
+        puts "nothing to clean: #{kb_base} does not exist"
+      end
+    end
+
+    desc "Detached rebuild via screen (CLAUDE.md ロングバッチ pattern; tail tmp/longrun/<NAME>.log)"
+    task :rebuild_async do
+      require "fileutils"
+      FileUtils.mkdir_p("tmp/longrun")
+      name = ENV.fetch("NAME", "knowledge-rebuild-#{Time.now.strftime('%Y%m%d-%H%M%S')}")
+      log  = File.join("tmp/longrun", "#{name}.log")
+      cmd  = <<~SH
+        bundle exec rake apple:knowledge:rebuild > #{log} 2>&1
+        echo "DONE: exit=$?" >> #{log}
+      SH
+      ok = system("screen", "-dmS", name, "bash", "-c", cmd)
+      raise "screen -dmS failed for #{name}" unless ok
+      puts "started detached rebuild: screen session=#{name} log=#{log}"
+      puts "tail:    tail -f #{log}"
+      puts "status:  grep '^DONE:' #{log}   (0 lines = running, 1 line = finished w/ exit code)"
+      puts "kill:    screen -X -S #{name} quit"
+    end
+  end
+
   namespace :runtime do
     desc "swift build the runtime dylib (release config) and copy generated -Swift.h into ext/"
     task :sync_header do
@@ -108,6 +153,19 @@ namespace :apple do
 
     desc "Clear all cache artifacts (glue + sources + DB) for the given SDK version"
     task :clear_all => [:clear_glue, :clear_db]
+
+    desc "Remove project-scoped glue artifacts (<project>/.rb-apple-sdk-mac)"
+    task :clear do
+      require "fileutils"
+      require_relative "lib/apple_sdk_mac/cache_dir"
+      target = AppleSDKMac.cache_dir
+      if Dir.exist?(target)
+        FileUtils.rm_rf(target)
+        puts "Cleared: #{target}"
+      else
+        puts "Nothing to clear: #{target}"
+      end
+    end
   end
 end
 
@@ -134,6 +192,8 @@ namespace :test do
     [
       "test/integration/readme_canonical_test.rb",
       "test/integration/examples_smoke_test.rb",
+      "test/integration/examples_v12_e2e_test.rb",
+      "test/integration/full_rebuild_assertions_test.rb",
       "test/integration/discover_coverage_test.rb",
       "test/integration/memory_leak_test.rb",
       "test/concurrency/concurrent_discover_test.rb"
@@ -148,3 +208,5 @@ namespace :test do
 end
 
 task default: :test
+
+load "tooling/lib/tasks/emitter.rake"

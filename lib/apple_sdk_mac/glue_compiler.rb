@@ -19,11 +19,13 @@ module AppleSDKMac
 
     def initialize(cache:, runtime_dylib_path:, runtime_modules_paths: [],
                     llm_generator: nil, swiftc_invoker: nil,
+                    template_generator: nil,
+                    knowledge_cache: nil,
                     max_llm_retries: DEFAULT_MAX_LLM_RETRIES)
       @cache = cache
       @runtime_dylib_path = runtime_dylib_path
       @runtime_modules_paths = runtime_modules_paths
-      @template = GlueCompiler::TemplateGenerator.new
+      @template = template_generator || GlueCompiler::TemplateGenerator.new(knowledge_cache: knowledge_cache)
       @llm = llm_generator
       @gates = GlueCompiler::ValidationGates.new
       @swiftc = swiftc_invoker || GlueCompiler::SwiftcInvoker.new
@@ -31,6 +33,14 @@ module AppleSDKMac
     end
 
     def compile(framework:, symbol:)
+      result = try_template(framework: framework, symbol: symbol)
+      return result if result.success?
+      try_llm(framework: framework, symbol: symbol, prior_failure: result)
+    end
+
+    private
+
+    def try_template(framework:, symbol:)
       glue_id = compute_glue_id(framework, symbol)
       base = File.join(@cache.base_dir, @cache.sdk_version)
       src = File.join(base, "sources", "#{glue_id}.swift")
@@ -45,7 +55,8 @@ module AppleSDKMac
       swift_source = @template.generate(framework: framework, symbol: symbol, glue_id: glue_id)
 
       if swift_source.nil?
-        return llm_path(framework, symbol, glue_id, src, dylib, exported)
+        return Result.new(success?: false, error_stage: "template_nil",
+                           error_detail: "template returned nil")
       end
 
       gate_result = @gates.validate(swift_source, framework: framework,
@@ -55,7 +66,8 @@ module AppleSDKMac
                                generator: "template",
                                error_stage: "static_check",
                                error_detail: gate_result.errors.join("; "))
-        return llm_path(framework, symbol, glue_id, src, dylib, exported)
+        return Result.new(success?: false, error_stage: "static_check",
+                           error_detail: gate_result.errors.join("; "))
       end
 
       File.write(src, swift_source)
@@ -79,9 +91,12 @@ module AppleSDKMac
                   dylib_path: dylib, exported_symbol: exported)
     end
 
-    private
+    def try_llm(framework:, symbol:, prior_failure: nil)
+      glue_id = compute_glue_id(framework, symbol)
+      base = File.join(@cache.base_dir, @cache.sdk_version)
+      src = File.join(base, "sources", "#{glue_id}.swift")
+      dylib = File.join(base, "lib", "#{glue_id}.dylib")
 
-    def llm_path(framework, symbol, glue_id, src, dylib, exported)
       return Result.new(success?: false, error_stage: "no_llm",
                          error_detail: "LLM generator not provided") unless @llm
 
@@ -89,6 +104,7 @@ module AppleSDKMac
       # (`@c public func glue_<id>_<symbol>`) accepts the LLM's output for
       # canonical-name shapes like "NSString.stringWithUTF8String".
       swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
+      exported = "glue_#{glue_id}_#{swift_id}"
 
       @max_llm_retries.times do |attempt|
         swift_source = begin

@@ -9,7 +9,7 @@ gemspec
 gem "swift_gem", git: "https://github.com/bash0C7/swift_gem"
 
 gem "rb-foundation-model-mac", path: "../rb-foundation-model-mac"
-gem "rb-apple-sdk-knowledge", path: "../rb-apple-sdk-knowledge"
+gem "rb-apple-sdk-knowledge", path: "knowledge"
 
 gem "rake", "~> 13.0"
 gem "rake-compiler", "~> 1.2"
@@ -22,4 +22,6 @@ gem "fiddle"  # Test-only: MIDIPacketList byte-packing in test_send_packet_via_m
 # polluting the main gemspec.
 group :development do
   gem "apple_sdk_mac-irb", path: "irb"
+  # tooling/ HITL emitter-improvement RedundancyScanner (Ruby AST 走査)
+  gem "parser"
 end

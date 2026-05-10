@@ -2,6 +2,7 @@
 require "json"
 require "set"
 require_relative "marshallers"
+require_relative "swift_bridge_name"
 
 module AppleSDKMac
   class GlueCompiler
@@ -114,6 +115,9 @@ module AppleSDKMac
         ctx = { framework: framework, knowledge_cache: @kc, struct_visited: Set.new }
         marshallers = params.map.with_index { |p, i| Marshaller.for(p, i, ctx) }
         return nil if marshallers.any?(&:nil?)
+        return nil if marshallers.any? { |m|
+          m.param[:is_out_param] && m.out_handling.nil?
+        }
 
         out_marshallers = marshallers.select { |m| m.param[:is_out_param] }
 
@@ -121,7 +125,7 @@ module AppleSDKMac
                               .map(&:in_load).compact
 
         call_args = marshallers.map { |m|
-          m.param[:is_out_param] ? m.out_addr : m.call_arg
+          m.param[:is_out_param] ? m.out_handling[:addr] : m.call_arg
         }.join(", ")
 
         call_expr = "#{symbol[:name]}(#{call_args})"
@@ -133,23 +137,23 @@ module AppleSDKMac
         body.concat(in_loads)
 
         if out_marshallers.length == 1
-          out = out_marshallers.first
-          body << out.out_init
+          out = out_marshallers.first.out_handling
+          body << out[:init]
           body << "let status = #{call_expr}"
           body << %(if status != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
-          post = out.out_post_call
+          post = out_marshallers.first.out_post_call
           body << post if post
-          body << "return #{out.out_to_ruby}"
+          body << "return #{out[:to_ruby]}"
         elsif out_marshallers.length >= 2
           # Multi-out: status check then build a Ruby Hash with one key per out-param.
-          out_marshallers.each { |m| body << m.out_init }
+          out_marshallers.each { |m| body << m.out_handling[:init] }
           body << "let status = #{call_expr}"
           body << %(if status != 0 { rb_raise(rb_eRuntimeError, "OSStatus") })
           body << "let multi_out_h = rb_hash_new()"
           out_marshallers.each do |m|
             post = m.out_post_call
             body << post if post
-            body << "rb_hash_aset(multi_out_h, rb_str_new_cstr(\"#{m.param[:name]}\"), #{m.out_to_ruby})"
+            body << "rb_hash_aset(multi_out_h, rb_str_new_cstr(\"#{m.param[:name]}\"), #{m.out_handling[:to_ruby]})"
           end
           body << "return multi_out_h"
         else
@@ -224,7 +228,7 @@ module AppleSDKMac
         exported = "glue_#{glue_id}_#{swift_id}"
 
         in_loads = params.each_with_index.map { |k, i| objc_in_load(k, i) }
-        call_expr = swift_call_for_class_method(swift_klass, selector, params)
+        call_expr = swift_call_for_class_method(swift_klass, selector, params, framework: framework)
 
         body = in_loads + ["let raw = #{call_expr}"] + objc_return_lines(return_kind, "raw")
 
@@ -649,7 +653,18 @@ module AppleSDKMac
       # (e.g. NSString.stringWithUTF8String → NSString.init(utf8String:))。
       # この shape の selector は init form を emit する。それ以外は class method
       # form (`Klass.swiftMethod(args)`) を維持。
-      def swift_call_for_class_method(klass, selector, params)
+      def swift_call_for_class_method(klass, selector, params, framework: nil)
+        # Phase 4b — try KB swift_imported_name + manual overrides first.
+        # Heuristic remains the fallback for selectors not yet covered by
+        # the Swift overlay importer (e.g. selectors from frameworks the
+        # importer skipped due to generic / async / where clauses).
+        if (kb_or_override = SwiftBridgeName.resolve(
+              framework: framework, klass: klass,
+              selector: selector, params: params, kc: @kc,
+            ))
+          return kb_or_override
+        end
+
         parts = selector.split(":", -1).reject(&:empty?)
         if parts.size == 1
           sole = parts[0]

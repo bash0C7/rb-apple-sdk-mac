@@ -7,11 +7,13 @@ module AppleSDKMac
     # subset of the protocol that applies to them; defaults below are no-ops.
     #
     # Protocol (each returns a Swift snippet or nil):
-    #   in_load     — argv[i] → Swift binding at the function entry
-    #   call_arg    — Swift expression for the argument at the C call site
-    #   out_init    — out-param `var` declaration before the call
-    #   out_addr    — `&...` expression at the call site for an out-param
-    #   out_to_ruby — Swift expression that converts the post-call out value to Ruby VALUE
+    #   in_load          — argv[i] → Swift binding at the function entry
+    #   call_arg         — Swift expression for the argument at the C call site
+    #   out_handling     — {init:, addr:, to_ruby:} Hash for out-params, or nil if unsupported
+    #                      init:     var declaration before the call
+    #                      addr:     `&...` expression at the call site
+    #                      to_ruby:  Swift expression converting post-call value to Ruby VALUE
+    #   out_post_call    — optional Swift snippet between status check and return (e.g. struct marshal)
     #   call_wrapper(inner) — optional wrapping around the C call expression
     #                         (e.g. withUnsafePointer { ... }); base returns inner
     class Marshaller
@@ -25,10 +27,8 @@ module AppleSDKMac
 
       def in_load;      nil end
       def call_arg;     @param[:name] end
-      def out_init;     nil end
-      def out_addr;     nil end
       def out_post_call; nil end  # Swift snippet between status check and return
-      def out_to_ruby;  nil end   # final expression for `return ...`
+      def out_handling; nil end   # sentinel: nil means marshaller cannot handle out-param
       def call_wrapper(inner); inner end
 
       REGISTRY = {}
@@ -53,6 +53,7 @@ module AppleSDKMac
 
     class IntMarshaller < Marshaller
       def in_load
+        return nil if @param[:is_out_param]
         "let #{@param[:name]}: Int64 = rb_num2ll(argv[#{@index}])"
       end
 
@@ -65,9 +66,22 @@ module AppleSDKMac
       # to be visible at glue lexical scope. For `Int64` the cast is
       # unnecessary noise; pass through unchanged.
       def call_arg
+        return "&#{@param[:name]}" if @param[:is_out_param]
         ctype = scalar_type_token(@param[:type])
         return @param[:name] if ctype.nil? || ctype == "Int64"
         "numericCast(#{@param[:name]})"
+      end
+
+      def out_handling
+        return nil unless @param[:is_out_param]
+        ctype = scalar_type_token(@param[:type]) || "Int64"
+        {
+          init: "var #{@param[:name]}: #{ctype} = 0",
+          addr: "&#{@param[:name]}",
+          to_ruby: unsigned?(@param[:type]) \
+            ? "rb_ull2inum(UInt64(#{@param[:name]}))"
+            : "rb_ll2inum(Int64(#{@param[:name]}))"
+        }
       end
 
       private
@@ -76,23 +90,86 @@ module AppleSDKMac
         cleaned = raw.to_s.strip
                      .sub(/\Aconst\s+/, "")
                      .gsub(/\b_(Nonnull|Nullable)\b/, "")
+                     .sub(/\s*\*+\s*\z/, "")
                      .strip
-        return nil if cleaned.empty? || cleaned.include?("*")
+        return nil if cleaned.empty? || cleaned.include?("*") || cleaned == "void"
         cleaned
+      end
+
+      def unsigned?(t)
+        t.match?(/\b(UInt|UInt8|UInt16|UInt32|UInt64|uint(8|16|32|64)_t|unsigned)\b/)
       end
     end
     Marshaller::REGISTRY["int"] = IntMarshaller
 
     class BoolMarshaller < Marshaller
       def in_load
+        return nil if @param[:is_out_param]
         "let #{@param[:name]}: Bool = (argv[#{@index}] != Qfalse && argv[#{@index}] != Qnil)"
+      end
+
+      def call_arg
+        return "&#{@param[:name]}" if @param[:is_out_param]
+        @param[:name]
+      end
+
+      def out_handling
+        return nil unless @param[:is_out_param]
+        {
+          init:    "var #{@param[:name]}: Bool = false",
+          addr:    "&#{@param[:name]}",
+          to_ruby: "#{@param[:name]} ? Qtrue : Qfalse"
+        }
       end
     end
     Marshaller::REGISTRY["bool"] = BoolMarshaller
 
     class FloatMarshaller < Marshaller
       def in_load
+        return nil if @param[:is_out_param]
         "let #{@param[:name]}: Double = rb_num2dbl(argv[#{@index}])"
+      end
+
+      def call_arg
+        return "&#{@param[:name]}" if @param[:is_out_param]
+        @param[:name]
+      end
+
+      def out_handling
+        return nil unless @param[:is_out_param]
+        # Double-pointer types (indirection > 1) cannot be handled by simple
+        # &outVal emission; return nil to route to the LLM safety net per
+        # spec principle 4. Knowledge Base contains 2 such float-kind symbols:
+        # "double * _Nonnull * _Nonnull" and "float * _Nonnull * _Nonnull".
+        return nil if @param[:type].to_s.scan("*").length > 1
+        swift_type = scalar_float_type(@param[:type]) || "Double"
+        to_ruby = (swift_type == "Double") \
+          ? "rb_float_new(#{@param[:name]})"
+          : "rb_float_new(Double(#{@param[:name]}))"
+        {
+          init:    "var #{@param[:name]}: #{swift_type} = 0",
+          addr:    "&#{@param[:name]}",
+          to_ruby: to_ruby
+        }
+      end
+
+      private
+
+      def scalar_float_type(raw)
+        cleaned = raw.to_s.strip
+                     .sub(/\Aconst\s+/, "")
+                     .gsub(/\b_(Nonnull|Nullable)\b/, "")
+                     .sub(/\s*\*+\s*\z/, "")
+                     .strip
+        return nil if cleaned.empty? || cleaned.include?("*") || cleaned == "void"
+        # Reject multi-token types (e.g. "long double") — not valid Swift
+        # identifiers. Knowledge Base contains one "long double *" symbol;
+        # returning nil causes out_handling to fall back to "Double".
+        return nil unless cleaned.match?(/\A[A-Za-z_]\w*\z/)
+        # Normalize C primitive names to Swift equivalents
+        return "Float"  if cleaned == "float"
+        return "Double" if cleaned == "double"
+        cleaned
       end
     end
     Marshaller::REGISTRY["float"] = FloatMarshaller
@@ -112,24 +189,17 @@ module AppleSDKMac
         @param[:is_out_param] ? "&#{@param[:name]}" : @param[:name]
       end
 
-      def out_init
+      def out_handling
         return nil unless @param[:is_out_param]
         ref_type = strip_pointer(@param[:type])
-        "var #{@param[:name]}: #{ref_type} = #{ref_type}()"
-      end
-
-      def out_addr
-        return nil unless @param[:is_out_param]
-        "&#{@param[:name]}"
-      end
-
-      def out_to_ruby
-        return nil unless @param[:is_out_param]
-        if unsigned?(@param[:type])
-          "rb_ull2inum(UInt64(#{@param[:name]}))"
-        else
-          "rb_ll2inum(Int64(#{@param[:name]}))"
-        end
+        to_ruby = unsigned?(@param[:type]) \
+          ? "rb_ull2inum(UInt64(#{@param[:name]}))"
+          : "rb_ll2inum(Int64(#{@param[:name]}))"
+        {
+          init:    "var #{@param[:name]}: #{ref_type} = #{ref_type}()",
+          addr:    "&#{@param[:name]}",
+          to_ruby: to_ruby
+        }
       end
 
       private
@@ -196,22 +266,14 @@ module AppleSDKMac
         @param[:name]
       end
 
-      def out_init
+      def out_handling
         return nil unless @param[:is_out_param]
         type = ref_type(@param[:type])
-        "var #{@param[:name]}: #{type}? = nil"
-      end
-
-      def out_addr
-        return nil unless @param[:is_out_param]
-        "&#{@param[:name]}"
-      end
-
-      def out_to_ruby
-        return nil unless @param[:is_out_param]
-        # Encode the CF pointer as Ruby Integer via the OpaquePointer raw bit-pattern.
-        # User must CFRelease manually (no auto-ARC bridging in Phase 7).
-        "rb_ull2inum(UInt64(UInt(bitPattern: unsafeBitCast(#{@param[:name]}!, to: OpaquePointer.self))))"
+        {
+          init:    "var #{@param[:name]}: #{type}? = nil",
+          addr:    "&#{@param[:name]}",
+          to_ruby: "rb_ull2inum(UInt64(UInt(bitPattern: unsafeBitCast(#{@param[:name]}!, to: OpaquePointer.self))))"
+        }
       end
 
       private
@@ -619,12 +681,12 @@ module AppleSDKMac
 
       def broken?; @broken; end
 
-      def out_init
-        "var #{@param[:name]}_struct = #{type}()"
-      end
-
-      def out_addr
-        "&#{@param[:name]}_struct"
+      def out_handling
+        {
+          init:    "var #{@param[:name]}_struct = #{type}()",
+          addr:    "&#{@param[:name]}_struct",
+          to_ruby: "#{@param[:name]}_h"
+        }
       end
 
       def out_post_call
@@ -640,10 +702,6 @@ module AppleSDKMac
           lines << "rb_hash_aset(#{h_var}, rb_str_new_cstr(\"#{f[:name]}\"), #{val_expr})"
         end
         lines.join("\n    ")
-      end
-
-      def out_to_ruby
-        "#{@param[:name]}_h"
       end
 
       private
@@ -674,14 +732,56 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["struct_out"] = StructOutMarshaller
 
+    # `struct_in_pointer` — C function takes `const Struct *`.
+    # When the knowledge cache has field info for the struct type, builds the
+    # struct locally from a Ruby Hash (same field-load pattern as StructInMarshaller)
+    # and passes its address (`&local_struct`). This lets callers pass a Ruby Hash
+    # with symbol keys matching the struct field names.
+    # Falls back to raw integer bit-pattern path when no field info is available
+    # (i.e. the caller must pass a pre-allocated pointer as a Ruby Integer).
     class StructInPointerMarshaller < Marshaller
+      def initialize(param, index, ctx)
+        super
+        @fields = load_fields
+        @use_hash_path = !@fields.nil? && !@fields.empty?
+      end
+
       def in_load
         type = struct_type(@param[:type])
         name = @param[:name]; i = @index
-        "let #{name}: UnsafePointer<#{type}> = UnsafePointer<#{type}>(bitPattern: UInt(rb_num2ull(argv[#{i}])))!"
+        if @use_hash_path
+          # Build struct from Ruby Hash (field-by-field), then pass &local_struct.
+          lines = ["let #{name}_h = argv[#{i}]", "var #{name}_struct = #{type}()"]
+          @fields.each do |f|
+            case f[:kind]
+            when "int"
+              lines << "#{name}_struct.#{f[:name]} = #{strip_annotations(f[:type])}(rb_num2ll(rb_hash_aref(#{name}_h, rb_str_new_cstr(\"#{f[:name]}\"))))"
+            when "float"
+              lines << "#{name}_struct.#{f[:name]} = rb_num2dbl(rb_hash_aref(#{name}_h, rb_str_new_cstr(\"#{f[:name]}\"))) "
+            when "bool"
+              lines << "#{name}_struct.#{f[:name]} = (rb_hash_aref(#{name}_h, rb_str_new_cstr(\"#{f[:name]}\")) != Qfalse)"
+            end
+          end
+          lines.join("\n    ")
+        else
+          # Raw integer bit-pattern path: caller passes a pre-allocated pointer.
+          "let #{name}: UnsafePointer<#{type}> = UnsafePointer<#{type}>(bitPattern: UInt(rb_num2ull(argv[#{i}])))!"
+        end
+      end
+
+      def call_arg
+        @use_hash_path ? "&#{@param[:name]}_struct" : @param[:name]
       end
 
       private
+
+      def load_fields
+        return nil unless @ctx[:knowledge_cache]
+        type = struct_type(@param[:type])
+        sym = @ctx[:knowledge_cache].lookup_symbol(framework: @ctx[:framework], symbol: type)
+        return nil unless sym && sym[:fields_json]
+        JSON.parse(sym[:fields_json], symbolize_names: true)
+      end
 
       def struct_type(type_str)
         # Strip leading const, trailing *, nullability annotations.
@@ -690,6 +790,10 @@ module AppleSDKMac
           .sub(/\s*\*.*\z/, "")
           .gsub(/\b_(Nonnull|Nullable)\b/, "")
           .strip
+      end
+
+      def strip_annotations(type_str)
+        type_str.gsub(/\b_(Nonnull|Nullable)\b/, "").strip
       end
     end
     Marshaller::REGISTRY["struct_in_pointer"] = StructInPointerMarshaller

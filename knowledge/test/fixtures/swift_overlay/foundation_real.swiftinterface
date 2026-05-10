@@ -1,0 +1,15 @@
+extension Foundation.URL {
+  public init?(string: Swift.String)
+  public var absoluteString: Swift.String { get }
+}
+extension Foundation.TermOfAddress : Swift.Codable {
+  public func encode(to encoder: any Swift.Encoder) throws
+}
+extension Foundation._KeyValueCodingAndObservingPublishing where Self : ObjectiveC.NSObject {
+  public func publisher<Value>(for keyPath: Swift.KeyPath<Self, Value>) -> ObjectiveC.NSObject.KeyValueObservingPublisher<Self, Value>
+}
+extension Foundation.NSKeyValueObservedChange : Swift.Sendable where Value : Swift.Sendable {
+}
+extension Foundation.URL.ParseStrategy {
+  public func parse(_ value: Swift.String) throws -> Foundation.URL
+}

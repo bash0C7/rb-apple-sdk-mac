@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 require "json"
 require_relative "config"
+require_relative "cache_dir"
 require_relative "knowledge_cache"
 require_relative "compiled_glue_cache"
 require_relative "glue_loader"
@@ -35,7 +36,7 @@ module AppleSDKMac
     end
 
     def glue_cache
-      @glue_cache ||= CompiledGlueCache.open(config.cache_dir, sdk_version: AppleSDKKnowledge::SDK.version)
+      @glue_cache ||= CompiledGlueCache.open(AppleSDKMac.cache_dir, sdk_version: AppleSDKKnowledge::SDK.version)
     end
 
     def loader
@@ -47,6 +48,7 @@ module AppleSDKMac
         cache: glue_cache,
         runtime_dylib_path: runtime_dylib_path,
         runtime_modules_paths: runtime_modules_paths,
+        knowledge_cache: knowledge_cache,
         llm_generator: GlueCompiler::LLMGenerator.new
       )
     end

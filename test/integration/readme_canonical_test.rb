@@ -81,4 +81,18 @@ class TestReadmeCanonical < Test::Unit::TestCase
       assert_match(/^OK=true$/, out, "expected OK=true; got:\n#{out}")
     end
   end
+
+  def test_no_v1_0_or_v1_1_transition_phrases
+    readme = File.read(File.expand_path("../../README.md", __dir__))
+    forbidden_phrases = [
+      "v1.0 で",
+      "v1.0 から",
+      "v1.0 → v1.1",
+      "v1.1 への",
+      "v1.1 で追加",
+    ]
+    found = forbidden_phrases.select { |p| readme.include?(p) }
+    assert_empty found,
+      "README.md に v1.0/v1.1 transition 文言が残っとる: #{found.inspect}"
+  end
 end
