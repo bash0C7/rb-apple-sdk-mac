@@ -74,18 +74,33 @@ class TestStore < Test::Unit::TestCase
     store.close
   end
 
-  def test_migrate_adds_fields_json_column_idempotently
-    # First open: schema is created with fields_json present.
+  # The schema is created entirely by SCHEMA_SQL's CREATE TABLE statement;
+  # there is no ALTER TABLE / ensure_column! migration step. Verifying via
+  # the absence of Store#ensure_column! ensures no hidden migration path
+  # creeps back in.
+  def test_schema_columns_created_inline_no_ensure_column_helper
+    refute AppleSDKKnowledge::Store.instance_methods(false).include?(:ensure_column!),
+      "Store#ensure_column! must be removed — schema is created inline by SCHEMA_SQL"
+  end
+
+  def test_fields_json_column_present_on_fresh_db
     store = AppleSDKKnowledge::Store.open(@db_path)
     cols = store.db.execute("PRAGMA table_info(symbols)").map { |r| r[1] }
     assert_includes cols, "fields_json"
     store.close
+  end
 
-    # Second open is a no-op migration; should not raise even when column exists.
-    store2 = AppleSDKKnowledge::Store.open(@db_path)
-    cols2 = store2.db.execute("PRAGMA table_info(symbols)").map { |r| r[1] }
-    assert_includes cols2, "fields_json"
-    store2.close
+  def test_swift_imported_name_column_present_on_fresh_db
+    store = AppleSDKKnowledge::Store.open(@db_path)
+    cols = store.db.execute("PRAGMA table_info(symbols)").map { |r| r[1] }
+    assert_includes cols, "swift_imported_name"
+    store.close
+  end
+
+  def test_reopen_does_not_raise
+    AppleSDKKnowledge::Store.open(@db_path).close
+    # Second open is a no-op migration; should not raise even when columns exist.
+    AppleSDKKnowledge::Store.open(@db_path).close
   end
 
   def test_insert_symbol_persists_fields_json
