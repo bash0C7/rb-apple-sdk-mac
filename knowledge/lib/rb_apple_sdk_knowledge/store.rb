@@ -6,7 +6,7 @@ module AppleSDKKnowledge
     # Bumped when the on-disk schema shape changes. Bumping invalidates any
     # existing Knowledge Base SQLite at the project-scoped path; the next
     # `apple:knowledge:rebuild` regenerates it.
-    SCHEMA_VERSION = 6
+    SCHEMA_VERSION = 7
 
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;
@@ -27,21 +27,22 @@ module AppleSDKKnowledge
       );
 
       CREATE TABLE IF NOT EXISTS symbols (
-        id              INTEGER PRIMARY KEY,
-        framework_id    INTEGER REFERENCES frameworks(id),
-        name            TEXT NOT NULL,
-        parent_id       INTEGER REFERENCES symbols(id),
-        kind            TEXT NOT NULL,
-        signature       TEXT,
-        abi             TEXT NOT NULL,
-        documentation   TEXT,
-        return_type     TEXT,
-        parameters_json TEXT,
-        availability    TEXT,
-        deprecated      INTEGER DEFAULT 0,
+        id                   INTEGER PRIMARY KEY,
+        framework_id         INTEGER REFERENCES frameworks(id),
+        name                 TEXT NOT NULL,
+        parent_id            INTEGER REFERENCES symbols(id),
+        kind                 TEXT NOT NULL,
+        signature            TEXT,
+        abi                  TEXT NOT NULL,
+        documentation        TEXT,
+        return_type          TEXT,
+        parameters_json      TEXT,
+        availability         TEXT,
+        deprecated           INTEGER DEFAULT 0,
         requires_main_thread INTEGER DEFAULT 0,
-        content_hash    TEXT NOT NULL UNIQUE,
-        fields_json     TEXT
+        content_hash         TEXT NOT NULL UNIQUE,
+        fields_json          TEXT,
+        swift_imported_name  TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_symbols_framework_name ON symbols(framework_id, name);
@@ -70,19 +71,10 @@ module AppleSDKKnowledge
 
     def migrate!
       @db.execute_batch(SCHEMA_SQL)
-      ensure_column!("symbols", "fields_json", "TEXT")
-      # Swift overlay importer writes ObjC selector → Swift import name here.
-      ensure_column!("symbols", "swift_imported_name", "TEXT")
       @db.execute(
         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
         ["schema_version", SCHEMA_VERSION.to_s]
       )
-    end
-
-    def ensure_column!(table, col, type)
-      cols = @db.execute("PRAGMA table_info(#{table})").map { |r| r[1] }
-      return if cols.include?(col)
-      @db.execute("ALTER TABLE #{table} ADD COLUMN #{col} #{type}")
     end
 
     def insert_framework(name:, swift_module:, category: nil, doc_url: nil, min_macos: nil)
@@ -99,16 +91,9 @@ module AppleSDKKnowledge
                        deprecated: 0, requires_main_thread: 0, fields_json: nil,
                        swift_imported_name: nil)
       # UPSERT on content_hash: a re-import (e.g. apple:knowledge:rebuild
-      # under a newer classifier or schema) must overwrite the existing row
-      # so updated parameters_json / fields_json / swift_imported_name land.
-      # Plain INSERT would raise ConstraintException, which the importer used
-      # to swallow — leaving stale rows from prior schema versions.
-      #
-      # swift_imported_name (Swift overlay importer, schema v4) must ride the
-      # same INSERT ... ON CONFLICT statement: a prior implementation wrote
-      # it via a separate UPDATE, which left an observable partial-state
-      # window and could be skipped on the conflict path, leaving stale
-      # values in the column on re-import.
+      # under a newer classifier) must overwrite the existing row so
+      # updated parameters_json / fields_json / swift_imported_name land
+      # atomically in one statement.
       @db.execute(
         <<~SQL,
           INSERT INTO symbols
