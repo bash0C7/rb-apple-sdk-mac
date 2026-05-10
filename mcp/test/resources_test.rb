@@ -10,12 +10,9 @@ class ResourcesTest < Test::Unit::TestCase
     def lookup_symbol(framework:, symbol:); nil; end
     def list_klass_methods(framework:, klass:); []; end
     def list_framework_symbols(framework:, kinds: nil); []; end
-    def db; FakeDB.new; end
-
-    class FakeDB
-      def execute(_sql, *_)
-        [[10, 100]]
-      end
+    def stats
+      { framework_count: list_frameworks.size, symbol_count: 100,
+        kind_breakdown: [["function", 60], ["struct", 40]] }
     end
   end
 
