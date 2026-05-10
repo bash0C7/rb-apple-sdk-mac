@@ -22,8 +22,8 @@
   frameworks: [CoreMIDI]
 
 # MIDIReadProc — invoked by CoreMIDI when MIDI packets arrive on a connected
-# source. Phase 7 propagates only the packet count to Ruby (single-Int64
-# threading channel). Richer packet marshalling is deferred to Phase 8+.
+# source. Currently propagates only the packet count to Ruby (single-Int64
+# threading channel); richer packet marshalling is a future enhancement.
 - token: midiReadProc
   c_signature: "void (*)(const MIDIPacketList *, void *, void *)"
   swift_type: "MIDIReadProc"

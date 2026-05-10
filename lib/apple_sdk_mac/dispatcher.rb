@@ -13,17 +13,14 @@ module AppleSDKMac
       sym_meta = @knowledge.lookup_symbol(framework: framework, symbol: symbol)
       raise Error, "unknown symbol #{framework}::#{symbol}" unless sym_meta
 
-      # T40 — cache.lookup must use canonical_name (sym_meta[:name]) not the
-      # user-facing symbol arg. CompiledGlueCache stores rows keyed by
-      # canonical_name (= synth record :name); user-facing call routing may
-      # arrive with an alias, single-segment shorthand, or DB-side name diff.
+      # cache.lookup keys rows by canonical_name (sym_meta[:name]), not the
+      # user-facing symbol arg which may arrive as an alias or single-segment shorthand.
       canonical = sym_meta[:name]
       cache_hit = @cache.lookup(framework: framework, symbol: canonical)
       if cache_hit.nil?
-        # Transparent auto-compile (2026-05-08): trigger compile inline so
-        # callers don't need an upfront `Apple.discover` for symbols the KB
-        # already knows about. Apple.discover stays available for KB-external
-        # shapes that need explicit kwargs (params:/return_kind:/objc selector).
+        # Transparent auto-compile: trigger compile inline so callers don't need
+        # an upfront `Apple.discover` for symbols the Knowledge Base already knows.
+        # Apple.discover stays available for shapes that need explicit kwargs.
         @compiler.compile(framework: framework, symbol: sym_meta)
         cache_hit = @cache.lookup(framework: framework, symbol: canonical)
         raise Error, "compile failed for #{framework}::#{canonical}" if cache_hit.nil?

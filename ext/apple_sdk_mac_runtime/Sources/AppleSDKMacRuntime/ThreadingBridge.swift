@@ -13,7 +13,7 @@ public enum ThreadingBridge {
         queue.sync { pending.append(Pending(procId: procId, args: [arg])) }
     }
 
-    // T53a — N-arg dispatch path for typed Hash-form :block_persistent. URLSession の
+    // N-arg dispatch path for typed Hash-form :block_persistent. URLSession の
     // `(Data?, URLResponse?, Error?) -> Void` のような multi-arg escaping block を
     // Ruby callback に届ける。 各 Optional は raw pointer (Int64, nil → 0) に変換
     // 済みで渡される。

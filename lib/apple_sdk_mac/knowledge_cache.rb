@@ -14,11 +14,11 @@ module AppleSDKMac
       @transient = {}
     end
 
-    # Phase 7 T5 — transient lookup tier. Apple.discover synthesizes
-    # symbol records for the polymorphic shapes (objc / swift / etc.)
-    # that aren't necessarily in the knowledge DB and registers them
-    # here. lookup_symbol returns the transient record before falling
-    # back to the DB, so registered overlays win.
+    # Transient lookup tier. Apple.discover synthesizes symbol records for
+    # the polymorphic shapes (objc / swift / etc.) that aren't necessarily
+    # in the knowledge DB and registers them here. lookup_symbol returns
+    # the transient record before falling back to the DB, so registered
+    # overlays win.
     def register_transient(framework:, symbol:, record:)
       @transient[[framework.to_s, symbol.to_s]] = record
     end
@@ -48,12 +48,12 @@ module AppleSDKMac
       }
     end
 
-    # Phase 4b — Swift overlay bridge naming lookup. Returns the
-    # `swift_imported_name` column for a given (framework, klass, selector),
-    # populated by the Swift overlay importer (Phase 4a). nil when miss
-    # (no row, no swift_imported_name on row, or no Swift overlay column at
-    # all on a stale schema). Caller (SwiftBridgeName.resolve) treats nil
-    # as 'fall through to next resolution tier'.
+    # Swift overlay bridge naming lookup. Returns the `swift_imported_name`
+    # column for a given (framework, klass, selector), populated by the
+    # Swift overlay importer. nil when miss (no row, no swift_imported_name
+    # on row, or no Swift overlay column at all on a stale schema).
+    # Caller (SwiftBridgeName.resolve) treats nil as 'fall through to next
+    # resolution tier'.
     def lookup_swift_imported_name(framework:, klass:, selector:)
       row = @db.execute(<<~SQL, [framework, klass, selector]).first
         SELECT s.swift_imported_name

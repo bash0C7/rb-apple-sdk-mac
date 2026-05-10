@@ -44,10 +44,10 @@ static void ruby_callback_dispatcher(uint64_t proc_id, int64_t arg) {
     rb_proc_call_with_block(proc, 1, args, Qnil);
 }
 
-// T53a — N-arg dispatcher path. Multi-arg typed escaping blocks (URLSession
+// N-arg dispatcher path. Multi-arg typed escaping blocks (URLSession
 // completion handler 等) は ThreadingBridge.enqueueFromAppleThread3 経由で
 // (procId, count, args[]) 形で main thread queue に積まれ、 ここで Ruby Array
-// 引数に展開して proc を invoke する。 1-arg path との backward compat 維持。
+// 引数に展開して proc を invoke する。 1-arg path とも共存する。
 static void ruby_callback_dispatcher_n(uint64_t proc_id, int32_t count, const int64_t *args) {
     VALUE pid = ULL2NUM(proc_id);
     VALUE proc = rb_hash_lookup(proc_registry, pid);
@@ -133,12 +133,11 @@ static VALUE rb_async_taskgroup_double(VALUE self, VALUE a, VALUE b, VALUE c) {
     return LL2NUM(runtime_async_test_taskgroup_double(NUM2LL(a), NUM2LL(b), NUM2LL(c)));
 }
 
-// T54a — `runtime_rb_array_len` の wrapper は当初 C ext bundle 側に置いた
-// (RARRAY_LEN macro 直呼出ができるため) が、 mkmf がコンパイルする C ext
-// bundle は two-level namespace で linked されるため、 dlopen された glue
-// dylib の flat-namespace lookup から見えない。 そのため Swift dylib 側に
-// 移動した (RuntimeBridge.swift)。 そこから rb_funcallv("length") + rb_num2ll
-// で同等の動作を実現している。
+// `runtime_rb_array_len` lives in the Swift dylib (RuntimeBridge.swift), not
+// here, because mkmf-built C ext bundles are linked two-level-namespace and
+// the flat-namespace lookup performed by dlopen on glue dylibs would miss it.
+// The Swift implementation calls rb_funcallv("length") + rb_num2ll for parity
+// with RARRAY_LEN.
 
 static VALUE rb_runloop_pump(VALUE self, VALUE timeout) {
     runtime_runloop_pump(NUM2DBL(timeout));
@@ -189,7 +188,7 @@ static VALUE rb_callback_pillar_unregister_midi_notify(VALUE self, VALUE slot) {
     return Qnil;
 }
 
-// Phase 7 T2c — persistent (escaping) block slot table.
+// Persistent (escaping) block slot table.
 static VALUE rb_callback_pillar_register_block_persistent(VALUE self, VALUE proc) {
     VALUE pid = rb_obj_id(proc);
     rb_hash_aset(proc_registry, pid, proc);

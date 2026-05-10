@@ -82,7 +82,7 @@ public func runtime_threading_enqueue(_ procId: UInt64, _ arg: Int64) {
     ThreadingBridge.enqueueFromAppleThread(procId: procId, arg: arg)
 }
 
-// T53a — typed multi-arg escaping block dispatch (URLSession completionHandler 等)。
+// Typed multi-arg escaping block dispatch (URLSession completionHandler 等)。
 // 3 個の Int64 raw pointer を main thread queue 経由で Ruby に届ける。
 @c
 public func runtime_threading_enqueue_3(_ procId: UInt64, _ a: Int64, _ b: Int64, _ c: Int64) {
@@ -101,7 +101,7 @@ public func runtime_callback_set_dispatcher(
     CallbackBridge.rubyDispatcher = fn
 }
 
-// T53a — register the N-arg dispatcher path. Ruby C ext provides
+// Register the N-arg dispatcher path. Ruby C ext provides
 // ruby_callback_dispatcher_n which builds a VALUE[count] and rb_proc_call.
 @c
 public func runtime_callback_set_dispatcher_n(
@@ -142,7 +142,7 @@ public func runtime_async_test_sleep_and_double(_ millis: Int64) -> Int64 {
     }
 }
 
-// T54a — Ruby Array length wrapper for ArrayOfOpaqueRefMarshaller.
+// Ruby Array length wrapper for ArrayOfOpaqueRefMarshaller.
 // CRuby の RARRAY_LEN は static inline macro で symbol export されない、
 // rb_array_len も同様。 C ext bundle に置いた wrapper は two-level namespace
 // で dlopen された glue dylib の flat-namespace lookup から見えなかったため、

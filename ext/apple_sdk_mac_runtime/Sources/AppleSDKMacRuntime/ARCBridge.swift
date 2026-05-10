@@ -29,7 +29,7 @@ public enum ARCBridge {
     }
 }
 
-// === Phase 7 T4: CF Create-rule auto-ARC ===
+// === CF Create-rule auto-ARC ===
 //
 // CF types returned by Create-rule APIs (CFStringCreateWithCString,
 // CGImageCreateWithJPEGDataProvider, etc.) come +1-retained. Wrapping the
@@ -40,8 +40,8 @@ public final class BoxedCFType {
     public init(retained: AnyObject) { self.retained = retained }
 }
 
-// T49 — autoarc box pointer の registry。runtime_arc_box_cftype が登録、
-// runtime_arc_unbox_cftype が照合に使う。box でない raw CF pointer が
+// Autoarc box pointer の registry。 runtime_arc_box_cftype が登録、
+// runtime_arc_unbox_cftype が照合に使う。 box でない raw CF pointer が
 // unbox に来たケース (round-trip 経路で raw を直接渡された場合) を 0 で
 // 戻して fall-back させる contract に必要。
 nonisolated(unsafe) fileprivate var _boxedCFTypeRegistry: Set<UInt> = []
@@ -64,11 +64,11 @@ public func runtime_arc_box_cftype(_ raw: UInt) -> UInt {
     return pointer
 }
 
-// T49 — autoarc box pointer から内部の CF object pointer を取り出す。
+// Autoarc box pointer から内部の CF object pointer を取り出す。
 // Apple.discover で `cftype_ref` param に autoarc box を渡された CF API が
 // 元 CF pointer を必要とする (CFStringGetLength, CFStringGetCString, ...)
-// ためのアンマーシャラ。input が registry に無い (raw CF pointer 直渡し
-// など) は 0 を返して、glue 側で raw input を fall-back で使えるようにする。
+// ためのアンマーシャラ。 input が registry に無い (raw CF pointer 直渡し
+// など) は 0 を返して、 glue 側で raw input を fall-back で使えるようにする。
 @c
 public func runtime_arc_unbox_cftype(_ raw: UInt) -> UInt {
     _boxedCFTypeRegistryLock.lock()

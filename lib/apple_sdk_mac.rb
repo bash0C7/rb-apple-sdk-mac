@@ -16,10 +16,10 @@ else
 end
 
 module Apple
-  # Phase 7 — alias the canonical exception hierarchy from AppleSDKMac into
-  # the Apple Box. errors.rb defines them under AppleSDKMac so the class
-  # objects survive the Box bootstrap above; here we re-expose them under
-  # Apple::* so user code can `rescue Apple::Error => e` as documented.
+  # Alias the canonical exception hierarchy from AppleSDKMac into the Apple
+  # Box. errors.rb defines them under AppleSDKMac so the class objects
+  # survive the Box bootstrap above; here we re-expose them under Apple::*
+  # so user code can `rescue Apple::Error => e` as documented.
   Error          = ::AppleSDKMac::Error          unless const_defined?(:Error, false)
   DiscoveryError = ::AppleSDKMac::DiscoveryError unless const_defined?(:DiscoveryError, false)
   CompileError   = ::AppleSDKMac::CompileError   unless const_defined?(:CompileError, false)

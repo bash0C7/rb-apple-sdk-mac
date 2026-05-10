@@ -73,8 +73,8 @@ module AppleSDKMac
         }
       SWIFT
 
-      # Phase 7 T3a — async Worked Examples E1-E4. The fixed shape (DispatchSemaphore
-      # + Task { do { try await ... } catch { captured = error } sema.signal() } +
+      # Async Worked Examples E1-E4. The fixed shape (DispatchSemaphore + Task
+      # { do { try await ... } catch { captured = error } sema.signal() } +
       # sema.wait() + post-wait raise) is enforced by ValidationGates.async_shape.
       # The LLM only fills <body> and <T>; the skeleton is non-negotiable.
       WORKED_EXAMPLE_ASYNC_E1 = <<~SWIFT.freeze
@@ -200,10 +200,10 @@ module AppleSDKMac
         }
       SWIFT
 
-      # Phase 7 T3b — ObjC Worked Examples F1, F2, G. Use Swift's bridged
-      # class names (NSString, VNImageRequestHandler, etc.) — no manual
-      # objc_msgSend. Returned ObjC instances are bridged to Swift AnyObject;
-      # use Unmanaged.passRetained(...).toOpaque() to encode the pointer
+      # ObjC Worked Examples F1, F2, G. Use Swift's bridged class names
+      # (NSString, VNImageRequestHandler, etc.) — no manual objc_msgSend.
+      # Returned ObjC instances are bridged to Swift AnyObject; use
+      # Unmanaged.passRetained(...).toOpaque() to encode the pointer
       # bit-pattern as a Ruby Integer, and the consumer uses unsafeBitCast
       # back to the class for subsequent method calls.
       WORKED_EXAMPLE_OBJC_F1 = <<~SWIFT.freeze
@@ -361,7 +361,7 @@ module AppleSDKMac
                }
 
            For any other callback type that is not in the catalog, emit
-           the legacy stub:
+           the unsupported-callback stub:
 
                let cb: <CallbackType>?
                if argv[i] == Qnil {
@@ -435,30 +435,29 @@ module AppleSDKMac
         # The model: parameter is preserved on this constructor for forward
         # compatibility but is currently ignored at the underlying session.
         _ = model
-        # Phase 7 — kind-family-scoped sessions. The Foundation Models LM
-        # has a 4096-token context window; the full INSTRUCTIONS bundle
-        # (all 11 worked examples + prose) hits ~6.3k tokens and trips
-        # exceededContextWindowSize at the very first respond(). We
-        # build a smaller per-family instructions string at first call.
-        # Phase 2 bug fix: sessions are NOT cached across generate() calls.
-        # Each call gets a fresh session to prevent context accumulation
-        # (conversation history from attempt N-1 pushes attempt N over the
-        # 4096-token context window → exceededContextWindowSize on retry 2+).
+        # Kind-family-scoped sessions. The Foundation Models LM has a
+        # 4096-token context window; the full INSTRUCTIONS bundle (all 11
+        # worked examples + prose) hits ~6.3k tokens and trips
+        # exceededContextWindowSize at the first respond(). We build a
+        # smaller per-family instructions string at first call.
+        # Sessions are NOT cached across generate() calls — each call gets
+        # a fresh session to prevent conversation history from attempt N-1
+        # pushing attempt N over the context window.
         @explicit_session = session
       end
 
       def generate(framework:, symbol:, glue_id:)
         family = kind_family(symbol[:kind])
-        # Bug 1 fix: always create a FRESH session per generate() invocation.
-        # Reusing a cached session accumulates conversation history across
-        # retries and blows the 4096-token context window on attempt 2+.
+        # Always create a FRESH session per generate() invocation. Reusing a
+        # cached session accumulates conversation history across retries and
+        # blows the 4096-token context window on attempt 2+.
         sess = foundation_model_session(family)
         prompt = build_prompt(framework, symbol, glue_id)
         response = sess.respond(to: prompt)
         return nil if response.nil? || response.strip.empty?
         cleaned = response.gsub(/\A```swift\n/, "").gsub(/\n```\z/, "").strip
-        # Bug 2 fix: post-process to ensure HEADER block is present even if
-        # the LLM dropped the @_silgen_name declarations.
+        # Post-process to ensure the HEADER block is present even if the LLM
+        # dropped the @_silgen_name declarations.
         ensure_header(cleaned, framework: framework)
       end
 

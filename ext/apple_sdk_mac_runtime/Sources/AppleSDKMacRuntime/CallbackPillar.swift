@@ -10,7 +10,7 @@ public enum CallbackPillar {
     }
 }
 
-// === Phase 7 T2c: persistent (escaping) block slot table ===
+// === Persistent (escaping) block slot table ===
 //
 // Auto-incrementing slot ids; lifetime tied to BoxedBlockHandle on the Ruby
 // side. Distinct from the typed per-signature slot pools in

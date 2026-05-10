@@ -29,9 +29,9 @@ module AppleSDKMac
 
       private
 
-      # Phase 7 T3c gates — enforce the LLM Worked Example shapes literally.
-      # Malformed glue is rejected before swiftc invocation; LLMGenerator's
-      # retry loop (DEFAULT_MAX_LLM_RETRIES = 6) gets a chance to converge.
+      # Enforce the LLM Worked Example shapes literally. Malformed glue is
+      # rejected before swiftc invocation; LLMGenerator's retry loop
+      # (DEFAULT_MAX_LLM_RETRIES = 6) gets a chance to converge.
 
       ASYNC_REQUIRED_PATTERNS = [
         [/DispatchSemaphore\(value:\s*0\)/, "DispatchSemaphore(value: 0)"],
@@ -90,7 +90,7 @@ module AppleSDKMac
           next unless swift.include?(pat)
           clean_pat = pat.sub(/\W.*/, "")
           next if target_symbol.start_with?(clean_pat)
-          # T53e — Apple SDK の正規 NS-prefixed class (NSURLSession 等) を user が
+          # Apple SDK の正規 NS-prefixed class (NSURLSession 等) を user が
           # 明示 discover した経路は target_symbol が `NS<Klass>_<member>` 形に
           # なる。 これらは安全な discover として banned 検査を bypass する。
           # LLM が任意に URLSession を持ち込む経路 (target_symbol="MIDIDispose"

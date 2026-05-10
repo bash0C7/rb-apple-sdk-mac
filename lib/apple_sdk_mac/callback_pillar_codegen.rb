@@ -31,9 +31,9 @@ module AppleSDKMac
       type = s["swift_type"]
       arg_expr = s["arg_marshaller"]
       c_tok = s["c_wrapper_token"] || c_token(tok)
-      # Phase 7 generalization: swift_params is the trampoline parameter list
-      # embedded verbatim. Falls back to the legacy MIDINotifyProc shape so
-      # existing YAML continues to work without per-entry edits.
+      # swift_params is the trampoline parameter list embedded verbatim.
+      # Falls back to the MIDINotifyProc shape so YAML entries without an
+      # explicit swift_params continue to work.
       params = s["swift_params"] ||
                "_ message: UnsafePointer<MIDINotification>, _ refCon: UnsafeMutableRawPointer?"
 

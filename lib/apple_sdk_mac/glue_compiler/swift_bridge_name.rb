@@ -2,13 +2,13 @@
 
 module AppleSDKMac
   class GlueCompiler
-    # Phase 4b — high-priority resolver for ObjC selector → Swift call
-    # expression. Tries KB-stored swift_imported_name; returns nil when the
-    # KB has no entry, in which case the caller (template generator) falls
-    # through to its historical heuristic.
+    # High-priority resolver for ObjC selector → Swift call expression.
+    # Tries Knowledge Base swift_imported_name; returns nil when the
+    # Knowledge Base has no entry, in which case the caller (template
+    # generator) falls through to its heuristic.
     #
-    # Stateless module per shallow tenet — no dependency injection ceremony,
-    # caller passes kc / framework / klass / selector / params directly.
+    # Stateless module — caller passes kc / framework / klass / selector /
+    # params directly.
     module SwiftBridgeName
       module_function
 

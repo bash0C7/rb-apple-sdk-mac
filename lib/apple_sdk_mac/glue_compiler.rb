@@ -11,10 +11,7 @@ module AppleSDKMac
                          :exported_symbol, :error_stage, :error_detail,
                          keyword_init: true)
 
-    # Raised from 3 to absorb Foundation Model on-device's ~1/3 off-format
-    # response rate (per spec verification 2026-05-05). At budget=3, a single
-    # off-format attempt could exhaust two-thirds of the allowance before any
-    # well-formed retry had a chance to land.
+    # Sized to absorb Foundation Model on-device's ~1/3 off-format response rate.
     DEFAULT_MAX_LLM_RETRIES = 6
 
     def initialize(cache:, runtime_dylib_path:, runtime_modules_paths: [],
@@ -45,10 +42,8 @@ module AppleSDKMac
       base = File.join(@cache.base_dir, @cache.sdk_version)
       src = File.join(base, "sources", "#{glue_id}.swift")
       dylib = File.join(base, "lib", "#{glue_id}.dylib")
-      # T40 — exported_symbol must be a Swift identifier. canonical_name
-      # contains `.` / `:` / `(` / `)` which are valid as a primary key but
-      # invalid as a Swift function name. Mechanically derive swift_identifier
-      # via gsub of non-[A-Za-z0-9_] (spec §3.2 Name 体系).
+      # exported_symbol must be a Swift identifier; canonical_name contains
+      # `.` / `:` / `(` / `)` so we sanitize via gsub of non-[A-Za-z0-9_].
       swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
       exported = "glue_#{glue_id}_#{swift_id}"
 
@@ -100,9 +95,9 @@ module AppleSDKMac
       return Result.new(success?: false, error_stage: "no_llm",
                          error_detail: "LLM generator not provided") unless @llm
 
-      # T40 — same swift_id sanitization as the template path so GATE 5
-      # (`@c public func glue_<id>_<symbol>`) accepts the LLM's output for
-      # canonical-name shapes like "NSString.stringWithUTF8String".
+      # Same swift_id sanitization as the template path so GATE 5
+      # (`@c public func glue_<id>_<symbol>`) accepts canonical-name shapes
+      # like "NSString.stringWithUTF8String".
       swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
       exported = "glue_#{glue_id}_#{swift_id}"
 
@@ -110,10 +105,9 @@ module AppleSDKMac
         swift_source = begin
           @llm.generate(framework: framework, symbol: symbol, glue_id: glue_id)
         rescue StandardError => e
-          # Phase 7 — wrap LLM-side raises (Foundation Models context
-          # overflow, network failure, model load error) into a normal
-          # compile-history attempt row so Apple.discover gets a clean
-          # CompileError instead of an unhandled framework exception.
+          # Wrap LLM-side raises (Foundation Models context overflow, network
+          # failure, model load error) into a compile-history attempt row so
+          # Apple.discover surfaces a clean CompileError.
           @cache.record_attempt(framework: framework, symbol: symbol[:name],
                                  generator: "llm",
                                  error_stage: "llm_raise",

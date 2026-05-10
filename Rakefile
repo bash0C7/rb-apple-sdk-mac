@@ -186,12 +186,11 @@ end
 
 task test: :compile
 
-# Phase 7 / v1.0 — release-quality aggregate. Runs the spec §9
-# acceptance suite plus the benchmark in one command. Individual
-# subtasks include env-gated heavy ones; a full v1.0 ship run on
-# macOS 26 hardware should report PASS for everything below.
+# Release-quality aggregate. Runs the acceptance suite plus the benchmark
+# in one command. Individual subtasks include env-gated heavy ones; a full
+# ship run on macOS 26 hardware should report PASS for everything below.
 namespace :test do
-  desc "Run the spec §9 release-quality suite (test + canonical + examples + coverage + leak + concurrent + bench)"
+  desc "Run the release-quality suite (test + canonical + examples + coverage + leak + concurrent + bench)"
   task release_quality: :test do
     [
       "test/integration/readme_canonical_test.rb",
@@ -205,7 +204,7 @@ namespace :test do
       sh "bundle", "exec", "ruby", "-Ilib", "-Itest", t
     end
     # Default budget here is loose (1000µs) so a normal CI box passes.
-    # Override via BENCH_BUDGET_US=200 for the strict spec §9 target.
+    # Override via BENCH_BUDGET_US=200 for the strict release-quality target.
     sh({ "RUBY_BOX" => "1", "BENCH_BUDGET_US" => ENV["BENCH_BUDGET_US"] || "1000" },
        "bundle", "exec", "ruby", "benchmark/dispatch_overhead.rb")
   end
