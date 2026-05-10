@@ -12,6 +12,7 @@ require_relative "namespace_builder"
 require_relative "opaque_ref"
 require_relative "did_you_mean"
 require_relative "selector_bridge"
+require_relative "discovery_shape"
 
 module AppleSDKMac
   @config = nil
@@ -77,7 +78,7 @@ module AppleSDKMac
     # pipeline. C-symbol path uses the stored record when available so the
     # README canonical snippet's behavior matches the bootstrap path.
     def discover(framework:, **opts)
-      sym_meta = _synthesize_symbol_record(framework: framework, **opts)
+      sym_meta = DiscoveryShape.synthesize_symbol_record(framework: framework, **opts)
       canonical = sym_meta[:name]
 
       # For C symbols where the DB has the record, use the DB version —
@@ -94,7 +95,9 @@ module AppleSDKMac
         # is_out_param=true とした、 Boolean を unrecognised return とした等の
         # 分類を回避)。
         if opts[:params] || opts[:return_kind]
-          sym_meta = _override_c_symbol_params(sym_meta, opts)
+          sym_meta = DiscoveryShape.override_c_symbol_params(
+            sym_meta, params: opts[:params], return_kind: opts[:return_kind]
+          )
         end
       else
         # Non-C shapes: register synthesized record into transient tier so
@@ -114,117 +117,6 @@ module AppleSDKMac
       end
       install_into_box(framework, canonical, sym_meta)
       true
-    end
-
-    # Build a symbol record (Hash) for the requested shape without
-    # touching the KB. Public for testability — Apple.discover wraps this
-    # plus transient register + compile.
-    def _synthesize_symbol_record(framework:, **opts)
-      base = { id: -1, signature: nil, abi: nil, documentation: nil,
-               parameters_json: "[]", requires_main_thread: false,
-               content_hash: nil, fields_json: nil }
-      case
-      when opts.key?(:symbol)
-        base.merge(name: opts[:symbol].to_s, kind: "function", abi: "c")
-      when opts.key?(:class_method)
-        base.merge(
-          name: "#{opts[:klass]}.#{SelectorBridge.canonical_method_name(opts[:class_method])}",
-          kind: "objc_method_class",
-          objc_class: opts[:klass].to_s, selector: opts[:class_method].to_s,
-          params: opts[:params], return_kind: opts[:return_kind],
-          return_klass: opts[:return_klass]
-        )
-      when opts.key?(:selector)
-        base.merge(
-          name: "#{opts[:klass]}.#{SelectorBridge.canonical_method_name(opts[:selector])}",
-          kind: "objc_method_instance",
-          objc_class: opts[:klass].to_s, selector: opts[:selector].to_s,
-          params: opts[:params], return_kind: opts[:return_kind],
-          return_klass: opts[:return_klass]
-        )
-      when opts.key?(:swift_initializer)
-        base.merge(
-          name: "#{opts[:klass]}.#{opts[:swift_initializer]}",
-          kind: "swift_init",
-          swift_class: opts[:klass].to_s,
-          swift_initializer: opts[:swift_initializer].to_s,
-          params: opts[:params], return_kind: opts[:return_kind]
-        )
-      when opts.key?(:swift_property)
-        base.merge(
-          name: "#{opts[:klass]}.#{opts[:swift_property]}",
-          kind: "swift_property",
-          swift_class: opts[:klass].to_s,
-          swift_property: opts[:swift_property].to_s,
-          return_kind: opts[:return_kind],
-          instance: opts[:instance] == true
-        )
-      when opts.key?(:swift_func)
-        # swift_func は klass: で `Klass.func` static method 化、 または
-        # async: true で `try await ... + DispatchSemaphore` skeleton 化。
-        canonical_name = opts[:klass] ? "#{opts[:klass]}.#{opts[:swift_func]}" : opts[:swift_func].to_s
-        rec = base.merge(
-          name: canonical_name, kind: "swift_func",
-          swift_func: opts[:swift_func].to_s,
-          params: opts[:params], return_kind: opts[:return_kind]
-        )
-        rec[:swift_class] = opts[:klass].to_s if opts[:klass]
-        rec[:type_args] = opts[:type_args] if opts.key?(:type_args)
-        rec[:async] = opts[:async] if opts.key?(:async)
-        rec
-      else
-        raise AppleSDKMac::DiscoveryError,
-          "Apple.discover requires one of: symbol, selector, class_method, swift_func, swift_initializer, swift_property"
-      end
-    end
-
-    # Knowledge Base 分類オーバーライドの kind → C type マップ。
-    # Apple.discover の :symbol path で `:params` / `:return_kind` が明示された
-    # 場合、 これを使って parameters_json を書き換える。
-    KIND_SYM_TO_TYPE = {
-      string:           "const char *",
-      int:              "Int64",
-      bool:             "Bool",
-      float:            "Double",
-      opaque_ref:       "OpaquePointer",
-      cftype_ref:       "CFTypeRef",
-      void_ptr_nilable: "void *",
-      block_persistent: "block_persistent_thunk"
-    }.freeze
-
-    def _override_c_symbol_params(sym_meta, opts)
-      if opts[:params]
-        new_params = opts[:params].each_with_index.map do |entry, i|
-          if entry.is_a?(Hash)
-            kind_sym = (entry[:kind] || entry["kind"]).to_sym
-            type     = entry[:type] || entry["type"] || KIND_SYM_TO_TYPE.fetch(kind_sym, "void *")
-            # Hash 形で nilable: false を指定すると Marshaller 側で
-            # force-unwrap (`arg!`)。 Swift bridge で T (non-Optional) 必須の
-            # API (CGImageSourceCreateWithURL の CFURL 等) で使う。
-            nilable = entry.key?(:nilable) ? entry[:nilable] : (entry.key?("nilable") ? entry["nilable"] : nil)
-          else
-            kind_sym = entry.to_sym
-            type     = KIND_SYM_TO_TYPE.fetch(kind_sym, "void *")
-            nilable  = nil
-          end
-          rec = {
-            name: "arg#{i}",
-            type: type,
-            kind: kind_sym.to_s,
-            is_out_param: false,
-            nullability: "unspecified"
-          }
-          rec[:nilable] = nilable unless nilable.nil?
-          rec
-        end
-        sym_meta = sym_meta.merge(parameters_json: JSON.dump(new_params))
-      end
-      if opts[:return_kind]
-        # :return_kind を sym_meta に直接埋め込む。 template_generator の
-        # effective_return_kind が signature regex より先にこれを参照する。
-        sym_meta = sym_meta.merge(return_kind: opts[:return_kind])
-      end
-      sym_meta
     end
 
     # Eagerly populate Apple::<Framework> modules and their type constants from
