@@ -135,4 +135,67 @@ class TestSwiftOverlayImporterPhase1 < Test::Unit::TestCase
       end
     end
   end
+
+  # Phase 1 T10: capture Swift literal default values per parameter into
+  # parameters_json element's :default_value key. Literal kinds covered:
+  # numeric / string / dot-prefixed enum case / bool / nil. Complex
+  # expressions (closure / function call / 等) は default_value = nil の
+  # まま — Phase 2 emitter は default 値あり要素なら glue で arg 省略可、
+  # nil 要素は user に explicit 渡し必須として扱う。 副次効果として T9
+  # で type column に absorb されとった `= literal` 部分が default_value
+  # に lift され、 type column は clean に戻る (regression net 付き)。
+  def test_default_value_literal_captured
+    Dir.mktmpdir do |dir|
+      interface = File.join(dir, "TestFW.swiftinterface")
+      File.write(interface, <<~SWIFT)
+        // swift-interface-format-version: 1.0
+        import Foundation
+        extension TestKlass {
+          public init(value: Int = 42, name: String = "default", encoding: String.Encoding = .utf8)
+          public init(callback: () -> Void = { })
+        }
+      SWIFT
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      begin
+        AppleSDKKnowledge::Importer::SwiftOverlay.new(store).import!(
+          framework: "TestFW", path: interface
+        )
+
+        # 3-arg init: selector form は実機確認済み (initWithValue:name:encoding:)
+        # — first 引数 (label==internal) は capitalize(label) で頭 token を
+        # 作り、 残りは label のまま colon 付加。
+        row1 = store.db.execute(<<~SQL, ["initWithValue:name:encoding:", "TestKlass"]).first
+          SELECT s.parameters_json FROM symbols s JOIN symbols p ON s.parent_id = p.id
+          WHERE s.name = ? AND p.name = ?
+        SQL
+        assert_not_nil row1, "3-arg init symbol が import されてへん"
+        params1 = JSON.parse(row1[0])
+        assert_equal 3, params1.size
+        # default_value: numeric / string / dot-prefixed enum 全部 capture
+        assert_equal "42",          params1[0]["default_value"]
+        assert_equal "\"default\"", params1[1]["default_value"]
+        assert_equal ".utf8",       params1[2]["default_value"]
+        # regression net: type column は default 部分を含まへんこと
+        assert_equal "Int",             params1[0]["type"]
+        assert_equal "String",          params1[1]["type"]
+        assert_equal "String.Encoding", params1[2]["type"]
+
+        # closure default は literal じゃない → default_value = nil。
+        # closure 表現自体は DECL_INIT_RE が `()` で param body を切る都合
+        # 上 type は degrade するが、 default capture policy としては
+        # 「literal じゃない」 として nil を返す点が本 task の検証対象。
+        row2 = store.db.execute(<<~SQL, ["initWithCallback:", "TestKlass"]).first
+          SELECT s.parameters_json FROM symbols s JOIN symbols p ON s.parent_id = p.id
+          WHERE s.name = ? AND p.name = ?
+        SQL
+        assert_not_nil row2, "callback init symbol が import されてへん"
+        params2 = JSON.parse(row2[0])
+        assert_nil params2[0]["default_value"],
+          "closure default は literal じゃないから NULL"
+      ensure
+        store.close
+      end
+    end
+  end
 end

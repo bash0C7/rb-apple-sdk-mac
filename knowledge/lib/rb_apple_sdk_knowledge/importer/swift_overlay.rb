@@ -153,6 +153,14 @@ module AppleSDKKnowledge
       # - `forReading url: U` → external_label = "forReading", internal_name = "url"
       # The legacy `:label` / `:internal` shorthand is preserved for the
       # selector reconstruction path (objc_selector_for / swift_imported_name_for).
+      #
+      # Phase 1 T10: per-parameter literal default values are extracted via
+      # extract_default_value and exposed as the +default_value+ key. The
+      # regex now captures an optional `= <expr>` tail with a non-greedy
+      # type fragment so `Int = 42` is split into type=Int / default=42.
+      # Non-literal expressions (closures / function calls / arithmetic)
+      # collapse to default_value = nil at the extractor; the raw `=`
+      # fragment is consumed regardless so the type column stays clean.
       def parse_params(raw)
         return [] if raw.nil? || raw.strip.empty?
 
@@ -160,20 +168,44 @@ module AppleSDKKnowledge
           part = part.strip
           next nil if part.empty?
 
-          if (m = part.match(/\A(\w+|\?|_)\s+(\w+)\s*:\s*(.+)\z/))
+          if (m = part.match(/\A(\w+|\?|_)\s+(\w+)\s*:\s*(.+?)(?:\s*=\s*(.+?))?\s*\z/))
             external = m[1]
             internal = m[2]
             external_label = external == "_" ? nil : external
             { label: m[1], internal: internal, type: m[3].strip,
-              external_label: external_label, internal_name: internal }
-          elsif (m = part.match(/\A(\w+)\s*:\s*(.+)\z/))
+              external_label: external_label, internal_name: internal,
+              default_value: extract_default_value(m[4]) }
+          elsif (m = part.match(/\A(\w+)\s*:\s*(.+?)(?:\s*=\s*(.+?))?\s*\z/))
             name = m[1]
             { label: name, internal: name, type: m[2].strip,
-              external_label: name, internal_name: name }
+              external_label: name, internal_name: name,
+              default_value: extract_default_value(m[3]) }
           else
             nil
           end
         end
+      end
+
+      # Recognised Swift literal default expressions:
+      #   numeric          → 42 / -3.14
+      #   string           → "default"
+      #   dot-enum case    → .utf8 / .red
+      #   bool / nil       → true / false / nil
+      # 複雑 expression (closure / function call / arithmetic) は nil を返す。
+      # Phase 2 emitter は default_value 非 nil の引数なら glue で省略可能、
+      # nil なら user に explicit に渡してもらう policy で利用する。
+      LITERAL_DEFAULT_RE = /\A(?:
+        -?\d+(?:\.\d+)?           # numeric literal
+        | "[^"]*"                 # string literal (no escaped-quote handling — Apple overlay literals are plain ASCII)
+        | \.\w+                   # dot-prefixed enum case
+        | true | false | nil
+      )\z/x.freeze
+
+      def extract_default_value(raw)
+        return nil if raw.nil?
+        stripped = raw.strip
+        return nil if stripped.empty?
+        LITERAL_DEFAULT_RE.match?(stripped) ? stripped : nil
       end
 
       # -- selector reconstruction --------------------------------------------
@@ -378,15 +410,20 @@ module AppleSDKKnowledge
       # payload. Internal-only keys (`:label` / `:internal`) used for
       # selector reconstruction are intentionally dropped — the Knowledge
       # Base surface keeps only `external_label` / `internal_name` /
-      # `type` per element. Returns nil for empty parameter lists so the
-      # column stays NULL for zero-arg declarations.
+      # `type` / `default_value` per element. Returns nil for empty
+      # parameter lists so the column stays NULL for zero-arg declarations.
+      # Phase 1 T10: `default_value` carries a Swift literal default expression
+      # (numeric / string / dot-prefixed enum case / bool / nil) when present,
+      # nil otherwise. Phase 2 emitter uses non-nil entries to omit args in
+      # generated glue and falls back to explicit user-passing when nil.
       def parameters_json_for(params)
         return nil if params.nil? || params.empty?
 
         JSON.generate(params.map { |p|
           { external_label: p[:external_label],
             internal_name:  p[:internal_name],
-            type:           p[:type] }
+            type:           p[:type],
+            default_value:  p[:default_value] }
         })
       end
 
