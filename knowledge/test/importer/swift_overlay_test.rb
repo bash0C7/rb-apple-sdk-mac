@@ -173,6 +173,58 @@ class SwiftOverlayImporterTest < Test::Unit::TestCase
     end
   end
 
+  # -- return_type / throws / async propagation -----------------------------
+  # postmortem 2026-05-14 #4 / #12 root cause work:
+  # Swift overlay 経由で取り込んだ method は return_type / throws / async
+  # 等の Swift 文法 marker を DB に残す必要がある。 emitter 側は KB record の
+  # field を見て emit を分岐する (Apple.discover の override に頼らず)。
+
+  # 非 throws func の return_type が DB に乗ること。
+  # 既存実装は insert_symbol に return_type を渡しておらず、 SwiftOverlay 由来
+  # row の return_type 列は常に nil だった。
+  def test_non_throws_class_func_return_type_propagated
+    row = @store.db.execute(<<~SQL, ["Comprehensive", "AVCaptureDevice", "devicesWithMediaType:"]).first
+      SELECT s.return_type FROM symbols s
+      JOIN symbols p ON s.parent_id = p.id
+      JOIN frameworks f ON s.framework_id = f.id
+      WHERE f.name = ? AND p.name = ? AND s.name = ?
+    SQL
+    refute_nil row, "devicesWithMediaType: row must exist"
+    assert_equal "[AVCaptureDevice]", row[0],
+      "non-throws class func の return_type は DB に乗る"
+  end
+
+  # `func parse(_:) throws -> URL` shape: throws と return type が共存する
+  # 場合、 DECL_FUNC_RE は throws を間に挟んで `->` を探せず return_type を
+  # 落としていた。 regex 拡張で throws/async modifier を skip して return_type
+  # まで届くこと。
+  def test_throws_func_return_type_propagated
+    row = @store.db.execute(<<~SQL, ["Comprehensive", "ParseStrategy", "parse:"]).first
+      SELECT s.return_type FROM symbols s
+      JOIN symbols p ON s.parent_id = p.id
+      JOIN frameworks f ON s.framework_id = f.id
+      WHERE f.name = ? AND p.name = ? AND s.name = ?
+    SQL
+    refute_nil row, "ParseStrategy.parse(_:) row must exist"
+    assert_equal "Foundation.URL", row[0],
+      "throws func の return_type は throws を skip して capture される"
+  end
+
+  # signature 列に Swift 文法 marker `throws` が残ること。 emitter は KB
+  # record の signature を見て throws 判定可能になる (Apple.discover の
+  # swift_initializer 文字列に頼らず)。
+  def test_throws_marker_preserved_in_signature
+    row = @store.db.execute(<<~SQL, ["Comprehensive", "AVCaptureDevice", "lockForConfiguration"]).first
+      SELECT s.signature FROM symbols s
+      JOIN symbols p ON s.parent_id = p.id
+      JOIN frameworks f ON s.framework_id = f.id
+      WHERE f.name = ? AND p.name = ? AND s.name = ?
+    SQL
+    refute_nil row, "lockForConfiguration row must exist"
+    assert_match(/\bthrows\b/, row[0],
+      "throws marker は signature 文字列に残る (downstream parser が判定可能)")
+  end
+
   # -- whole-fixture invariant ----------------------------------------------
 
   def test_all_extension_blocks_produce_class_rows

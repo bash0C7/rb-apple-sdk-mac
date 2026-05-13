@@ -19,18 +19,26 @@ module AppleSDKKnowledge
       # is taken as the LAST dotted segment by extract_extension_blocks.
       EXTENSION_HEADER_RE = /\bextension\s+([A-Za-z_][\w.]*)[^{]*\{/.freeze
 
-      # Matches: (open|public) [class|static] func name(params) [-> RetType]
-      # Captures: [1] class/static?, [2] func name, [3] raw params, [4] return type
+      # Matches: (open|public) [class|static] func name(params) [throws/async/rethrows]* [-> RetType]
+      # Captures: [1] class/static?, [2] func name, [3] raw params,
+      #           [4] effect modifiers (throws/async/rethrows, space-separated, or nil),
+      #           [5] return type
       # `(?:<[^>]+>)?` after the function name accepts generic type parameters
       # like `func publisher<Value>(...)` that appear in real Apple
       # .swiftinterface (Foundation/AppKit/Vision/SwiftUI overlay).
-      DECL_FUNC_RE = /(?:open|public)\s+(?:(class|static)\s+)?func\s+(\w+)(?:<[^>]+>)?\s*\(([^)]*)\)(?:\s*->\s*([^\n{]+))?/.freeze
+      # `func parse(_:) throws -> URL` / `func fetch() async throws -> Data` 形を
+      # capture できるよう、 effect modifiers (`async`/`throws`/`rethrows`) を
+      # `)` と `->` の間で吸収する。 modifier 不在時は capture group 4 が nil。
+      DECL_FUNC_RE = /(?:open|public)\s+(?:(class|static)\s+)?func\s+(\w+)(?:<[^>]+>)?\s*\(([^)]*)\)((?:\s+(?:async|throws|rethrows))*)?(?:\s*->\s*([^\n{]+))?/.freeze
 
-      # Matches: (open|public) [convenience|required] init(params)
-      # Captures: [1] qualifier?, [2] raw params
+      # Matches: (open|public) [convenience|required] init[?](params) [throws/rethrows]*
+      # Captures: [1] qualifier?, [2] failable mark (?) or empty, [3] raw params,
+      #           [4] effect modifiers (throws/rethrows, optional)
       # `init\??` accepts both `init(...)` and Swift failable initializers
       # `init?(...)` which appear throughout Foundation overlay (URL, etc.).
-      DECL_INIT_RE = /(?:open|public)\s+(?:(convenience|required)\s+)?init\??\s*\(([^)]*)\)/.freeze
+      # `init(forReading:) throws` を capture できるよう effect modifiers を
+      # 末尾で吸収する。
+      DECL_INIT_RE = /(?:open|public)\s+(?:(convenience|required)\s+)?init(\??)\s*\(([^)]*)\)((?:\s+(?:throws|rethrows))*)?/.freeze
 
       # Matches: (open|public) [class|static] var name: Type
       # Captures: [1] class/static?, [2] var name, [3] type
@@ -89,6 +97,9 @@ module AppleSDKKnowledge
       #   params:      Array<{label:, internal:, type:}>
       #   return_type: String or nil
       #   signature:   String (raw trimmed line)
+      #   throws:      Boolean (func / init で `throws` 末尾を持つか)
+      #   async:       Boolean (func の `async` 末尾、 init には立たない)
+      #   failable:    Boolean (init? の `?` を持つか、 func/var には常に false)
       def parse_decl_line(line)
         stripped = line.strip
 
@@ -96,18 +107,31 @@ module AppleSDKKnowledge
           is_class = !m[1].nil?
           name     = m[2]
           params   = parse_params(m[3])
-          ret      = m[4]&.strip
+          effects  = (m[4] || "").strip
+          ret      = m[5]&.strip
           kind     = is_class ? :class_func : :instance_func
-          { kind: kind, name: name, params: params, return_type: ret, signature: stripped }
+          { kind: kind, name: name, params: params, return_type: ret,
+            throws: effects.include?("throws"),
+            async:  effects.include?("async"),
+            failable: false,
+            signature: stripped }
 
         elsif (m = stripped.match(DECL_INIT_RE))
-          params = parse_params(m[2])
-          { kind: :init, name: "init", params: params, return_type: nil, signature: stripped }
+          failable = m[2] == "?"
+          params   = parse_params(m[3])
+          effects  = (m[4] || "").strip
+          { kind: :init, name: "init", params: params, return_type: nil,
+            throws: effects.include?("throws"),
+            async:  false,
+            failable: failable,
+            signature: stripped }
 
         elsif (m = stripped.match(DECL_VAR_RE))
           is_class = !m[1].nil?
           kind     = is_class ? :class_var : :instance_var
-          { kind: kind, name: m[2], params: [], return_type: m[3].strip, signature: stripped }
+          { kind: kind, name: m[2], params: [], return_type: m[3].strip,
+            throws: false, async: false, failable: false,
+            signature: stripped }
 
         else
           nil
@@ -303,6 +327,8 @@ module AppleSDKKnowledge
         # Single atomic INSERT ... ON CONFLICT — swift_imported_name rides
         # along so a re-import under the same content_hash updates this
         # column in the same statement.
+        # return_type は downstream emitter (rb-apple-sdk-mac) が wrap_class /
+        # marshalling 判定に使うため Swift overlay 由来 row でも DB に乗せる。
         @store.insert_symbol(
           framework_id:        fw_id,
           name:                selector,
@@ -311,6 +337,7 @@ module AppleSDKKnowledge
           abi:                 "swift",
           content_hash:        hash,
           signature:            decl[:signature],
+          return_type:         decl[:return_type],
           swift_imported_name: swift_name
         )
       end
