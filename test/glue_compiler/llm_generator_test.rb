@@ -216,4 +216,39 @@ class TestLLMGenerator < Test::Unit::TestCase
     ins = AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS
     assert_match(/Example G/, ins, "Worked Example G (ObjC + completion block) required.")
   end
+
+  # postmortem 2026-05-14 #2: Foundation Models LM の 4096-token context window
+  # に対し、 KB miss 経路の prompt が 4089-4091 tokens で exceededContextWindowSize。
+  # KEEP_FOR_FAMILY による example slicing は既に有り、 prose 側も family ごとに
+  # 不要 rule を strip して margin を確保する。 :swift / :objc family は C function
+  # pointer callback (rule 9) を一切扱わへんため、 instructions_for で strip。
+  # :c family は維持 (CoreMIDI 等 C 関数の callback が常用される)。
+  def test_instructions_for_swift_family_strips_c_callback_rule
+    gen = AppleSDKMac::GlueCompiler::LLMGenerator.new
+    text = gen.send(:instructions_for, :swift)
+    refute_match(/MIDINotifyProc/, text,
+      ":swift family の instructions は C callback rule (MIDINotifyProc) を含まない")
+    refute_match(/runtime_callback_pillar_register_midi_notify/, text,
+      ":swift family は callback pillar register を一切参照しない")
+    assert_operator text.length, :<, AppleSDKMac::GlueCompiler::LLMGenerator::INSTRUCTIONS.length,
+      ":swift family pruned text は full INSTRUCTIONS より短い"
+  end
+
+  def test_instructions_for_objc_family_strips_c_callback_rule
+    gen = AppleSDKMac::GlueCompiler::LLMGenerator.new
+    text = gen.send(:instructions_for, :objc)
+    refute_match(/MIDINotifyProc/, text,
+      ":objc family も ObjC 経路で C callback pillar を使わへんので strip")
+    refute_match(/runtime_callback_pillar_register_midi_notify/, text,
+      ":objc family は callback pillar register を一切参照しない")
+  end
+
+  def test_instructions_for_c_family_preserves_callback_rule
+    gen = AppleSDKMac::GlueCompiler::LLMGenerator.new
+    text = gen.send(:instructions_for, :c)
+    assert_match(/MIDINotifyProc/, text,
+      ":c family は C function callback (MIDINotifyProc) を扱うので prose 維持")
+    assert_match(/runtime_callback_pillar_register_midi_notify/, text,
+      ":c family は callback pillar register を参照する")
+  end
 end

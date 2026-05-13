@@ -215,6 +215,21 @@ module AppleSDKMac
         keep = keep_keys.map { |k| LLMExamples::EXAMPLES.fetch(k) }
         text = INSTRUCTIONS.dup
         (LLMExamples::EXAMPLES.values - keep).each { |ex| text = text.sub(ex, "") }
+        # Family-scoped prose pruning。 :swift / :objc family は C function-pointer
+        # callback (rule 9: MIDINotifyProc + callback_pillar_register) を扱わへん
+        # ため、 当該 rule prose を strip して context window margin を確保する
+        # (postmortem 2026-05-14 #2 の root cause 対策、 prompt 4089-4091 tokens
+        # で exceededContextWindowSize に当たる現象の余裕分を稼ぐ)。
+        unless family == :c
+          text = text.sub(/^\s*9\.\s+For C function-pointer parameters.*?(?=^\s*10\.\s+For raw)/m, "")
+          # CALLBACK_BRIDGE_DECLS (`runtime_callback_pillar_register_*` /
+          # `runtime_callback_pillar_get_*_fnptr` の @_silgen_name 群) は
+          # :c family の C function callback (MIDINotifyProc 等) 経路でしか
+          # 参照されへん。 :swift / :objc family の HEADER prose からも strip
+          # して context window margin を増やす。
+          bridge_decls = TemplateGenerator::CALLBACK_BRIDGE_DECLS
+          text = text.sub(bridge_decls, "") unless bridge_decls.empty?
+        end
         text.gsub(/\n{3,}/, "\n\n")
       end
 
