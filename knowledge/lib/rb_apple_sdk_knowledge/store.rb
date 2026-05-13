@@ -98,18 +98,30 @@ module AppleSDKKnowledge
                        parent_id: nil, signature: nil, documentation: nil,
                        return_type: nil, parameters_json: nil, availability: nil,
                        deprecated: 0, requires_main_thread: 0, fields_json: nil,
-                       swift_imported_name: nil)
+                       swift_imported_name: nil,
+                       is_throws: 0, is_async: 0, is_failable: 0, is_settable: 0,
+                       return_ownership: nil, throws_error_type: nil,
+                       callback_signature_json: nil, enum_cases_json: nil,
+                       unsupported_pattern: nil)
       # UPSERT on content_hash: a re-import (e.g. apple:knowledge:rebuild
       # under a newer classifier) must overwrite the existing row so
       # updated parameters_json / fields_json / swift_imported_name land
-      # atomically in one statement.
+      # atomically in one statement. Phase 1 metadata: integer flags
+      # (is_throws/is_async/is_failable/is_settable) overwrite on re-import
+      # to reflect the latest classifier; nullable TEXT columns
+      # (return_ownership / throws_error_type / *_json / unsupported_pattern)
+      # use COALESCE so a later import that leaves them NULL preserves
+      # values an earlier richer source already populated.
       @db.execute(
         <<~SQL,
           INSERT INTO symbols
           (framework_id, name, parent_id, kind, signature, abi, documentation,
            return_type, parameters_json, availability, deprecated,
-           requires_main_thread, content_hash, fields_json, swift_imported_name)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           requires_main_thread, content_hash, fields_json, swift_imported_name,
+           is_throws, is_async, is_failable, is_settable,
+           return_ownership, throws_error_type, callback_signature_json,
+           enum_cases_json, unsupported_pattern)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(content_hash) DO UPDATE SET
             framework_id    = excluded.framework_id,
             name            = excluded.name,
@@ -124,11 +136,23 @@ module AppleSDKKnowledge
             deprecated      = excluded.deprecated,
             requires_main_thread = excluded.requires_main_thread,
             fields_json     = COALESCE(excluded.fields_json, symbols.fields_json),
-            swift_imported_name = COALESCE(excluded.swift_imported_name, symbols.swift_imported_name)
+            swift_imported_name = COALESCE(excluded.swift_imported_name, symbols.swift_imported_name),
+            is_throws       = excluded.is_throws,
+            is_async        = excluded.is_async,
+            is_failable     = excluded.is_failable,
+            is_settable     = excluded.is_settable,
+            return_ownership = COALESCE(excluded.return_ownership, symbols.return_ownership),
+            throws_error_type = COALESCE(excluded.throws_error_type, symbols.throws_error_type),
+            callback_signature_json = COALESCE(excluded.callback_signature_json, symbols.callback_signature_json),
+            enum_cases_json = COALESCE(excluded.enum_cases_json, symbols.enum_cases_json),
+            unsupported_pattern = COALESCE(excluded.unsupported_pattern, symbols.unsupported_pattern)
         SQL
         [framework_id, name, parent_id, kind, signature, abi, documentation,
          return_type, parameters_json, availability, deprecated,
-         requires_main_thread, content_hash, fields_json, swift_imported_name]
+         requires_main_thread, content_hash, fields_json, swift_imported_name,
+         is_throws, is_async, is_failable, is_settable,
+         return_ownership, throws_error_type, callback_signature_json,
+         enum_cases_json, unsupported_pattern]
       )
       # last_insert_row_id() reports 0 on UPDATE; recover the actual rowid.
       row = @db.execute("SELECT id FROM symbols WHERE content_hash = ?", [content_hash]).first
