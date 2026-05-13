@@ -17,6 +17,13 @@ module AppleSDKKnowledge
         # types (__builtin_va_list etc.) — initialize inherited file as nil so
         # they are skipped, and let the first explicit marker set the context.
         walk(json["inner"], nil, path, symbols, nil)
+        # Phase 1 T7: clang AST JSON は preprocessor macro を出さへんため
+        # 同じ header file を text scan して function-like macro
+        # (`#define NAME(args) ...`) を抽出、 `unsupported_pattern =
+        # "function_macro"` marker 付きの function symbol として
+        # emit する。 value-style macro (`#define NAME value`) は
+        # dispatch 不能な spec gap が無いため対象外。
+        scan_function_like_macros(path, symbols)
         symbols
       end
 
@@ -324,6 +331,45 @@ module AppleSDKKnowledge
         return false unless node["kind"] == "FunctionDecl"
         return false unless node["inline"] == true
         node["storageClass"] == "static"
+      end
+
+      # Phase 1 T7: `#define NAME(arg, ...) body` を function-like macro
+      # と判定する。 C preprocessor の文法上、 macro name の直後に空白を
+      # 挟まず `(` が続く場合だけ function-like macro になる
+      # (`#define FOO (1+2)` は value macro、 `#define FOO(x) (x+1)` は
+      # function-like)。 line-continuation `\` で複数行 body に跨る macro
+      # も name の見え方は同じやから、 先頭行だけ scan すれば足りる。
+      # block comment / ifdef block 内の `#define` も拾うてまうが、 phase 1
+      # の TDD では実 framework header に対する正規 macro 取り込みが目的、
+      # 偽陽性が出ても Phase 2 dispatcher は marker 付き symbol を call 時
+      # raise 経路に流すだけなので副作用は無い。
+      def scan_function_like_macros(path, symbols)
+        File.foreach(path) do |line|
+          m = line.match(/^\s*#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)\(([^)]*)\)/)
+          next unless m
+          name = m[1]
+          params_str = m[2].strip
+          param_names =
+            if params_str.empty?
+              []
+            else
+              params_str.split(/,\s*/).map(&:strip).reject(&:empty?)
+            end
+          symbols << {
+            name: name,
+            kind: "function",
+            abi: "c",
+            parent_name: nil,
+            signature: "#define #{name}(#{param_names.join(', ')})",
+            return_type: nil,
+            parameters: param_names.each_with_index.map { |pn, i|
+              { name: pn.empty? ? "_arg#{i}" : pn, type: nil, kind: "opaque", is_out_param: false, nullability: nil, nullable: nil }
+            },
+            documentation: nil,
+            return_ownership: nil,
+            unsupported_pattern: "function_macro"
+          }
+        end
       end
 
       def objc_method_signature(node, is_instance: true)

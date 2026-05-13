@@ -207,4 +207,36 @@ class TestClangObjcImporterPhase1 < Test::Unit::TestCase
       store.close
     end
   end
+
+  # Phase 1 T7: clang preprocessor の function-like macro
+  # (`#define MakeWidget(name) ((Widget *)widgetCreate(name))`) は
+  # preprocessor 展開のみで dylib symbol を持たへんため、 import 時に
+  # `unsupported_pattern = "function_macro"` marker を付与し Phase 2
+  # dispatcher が call 時に rich diagnostic raise の判定材料とする。
+  # value-style macro (`#define MY_CONSTANT 42`) は対象外、 既存挙動
+  # (現状は AST に出ぇへんため一切 import されへん) を維持する。
+  def test_function_like_macro_marked_unsupported_function_macro
+    Dir.mktmpdir do |dir|
+      header = File.join(dir, "TestFW.h")
+      File.write(header, <<~HEADER)
+        #define MakeWidget(name) ((Widget *)widgetCreate(name))
+        #define MY_CONSTANT 42
+      HEADER
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      AppleSDKKnowledge::Importer::ClangObjc.import_file(
+        store: store, framework: "TestFW", file: header
+      )
+      row1 = store.db.execute("SELECT unsupported_pattern, kind FROM symbols WHERE name = ?", ["MakeWidget"]).first
+      row2 = store.db.execute("SELECT name FROM symbols WHERE name = ?", ["MY_CONSTANT"]).first
+      assert_not_nil row1, "MakeWidget が import されてへん"
+      assert_equal "function_macro", row1[0],
+        "MakeWidget は function-like macro、 marker 必須"
+      assert_equal "function", row1[1],
+        "function-like macro は function kind で並びを揃える"
+      # value macro は clang AST に出ぇへん + text scan も対象外、 既存挙動どおり import されへん
+      assert_nil row2, "MY_CONSTANT は value macro、 既存挙動どおり import されへん"
+      store.close
+    end
+  end
 end
