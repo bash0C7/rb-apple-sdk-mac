@@ -33,6 +33,7 @@ A few examples take optional positional args (download URL, OCR fixture path, MI
 | `coremidi_receive.rb` | CoreMIDI client + input port + 2-second receive loop (CallbackPillar persistent slot) | ✅ exits 0 with `done` |
 | `discover_escape.rb` | Apple.discover escape-hatch demo: (1) CF function direct via [:opaque_ref, :cstring, :uint32] -> :opaque_ref shape, (2) ObjC class method via `Apple.discover(class_method:)` (`+[NSString stringWithUTF8String:]` → Swift 6 init-bridge) | ✅ exits 0, both `box=` and `ptr=` lines printed |
 | `irb_completion_demo.rb` | Headless smoke of the `apple_sdk_mac/irb` Completor (no TTY required) | ✅ exits 0 with `irb_completion_demo OK` |
+| `piano_keyboard.rb` | CoreAudio HAL device enum + AudioUnitSetProperty + AVFAudio (AVAudioEngine / PlayerNode / AVAudioFile) ソフトピアノ CLI。 4 framework 跨ぎ。 引数なし: device list を出して exit / 引数 = device 番号: interactive piano 起動 | ✅ 引数なしで exits 0 — interactive 起動は output audio device 必要 |
 | `urlsession_download.rb` | NSURLSession real HTTP `dataTaskWithURL:completionHandler:` (BlockPersistentMarshaller) | ✅ exits 0 — needs network |
 | `vision_ocr.rb` | Vision `VNRecognizeTextRequest` against `fixtures/ocr_hello.png` | ✅ exits 0 — needs the fixture |
 

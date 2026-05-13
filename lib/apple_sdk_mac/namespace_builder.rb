@@ -244,7 +244,10 @@ module AppleSDKMac
     # `init(cgImage:options:)` → `init_cgImage_options`
     # `(` → `_`, `)` → drop, `:` → `_`, 連続 `_` を 1 つに、末尾 `_` を drop。
     def ruby_method_name_for(method_part)
-      method_part.gsub("(", "_")
+      # Swift throws suffix (`init(forReading:) throws` 等) は Ruby method 名に
+      # 反映せえへん。 emit 側だけが throws マーカーを利用する。
+      method_part.sub(/\s+throws\z/, "")
+                 .gsub("(", "_")
                  .gsub(")", "")
                  .gsub(":", "_")
                  .gsub(/_+/, "_")
@@ -260,9 +263,20 @@ module AppleSDKMac
       # constant proxy.
       return unless type_name =~ /\A[A-Z]/
       return if mod.const_defined?(type_name, false)
+      # ensure_proxy_class と同じ shape (`__opaque_ref` / `from_ref`) を持たす。
+      # define_method_under_klass の wrap_class.from_ref(result) で使うため、
+      # type_constant 経由で先に install された proxy も raw → proxy 変換に
+      # 対応せなあかん (NSURL.URLWithString の戻り値 wrap が典型例)。
       proxy_class = Class.new do
         define_singleton_method(:framework) { framework }
         define_singleton_method(:type_name) { type_name }
+        attr_reader :__opaque_ref
+        define_method(:initialize) do |raw_ref|
+          @__opaque_ref = raw_ref
+        end
+        define_singleton_method(:from_ref) do |raw_ref|
+          new(raw_ref)
+        end
       end
       mod.const_set(type_name, proxy_class)
     end
