@@ -45,6 +45,23 @@ module AppleSDKKnowledge
       # Captures: [1] class/static?, [2] var name, [3] type
       DECL_VAR_RE = /(?:open|public)\s+(?:(class|static)\s+)?var\s+(\w+)\s*:\s*([^\n{]+)/.freeze
 
+      # Matches: (open|public) [indirect] enum <Name>[: <Conformances>]? {
+      # Captures: [1] enum name. Optional raw-value / conformance clause
+      # (e.g. `: String`, `: RawRepresentable, Codable`) is absorbed by the
+      # non-greedy `[^\n{]*` between the name and the opening brace, so the
+      # enum is recognised regardless of conformance shape. Phase 1 T12:
+      # the parser only captures top-level enum declarations — nested enums
+      # inside extension blocks fall through to the existing extension path
+      # and are handled (or not) by the line-decl scanner.
+      DECL_ENUM_RE = /(?:open|public)\s+(?:indirect\s+)?enum\s+(\w+)(?:[^\n{]*)\{/.freeze
+
+      # Matches a `case` line inside an enum body. Captures [1] one or more
+      # case names separated by commas (e.g. `case a, b, c`). Trailing
+      # associated-value parens `case load(Data)` or raw-value assignments
+      # `case foo = "f"` are tolerated — the regex only locks onto the
+      # identifier head(s) and lets parse_enum_block_cases split commas.
+      CASE_RE = /^\s*case\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)/.freeze
+
       def initialize(store)
         @store = store
       end
@@ -85,6 +102,53 @@ module AppleSDKKnowledge
         end
 
         blocks
+      end
+
+      # -- enum scanner -------------------------------------------------------
+
+      # Returns [{name: String, cases: Array<String>}] for each top-level
+      # `public enum Foo { ... }` block found in +source+. Brace-counted
+      # body extraction mirrors extract_extension_blocks so nested type
+      # braces don't bleed across enum boundaries.
+      def extract_enum_blocks(source)
+        scanner = StringScanner.new(source)
+        blocks  = []
+
+        until scanner.eos?
+          if scanner.scan_until(DECL_ENUM_RE)
+            name       = scanner.captures.first
+            body_start = scanner.pos
+            depth      = 1
+
+            until scanner.eos? || depth == 0
+              ch = scanner.getch
+              case ch
+              when "{" then depth += 1
+              when "}" then depth -= 1
+              end
+            end
+
+            body_end = depth == 0 ? scanner.pos - 1 : scanner.pos
+            body     = source[body_start...body_end]
+            blocks << { name: name, cases: parse_case_names(body) }
+          else
+            break
+          end
+        end
+
+        blocks
+      end
+
+      # Extracts flat case-name array from an enum body. Multi-name
+      # `case a, b, c` is expanded into separate entries. Associated-value
+      # / raw-value tails (`case load(Data)` / `case foo = "f"`) are
+      # ignored — only the identifier head is retained.
+      def parse_case_names(body)
+        names = []
+        body.scan(CASE_RE) do |m|
+          m[0].split(",").map(&:strip).each { |c| names << c unless c.empty? }
+        end
+        names
       end
 
       # -- declaration parser -------------------------------------------------
@@ -328,6 +392,15 @@ module AppleSDKKnowledge
             upsert_decl(decl, klass: block[:klass], klass_id: klass_id, fw_id: fw_id)
           end
         end
+
+        # Phase 1 T12: top-level `public enum X { case ... }` declarations
+        # are not exposed via the extension scanner. Ingest them as their
+        # own symbol rows with kind="enum" and serialise the case-name
+        # list into enum_cases_json. Phase 2 namespace_builder reads this
+        # column to install `Apple::<Framework>::<Enum>::<Case>` constants.
+        extract_enum_blocks(source).each do |enum_block|
+          upsert_enum(enum_block, fw_id: fw_id)
+        end
       end
 
       private
@@ -372,6 +445,28 @@ module AppleSDKKnowledge
         return existing if existing
 
         @store.insert_framework(name: name, swift_module: name, category: "swift_overlay")
+      end
+
+      # Inserts a top-level Swift enum symbol with its case list serialised
+      # to enum_cases_json. Idempotent via the (framework_id, name, kind)
+      # selector check — re-imports under the same content_hash collapse
+      # into the same row through Store#insert_symbol's ON CONFLICT path.
+      # Empty case lists serialise to nil so the column stays NULL for
+      # zero-case (degenerate) enum declarations.
+      def upsert_enum(enum_block, fw_id:)
+        name  = enum_block[:name]
+        cases = enum_block[:cases]
+        hash  = Digest::SHA256.hexdigest("#{fw_id}|#{name}|enum|swift_overlay")
+
+        @store.insert_symbol(
+          framework_id:    fw_id,
+          name:            name,
+          kind:            "enum",
+          abi:             "swift",
+          content_hash:    hash,
+          signature:       "enum #{name}",
+          enum_cases_json: cases.empty? ? nil : JSON.generate(cases)
+        )
       end
 
       def upsert_klass(klass_name, fw_id)

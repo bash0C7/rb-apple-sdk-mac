@@ -269,4 +269,42 @@ class TestSwiftOverlayImporterPhase1 < Test::Unit::TestCase
       end
     end
   end
+
+  # Phase 1 T12: capture Swift `public enum X { case a; case b }` cases
+  # into the `enum_cases_json` schema column on the parent enum symbol row.
+  # Phase 2 namespace_builder consumes this list to install
+  # `Apple::<Framework>::<Enum>::<Case>` constants without re-parsing the
+  # swiftinterface. Cases are stored as a JSON array of name strings on
+  # the enum row itself — individual cases do not get their own symbol
+  # rows in this iteration (case-attached properties / payloads are
+  # deferred to a later phase).
+  def test_enum_cases_captured_to_enum_cases_json
+    Dir.mktmpdir do |dir|
+      interface = File.join(dir, "TestFW.swiftinterface")
+      File.write(interface, <<~SWIFT)
+        // swift-interface-format-version: 1.0
+        public enum WriteMode {
+          case create
+          case createAndPrepend
+          case truncate
+        }
+      SWIFT
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      begin
+        AppleSDKKnowledge::Importer::SwiftOverlay.new(store).import!(
+          framework: "TestFW", path: interface
+        )
+        row = store.db.execute(
+          "SELECT enum_cases_json FROM symbols WHERE name = ?", ["WriteMode"]
+        ).first
+        assert_not_nil row, "WriteMode が import されてへん"
+        assert_not_nil row[0], "enum_cases_json が NULL"
+        cases = JSON.parse(row[0])
+        assert_equal %w[create createAndPrepend truncate], cases
+      ensure
+        store.close
+      end
+    end
+  end
 end
