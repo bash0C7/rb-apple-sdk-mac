@@ -45,6 +45,60 @@ class TestKnowledgeCache < Test::Unit::TestCase
     end
   end
 
+  # postmortem 2026-05-14 #12 follow-up: SwiftOverlay importer が return_type
+  # を DB に乗せたので、 consumer (emitter / dispatcher) は KB record の
+  # `return_type` を読めるようにする。 lookup_symbol の戻り Hash に :return_type
+  # を含める。
+  def test_lookup_symbol_surfaces_return_type
+    Dir.mktmpdir do |dir|
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      fid = store.insert_framework(name: "AVFAudio", swift_module: "AVFAudio")
+      store.insert_symbol(
+        framework_id: fid, name: "init(forReading:)",
+        kind: "class_method", abi: "swift", content_hash: "h-init",
+        signature: "public init(forReading url: URL) throws",
+        return_type: "AVAudioFile"
+      )
+
+      cache = AppleSDKMac::KnowledgeCache.new(store)
+      sym = cache.lookup_symbol(framework: "AVFAudio", symbol: "init(forReading:)")
+      assert_not_nil sym
+      assert_equal "AVAudioFile", sym[:return_type],
+        "KB record return_type は consumer (emitter) が読める形で expose する"
+      cache.close
+    end
+  end
+
+  # 同 invariant を lookup_klass_method 側 (parent_id JOIN 経由) でも。
+  def test_lookup_klass_method_surfaces_return_type
+    Dir.mktmpdir do |dir|
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      fid = store.insert_framework(name: "AVFAudio", swift_module: "AVFAudio")
+      parent_id = store.insert_symbol(
+        framework_id: fid, name: "AVAudioEngine",
+        kind: "class", abi: "swift", content_hash: "h-ae",
+        signature: "class AVAudioEngine"
+      )
+      store.insert_symbol(
+        framework_id: fid, parent_id: parent_id, name: "startAndReturnError:",
+        kind: "instance_method", abi: "swift", content_hash: "h-start",
+        signature: "open func start() throws",
+        return_type: "Void"
+      )
+
+      cache = AppleSDKMac::KnowledgeCache.new(store)
+      rec = cache.lookup_klass_method(framework: "AVFAudio",
+                                       klass: "AVAudioEngine",
+                                       method: "startAndReturnError:")
+      assert_not_nil rec
+      assert_equal "Void", rec[:return_type],
+        "parent_id 経由 lookup でも return_type を expose"
+      cache.close
+    end
+  end
+
   def test_list_klass_methods_returns_methods_with_parent_class
     cache = AppleSDKMac.knowledge_cache
     # Foundation.URL (Swift struct) は appendingPathComponent 等の instance_method

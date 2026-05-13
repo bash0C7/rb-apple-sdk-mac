@@ -33,7 +33,7 @@ module AppleSDKMac
       row = @db.execute(<<~SQL, [framework, symbol]).first
         SELECT s.id, s.name, s.kind, s.signature, s.abi, s.documentation,
                s.parameters_json, s.requires_main_thread, s.content_hash,
-               s.fields_json
+               s.fields_json, s.return_type
         FROM symbols s
         JOIN frameworks f ON s.framework_id = f.id
         WHERE f.name = ? AND s.name = ?
@@ -44,7 +44,7 @@ module AppleSDKMac
         id: row[0], name: row[1], kind: row[2], signature: row[3],
         abi: row[4], documentation: row[5], parameters_json: row[6],
         requires_main_thread: row[7] == 1, content_hash: row[8],
-        fields_json: row[9]
+        fields_json: row[9], return_type: row[10]
       }
     end
 
@@ -77,7 +77,7 @@ module AppleSDKMac
       row = @db.execute(<<~SQL, [framework, klass, method]).first
         SELECT s.id, s.name, s.kind, s.signature, s.abi, s.documentation,
                s.parameters_json, s.requires_main_thread, s.content_hash,
-               s.fields_json
+               s.fields_json, s.return_type
         FROM symbols s
         JOIN symbols p     ON s.parent_id = p.id
         JOIN frameworks f  ON s.framework_id = f.id
@@ -89,7 +89,7 @@ module AppleSDKMac
         id: row[0], name: row[1], kind: row[2], signature: row[3],
         abi: row[4], documentation: row[5], parameters_json: row[6],
         requires_main_thread: row[7] == 1, content_hash: row[8],
-        fields_json: row[9]
+        fields_json: row[9], return_type: row[10]
       }
     end
 
