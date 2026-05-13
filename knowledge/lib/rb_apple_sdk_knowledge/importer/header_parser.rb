@@ -16,7 +16,7 @@ module AppleSDKKnowledge
         # Top-level siblings before any explicit `loc.file` are compiler-builtin
         # types (__builtin_va_list etc.) — initialize inherited file as nil so
         # they are skipped, and let the first explicit marker set the context.
-        walk(json["inner"], nil, path, symbols)
+        walk(json["inner"], nil, path, symbols, nil)
         symbols
       end
 
@@ -44,14 +44,23 @@ module AppleSDKKnowledge
       # Walks AST sibling lists and only emits symbols whose source location
       # matches `target`. clang's JSON loc inherits across siblings: a node
       # without an explicit `file` keeps the file of the previous sibling.
-      def walk(siblings, parent_file, target, symbols)
+      # `parent_objc` carries the enclosing ObjCInterfaceDecl / ObjCProtocolDecl
+      # / ObjCCategoryDecl name down into ObjCMethodDecl / ObjCPropertyDecl
+      # so method rows know their owning class.
+      def walk(siblings, parent_file, target, symbols, parent_objc)
         current_file = parent_file
         (siblings || []).each do |node|
           next unless node.is_a?(Hash)
           f = resolve_file(node)
           current_file = f if f
-          emit_symbol(node, symbols) if current_file == target
-          walk(node["inner"], current_file, target, symbols)
+          emit_symbol(node, symbols, parent_objc) if current_file == target
+          child_parent_objc = case node["kind"]
+                              when "ObjCInterfaceDecl", "ObjCProtocolDecl", "ObjCCategoryDecl"
+                                node["name"] || parent_objc
+                              else
+                                parent_objc
+                              end
+          walk(node["inner"], current_file, target, symbols, child_parent_objc)
         end
       end
 
@@ -64,8 +73,21 @@ module AppleSDKKnowledge
         rb.dig("expansionLoc", "file")
       end
 
-      def emit_symbol(node, symbols)
+      def emit_symbol(node, symbols, parent_objc = nil)
         case node["kind"]
+        when "ObjCMethodDecl"
+          if node["name"]
+            symbols << {
+              name: node["name"],
+              kind: "instance_method",
+              abi: "objc",
+              parent_name: parent_objc,
+              signature: objc_method_signature(node),
+              return_type: node.dig("returnType", "qualType"),
+              parameters: function_parameters(node),
+              documentation: extract_documentation(node)
+            }
+          end
         when "FunctionDecl"
           if node["storageClass"] != "static"
             symbols << {
@@ -183,9 +205,24 @@ module AppleSDKKnowledge
             type: qual_type,
             kind: Kind.classify_kind(qual_type, desugared, nullability),
             is_out_param: Kind.out_param?(qual_type, name, p == last_pointer),
-            nullability: nullability
+            nullability: nullability,
+            # Phase 1 T3: surface nullability as a Ruby/JSON boolean for
+            # emitters that need a binary "use nilable marshaller?" gate
+            # without re-parsing the string form. nil ↔ unspecified.
+            nullable: parameter_nullable(qual_type)
           }
         end
+      end
+
+      def parameter_nullable(qual_type)
+        return true  if qual_type.match?(/_Nullable\b/)
+        return false if qual_type.match?(/_Nonnull\b/)
+        nil
+      end
+
+      def objc_method_signature(node)
+        return_type = node.dig("returnType", "qualType") || "void"
+        "- (#{return_type}) #{node['name']}"
       end
     end
   end
