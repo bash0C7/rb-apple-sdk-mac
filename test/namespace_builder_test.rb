@@ -155,6 +155,49 @@ class TestNamespaceBuilder < Test::Unit::TestCase
       "swift_init Ruby identifier sanitized from canonical 'init(string:)'"
   end
 
+  # postmortem 2026-05-14 #9 regression net + canonical proxy factory invariant:
+  # type_constant 経由で先に install された proxy class (bootstrap! が DB の
+  # struct/class kind を見つけて作る) と、 ensure_proxy_class 経由 (Apple.discover
+  # が objc_method_class/swift_init を install するときに作る) の proxy が同じ
+  # shape を持つこと。 旧 bug は type_constant 経由 proxy に `from_ref` /
+  # `__opaque_ref` が無く、 後で wrap_class.from_ref(raw) が NoMethodError で
+  # 落ちた。 両 path とも以下を expose:
+  #   singleton: framework, type_name, from_ref
+  #   instance:  __opaque_ref (attr_reader), initialize(raw)
+  def test_proxy_classes_have_identical_shape_across_install_paths
+    box_a = Module.new
+    builder_a = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: FakeKnowledge.new, target: box_a,
+      dispatcher: ->(*) { :ok }
+    )
+    builder_a.build!
+    type_const_proxy = box_a.const_get(:CoreMIDI).const_get(:MIDIClientRef)
+
+    box_b = Module.new
+    builder_b = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box_b,
+      dispatcher: ->(*) { :ok }
+    )
+    builder_b.install_one("Foundation", {
+      name: "NSString.stringWithUTF8String",
+      kind: "objc_method_class",
+      objc_class: "NSString", selector: "stringWithUTF8String:"
+    })
+    ensure_proxy = box_b.const_get(:Foundation).const_get(:NSString)
+
+    [type_const_proxy, ensure_proxy].each do |proxy|
+      assert_respond_to proxy, :from_ref,
+        "#{proxy} must expose from_ref class helper (raw → proxy instance)"
+      assert_respond_to proxy, :framework,
+        "#{proxy} must expose framework class helper"
+      assert_respond_to proxy, :type_name,
+        "#{proxy} must expose type_name class helper"
+      inst = proxy.from_ref(0xDEAD_BEEF)
+      assert_equal 0xDEAD_BEEF, inst.__opaque_ref,
+        "#{proxy} instance must expose __opaque_ref to round-trip raw"
+    end
+  end
+
   # postmortem 2026-05-14 #10 regression net: Swift identifier の末尾
   # `throws` modifier は Ruby method 名に残してはいけない。 emit 側だけが
   # throws マーカーを利用し、 namespace_builder の ruby_method_name_for は

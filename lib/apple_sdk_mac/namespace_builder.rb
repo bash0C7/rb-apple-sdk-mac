@@ -220,21 +220,29 @@ module AppleSDKMac
       if mod.const_defined?(klass_name, false)
         mod.const_get(klass_name)
       else
-        proxy = Class.new do
-          define_singleton_method(:framework) { framework }
-          define_singleton_method(:type_name) { klass_name }
-          # Proxy instance は raw opaque ref (Integer) を保持する。
-          # from_ref(raw) は new(raw) と等価のクラスヘルパー (公開 API)。
-          attr_reader :__opaque_ref
-          define_method(:initialize) do |raw_ref|
-            @__opaque_ref = raw_ref
-          end
-          define_singleton_method(:from_ref) do |raw_ref|
-            new(raw_ref)
-          end
-        end
+        proxy = build_proxy_class(framework, klass_name)
         mod.const_set(klass_name, proxy)
         proxy
+      end
+    end
+
+    # canonical proxy class factory。 ensure_proxy_class (Apple.discover 経由) と
+    # define_type_constant (bootstrap! の DB struct/class kind 走査経由) の両 path
+    # が同じ shape の proxy を install できるよう、 唯一の生成箇所。
+    # shape: singleton(framework, type_name, from_ref) / instance(__opaque_ref,
+    # initialize(raw))。 postmortem 2026-05-14 #9 の root cause (path 分岐で
+    # from_ref / __opaque_ref が片方欠落) を構造的に塞ぐ。
+    def build_proxy_class(framework, klass_name)
+      Class.new do
+        define_singleton_method(:framework) { framework }
+        define_singleton_method(:type_name) { klass_name }
+        attr_reader :__opaque_ref
+        define_method(:initialize) do |raw_ref|
+          @__opaque_ref = raw_ref
+        end
+        define_singleton_method(:from_ref) do |raw_ref|
+          new(raw_ref)
+        end
       end
     end
 
@@ -263,22 +271,11 @@ module AppleSDKMac
       # constant proxy.
       return unless type_name =~ /\A[A-Z]/
       return if mod.const_defined?(type_name, false)
-      # ensure_proxy_class と同じ shape (`__opaque_ref` / `from_ref`) を持たす。
+      # build_proxy_class が ensure_proxy_class と同一 shape を保証する。
       # define_method_under_klass の wrap_class.from_ref(result) で使うため、
       # type_constant 経由で先に install された proxy も raw → proxy 変換に
       # 対応せなあかん (NSURL.URLWithString の戻り値 wrap が典型例)。
-      proxy_class = Class.new do
-        define_singleton_method(:framework) { framework }
-        define_singleton_method(:type_name) { type_name }
-        attr_reader :__opaque_ref
-        define_method(:initialize) do |raw_ref|
-          @__opaque_ref = raw_ref
-        end
-        define_singleton_method(:from_ref) do |raw_ref|
-          new(raw_ref)
-        end
-      end
-      mod.const_set(type_name, proxy_class)
+      mod.const_set(type_name, build_proxy_class(framework, type_name))
     end
   end
 end
