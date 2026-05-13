@@ -172,13 +172,17 @@ module AppleSDKKnowledge
             external = m[1]
             internal = m[2]
             external_label = external == "_" ? nil : external
-            { label: m[1], internal: internal, type: m[3].strip,
+            type_clean = m[3].strip
+            { label: m[1], internal: internal, type: type_clean,
               external_label: external_label, internal_name: internal,
+              nullable: nullable_outer?(type_clean),
               default_value: extract_default_value(m[4]) }
           elsif (m = part.match(/\A(\w+)\s*:\s*(.+?)(?:\s*=\s*(.+?))?\s*\z/))
             name = m[1]
-            { label: name, internal: name, type: m[2].strip,
+            type_clean = m[2].strip
+            { label: name, internal: name, type: type_clean,
               external_label: name, internal_name: name,
+              nullable: nullable_outer?(type_clean),
               default_value: extract_default_value(m[3]) }
           else
             nil
@@ -206,6 +210,28 @@ module AppleSDKKnowledge
         stripped = raw.strip
         return nil if stripped.empty?
         LITERAL_DEFAULT_RE.match?(stripped) ? stripped : nil
+      end
+
+      # Determines whether the *outer* form of a Swift type expression is
+      # Optional (`T?` / `T??`) or Implicitly-Unwrapped Optional (`T!`).
+      # Crude string `end_with?("?")` 判定では `Array<URL?>` のような
+      # 内側 ? が誤検出されるため、 paren / bracket / angle の depth balance
+      # を確認し、 末尾文字が ? or ! でかつ depth が 0 に閉じてる時のみ
+      # outer optional とみなす。 Phase 2 emitter は nullable=true で
+      # Ruby 側 nil 受容 / NULL bridging path を、 false で non-null 前提
+      # glue を選ぶ。
+      def nullable_outer?(type)
+        s = type.to_s.strip
+        return false if s.empty?
+        depth = 0
+        s.each_char do |c|
+          case c
+          when "(", "[", "<" then depth += 1
+          when ")", "]", ">" then depth -= 1
+          end
+        end
+        return false unless depth == 0
+        s.end_with?("?", "!")
       end
 
       # -- selector reconstruction --------------------------------------------
@@ -416,6 +442,10 @@ module AppleSDKKnowledge
       # (numeric / string / dot-prefixed enum case / bool / nil) when present,
       # nil otherwise. Phase 2 emitter uses non-nil entries to omit args in
       # generated glue and falls back to explicit user-passing when nil.
+      # Phase 1 T11: `nullable` carries the outer-Optional / IUO judgement
+      # (`URL?` / `URL!` → true、 `Array<URL?>` → false) per parameter so
+      # Phase 2 emitter picks NULL bridging vs non-null glue without
+      # re-parsing the type string at codegen time.
       def parameters_json_for(params)
         return nil if params.nil? || params.empty?
 
@@ -423,6 +453,7 @@ module AppleSDKKnowledge
           { external_label: p[:external_label],
             internal_name:  p[:internal_name],
             type:           p[:type],
+            nullable:       p[:nullable],
             default_value:  p[:default_value] }
         })
       end

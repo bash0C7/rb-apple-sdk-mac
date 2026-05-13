@@ -198,4 +198,75 @@ class TestSwiftOverlayImporterPhase1 < Test::Unit::TestCase
       end
     end
   end
+
+  # Phase 1 T11: refine Swift Optional / IUO outer-nullable detection so
+  # the Knowledge Base parameters_json carries an accurate `nullable` flag
+  # per parameter. Apple's bridging contract:
+  #   `URL?`         → outer Optional      → nullable = true
+  #   `URL??`        → outer Optional      → nullable = true
+  #   `Array<URL?>`  → outer Array (non-optional), inner element Optional
+  #                                        → nullable = false
+  #   `URL!`         → IUO (outer)         → nullable = true
+  # paren / bracket / angle の depth balance で外形を識別し、 内側の `?`
+  # を誤検出せぇへん。 Phase 2 emitter は nullable=true なら Ruby 側で
+  # nil 受容 / NULL bridging、 nullable=false なら non-null 前提で glue
+  # を生成する。
+  def test_optional_layer_captured_as_nullable
+    Dir.mktmpdir do |dir|
+      interface = File.join(dir, "TestFW.swiftinterface")
+      File.write(interface, <<~SWIFT)
+        // swift-interface-format-version: 1.0
+        import Foundation
+        extension TestKlass {
+          public func one(_ x: URL?)
+          public func two(_ x: URL??)
+          public func three(_ x: Array<URL?>)
+          public func four(_ x: URL!)
+        }
+      SWIFT
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      begin
+        AppleSDKKnowledge::Importer::SwiftOverlay.new(store).import!(
+          framework: "TestFW", path: interface
+        )
+
+        # selector form: underscore label (`_ x`) drops the `With<X>` suffix,
+        # selector reduces to `<funcName>:` (verified empirically in Step 1).
+        one = store.db.execute(<<~SQL, ["one:", "TestKlass"]).first
+          SELECT s.parameters_json FROM symbols s JOIN symbols p ON s.parent_id = p.id
+          WHERE s.name = ? AND p.name = ?
+        SQL
+        assert_not_nil one, "one symbol が import されてへん"
+        assert_equal true, JSON.parse(one[0])[0]["nullable"],
+          "URL? は外形 Optional → nullable=true"
+
+        two = store.db.execute(<<~SQL, ["two:", "TestKlass"]).first
+          SELECT s.parameters_json FROM symbols s JOIN symbols p ON s.parent_id = p.id
+          WHERE s.name = ? AND p.name = ?
+        SQL
+        assert_not_nil two, "two symbol が import されてへん"
+        assert_equal true, JSON.parse(two[0])[0]["nullable"],
+          "URL?? の外形末尾 ? も nullable=true"
+
+        three = store.db.execute(<<~SQL, ["three:", "TestKlass"]).first
+          SELECT s.parameters_json FROM symbols s JOIN symbols p ON s.parent_id = p.id
+          WHERE s.name = ? AND p.name = ?
+        SQL
+        assert_not_nil three, "three symbol が import されてへん"
+        assert_equal false, JSON.parse(three[0])[0]["nullable"],
+          "Array<URL?> は外形が非 Optional"
+
+        four = store.db.execute(<<~SQL, ["four:", "TestKlass"]).first
+          SELECT s.parameters_json FROM symbols s JOIN symbols p ON s.parent_id = p.id
+          WHERE s.name = ? AND p.name = ?
+        SQL
+        assert_not_nil four, "four symbol が import されてへん"
+        assert_equal true, JSON.parse(four[0])[0]["nullable"],
+          "URL! (IUO) も nullable=true"
+      ensure
+        store.close
+      end
+    end
+  end
 end
