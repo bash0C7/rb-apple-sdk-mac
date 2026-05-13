@@ -11,7 +11,7 @@ These exist to dogfood the README's central proposition — "call any public App
 - Sibling repos checked out per the parent `Gemfile` paths (currently `knowledge/` in-repo, `../rb-foundation-model-mac` sibling, `swift_gem` git source)
 - `bundle install` ran in repo root once
 
-The Knowledge Base does **not** need to be pre-built. On `feature/v1.2-bootstrap-principle` the runtime builds the KB on first `Apple.discover` / `AppleSDKMac.bootstrap!` / `AppleSDKMac::IRB.install!` call (transparent bootstrap principle). First call is several seconds; later calls hit the cache.
+The Knowledge Base does **not** need to be pre-built. The runtime builds the Knowledge Base on first `Apple.discover` / `AppleSDKMac.bootstrap!` / `AppleSDKMac::IRB.install!` call (transparent bootstrap principle). First call is several seconds; later calls hit the cache.
 
 ## Run
 
@@ -23,10 +23,10 @@ A few examples take optional positional args (download URL, OCR fixture path, MI
 
 ## Inventory
 
-| File | Framework / pillar | Status (2026-05-09, feature/v1.2-bootstrap-principle) |
+| File | Framework / pillar | Status (2026-05-13, main) |
 |---|---|---|
 | `async_taskgroup.rb` | NSOperationQueue + NSBlockOperation true parallelism | ✅ exits 0 with `OperationQueue OK` |
-| `audio_device_count.rb` | CoreAudio `AudioObjectGetPropertyDataSize` (int out-param) | ⚠️ broken on this branch — `TypeError: no implicit conversion of Hash into Integer` at `glue_loader.rb:19`. Expected: this example is the canary the v1.2 IntMarshaller `out_handling` refactor (Phase 3) targets; will go green once the static emitter for int out-params lands. |
+| `audio_device_count.rb` | CoreAudio `AudioObjectGetPropertyDataSize` (int out-param) | ✅ exits 0 — reports the CoreAudio system device count |
 | `avspeech_synth.rb` | AVFoundation Speech Synthesis (`AVSpeechSynthesizer.speak`) | ✅ runs — produces audible speech, run with sound off if you do not want that |
 | `cf_string_create.rb` | CoreFoundation `CFStringCreateWithCString` round-trip via auto-ARC `BoxedCFType` | ✅ exits 0 with `auto-ARC OK — runtime BoxedCFType owns release` |
 | `coremidi_endpoint_count.rb` | CoreMIDI `MIDIGetNumberOfSources` / `MIDIGetNumberOfDestinations` | ✅ exits 0 — output reflects the actual MIDI hardware state (`0` if nothing connected) |
