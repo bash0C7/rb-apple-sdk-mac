@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 require "strscan"
 require "digest"
+require "json"
 
 module AppleSDKKnowledge
   module Importer
@@ -140,7 +141,18 @@ module AppleSDKKnowledge
 
       # Parses a raw Swift parameter list string into structured form.
       # e.g. "for mediaType: AVMediaType" =>
-      #   [{label: "for", internal: "mediaType", type: "AVMediaType"}]
+      #   [{label: "for", internal: "mediaType", type: "AVMediaType",
+      #     external_label: "for", internal_name: "mediaType"}]
+      #
+      # Phase 1 T9: each element now also carries explicit
+      # +external_label+ / +internal_name+ keys mirroring Swift's two
+      # parameter naming positions, so a Phase 2 emitter can pick the
+      # right name without re-parsing the signature string. Conventions:
+      # - `_ raw: String`     → external_label = nil, internal_name = "raw"
+      # - `url: URL`          → external_label = internal_name = "url"
+      # - `forReading url: U` → external_label = "forReading", internal_name = "url"
+      # The legacy `:label` / `:internal` shorthand is preserved for the
+      # selector reconstruction path (objc_selector_for / swift_imported_name_for).
       def parse_params(raw)
         return [] if raw.nil? || raw.strip.empty?
 
@@ -149,9 +161,15 @@ module AppleSDKKnowledge
           next nil if part.empty?
 
           if (m = part.match(/\A(\w+|\?|_)\s+(\w+)\s*:\s*(.+)\z/))
-            { label: m[1], internal: m[2], type: m[3].strip }
+            external = m[1]
+            internal = m[2]
+            external_label = external == "_" ? nil : external
+            { label: m[1], internal: internal, type: m[3].strip,
+              external_label: external_label, internal_name: internal }
           elsif (m = part.match(/\A(\w+)\s*:\s*(.+)\z/))
-            { label: m[1], internal: m[1], type: m[2].strip }
+            name = m[1]
+            { label: name, internal: name, type: m[2].strip,
+              external_label: name, internal_name: name }
           else
             nil
           end
@@ -333,6 +351,12 @@ module AppleSDKKnowledge
         # failable) into schema columns so Phase 2 emitter can pick
         # AndReturnError marshalling and Optional unwrap paths from a
         # SELECT without re-parsing the signature string.
+        # Phase 1 T9: serialise per-parameter external_label / internal_name /
+        # type into parameters_json so Phase 2 emitter can pick Swift's
+        # call-site label and the in-body identifier directly from a
+        # SELECT, no signature string re-parse.
+        params_json = parameters_json_for(decl[:params])
+
         @store.insert_symbol(
           framework_id:        fw_id,
           name:                selector,
@@ -342,11 +366,28 @@ module AppleSDKKnowledge
           content_hash:        hash,
           signature:            decl[:signature],
           return_type:         decl[:return_type],
+          parameters_json:     params_json,
           swift_imported_name: swift_name,
           is_throws:           decl[:throws]   ? 1 : 0,
           is_async:            decl[:async]    ? 1 : 0,
           is_failable:         decl[:failable] ? 1 : 0
         )
+      end
+
+      # Serialises the parameter list into the canonical user-facing JSON
+      # payload. Internal-only keys (`:label` / `:internal`) used for
+      # selector reconstruction are intentionally dropped — the Knowledge
+      # Base surface keeps only `external_label` / `internal_name` /
+      # `type` per element. Returns nil for empty parameter lists so the
+      # column stays NULL for zero-arg declarations.
+      def parameters_json_for(params)
+        return nil if params.nil? || params.empty?
+
+        JSON.generate(params.map { |p|
+          { external_label: p[:external_label],
+            internal_name:  p[:internal_name],
+            type:           p[:type] }
+        })
       end
 
       # Maps parser-internal :symbol kinds to canonical Knowledge Base kind
