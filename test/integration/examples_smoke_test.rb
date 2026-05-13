@@ -244,4 +244,23 @@ class TestExamplesSmoke < Test::Unit::TestCase
       "expected static template path; got generator=#{rec[:generator].inspect} " \
       "— TemplateGenerator catalog gap for [:opaque_ref, :cstring, :uint32] -> :opaque_ref"
   end
+
+  # piano_keyboard.rb の non-interactive smoke (引数なし起動 → list mode)。
+  # CoreAudio HAL 経由の audio output device 列挙が完走することを確認。
+  # 内部で AudioObjectGetPropertyDataSize / AudioObjectGetPropertyData の
+  # KB record path (AudioObjectPropertyAddress Hash 形) と AVFAudio 系
+  # swift_initializer / selector / swift_property の static template path が
+  # 全 16 declare 通って exit 0 になることを regression guard。
+  def test_piano_keyboard_no_args_lists_devices
+    res = run_example("piano_keyboard.rb")
+    assert_equal 0, res[:exitstatus],
+      "piano_keyboard.rb (no args) exited #{res[:exitstatus]}; " \
+      "stderr:\n#{res[:stderr]}"
+    refute_match(/DEFERRED/, res[:stdout],
+      "DEFERRED 退路は禁止 (release_quality 命題)")
+    assert_match(/^Output devices:$/, res[:stdout],
+      "must print 'Output devices:' header before exiting")
+    assert_match(/^\s+\[\d+\]\s+.+\(uid=.+\)$/, res[:stdout],
+      "must list at least one device with [N] name (uid=...) format")
+  end
 end
