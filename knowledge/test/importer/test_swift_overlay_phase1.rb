@@ -307,4 +307,51 @@ class TestSwiftOverlayImporterPhase1 < Test::Unit::TestCase
       end
     end
   end
+
+  # Phase 1 T13: distinguish Swift property readwrite (`{ get set }`) from
+  # readonly (`{ get }`) and persist as is_settable schema column.
+  # Phase 2 emitter consults this column to auto-emit setter glue
+  # (`obj.prop = val`) only for readwrite properties; readonly properties
+  # get a getter-only Ruby wrapper. Property symbol kind stays the
+  # canonical "instance_property" — static / class vars fold into the
+  # same kind (kind_string_for collapses :class_var → "instance_property"),
+  # matching swift_interface_parser.rb's existing convention.
+  def test_property_is_settable_distinguished
+    Dir.mktmpdir do |dir|
+      interface = File.join(dir, "TestFW.swiftinterface")
+      # `extension TestKlass { ... }` is the unit SwiftOverlay scans —
+      # mirrors the phase1 throws/async test convention. A plain
+      # `public class TestKlass { ... }` body is NOT picked up by the
+      # extension scanner, so we bundle the var decls under an extension
+      # block to exercise the production import path end-to-end.
+      File.write(interface, <<~SWIFT)
+        // swift-interface-format-version: 1.0
+        extension TestKlass {
+          public var writable: Int { get set }
+          public var readonly: Int { get }
+        }
+      SWIFT
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      begin
+        AppleSDKKnowledge::Importer::SwiftOverlay.new(store).import!(
+          framework: "TestFW", path: interface
+        )
+        r1 = store.db.execute(<<~SQL, ["writable", "TestKlass"]).first
+          SELECT s.is_settable FROM symbols s JOIN symbols p ON s.parent_id = p.id
+          WHERE s.name = ? AND p.name = ?
+        SQL
+        r2 = store.db.execute(<<~SQL, ["readonly", "TestKlass"]).first
+          SELECT s.is_settable FROM symbols s JOIN symbols p ON s.parent_id = p.id
+          WHERE s.name = ? AND p.name = ?
+        SQL
+        assert_not_nil r1, "writable property が import されてへん"
+        assert_not_nil r2, "readonly property が import されてへん"
+        assert_equal 1, r1[0], "{ get set } → is_settable=1"
+        assert_equal 0, r2[0], "{ get } のみ → is_settable=0"
+      ensure
+        store.close
+      end
+    end
+  end
 end

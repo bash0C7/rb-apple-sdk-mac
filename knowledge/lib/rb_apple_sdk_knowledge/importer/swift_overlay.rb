@@ -41,9 +41,15 @@ module AppleSDKKnowledge
       # 末尾で吸収する。
       DECL_INIT_RE = /(?:open|public)\s+(?:(convenience|required)\s+)?init(\??)\s*\(([^)]*)\)((?:\s+(?:throws|rethrows))*)?/.freeze
 
-      # Matches: (open|public) [class|static] var name: Type
-      # Captures: [1] class/static?, [2] var name, [3] type
-      DECL_VAR_RE = /(?:open|public)\s+(?:(class|static)\s+)?var\s+(\w+)\s*:\s*([^\n{]+)/.freeze
+      # Matches: (open|public) [class|static] var name: Type [{ get [set] }]
+      # Captures: [1] class/static?, [2] var name, [3] type, [4] accessor
+      # clause body (e.g. "get set" / "get" / nil).
+      # Phase 1 T13: capture the `{ get set }` vs `{ get }` accessor clause
+      # so we can lift readwrite vs readonly into the is_settable schema
+      # column. The accessor clause is optional — stored-property bare
+      # declarations (`public var foo: Int`) collapse to readwrite by
+      # Swift's default semantics.
+      DECL_VAR_RE = /(?:open|public)\s+(?:(class|static)\s+)?var\s+(\w+)\s*:\s*([^\n{]+?)(?:\s*\{\s*([^}]*)\})?\s*\z/.freeze
 
       # Matches: (open|public) [indirect] enum <Name>[: <Conformances>]? {
       # Captures: [1] enum name. Optional raw-value / conformance clause
@@ -165,6 +171,10 @@ module AppleSDKKnowledge
       #   throws:      Boolean (func / init で `throws` 末尾を持つか)
       #   async:       Boolean (func の `async` 末尾、 init には立たない)
       #   failable:    Boolean (init? の `?` を持つか、 func/var には常に false)
+      #   settable:    Boolean (var で `{ get set }` を持つか;
+      #                func / init には常に false。 stored-property の
+      #                accessor 省略形 `public var foo: Int` は Swift 既定
+      #                semantics に従い readwrite として true)
       def parse_decl_line(line)
         stripped = line.strip
 
@@ -194,8 +204,14 @@ module AppleSDKKnowledge
         elsif (m = stripped.match(DECL_VAR_RE))
           is_class = !m[1].nil?
           kind     = is_class ? :class_var : :instance_var
+          accessor = m[4]
+          # Accessor clause absent (bare stored property) → Swift's
+          # default is readwrite, so settable defaults to true.
+          # `{ get set }` → settable = true; `{ get }` alone → false.
+          settable = accessor.nil? ? true : accessor.include?("set")
           { kind: kind, name: m[2], params: [], return_type: m[3].strip,
             throws: false, async: false, failable: false,
+            settable: settable,
             signature: stripped }
 
         else
@@ -510,6 +526,10 @@ module AppleSDKKnowledge
         # SELECT, no signature string re-parse.
         params_json = parameters_json_for(decl[:params])
 
+        # Phase 1 T13: lift Swift property readwrite vs readonly into
+        # is_settable. parse_decl_line only sets :settable on var decls;
+        # func / init decls omit the key (NilClass#nil?), so the column
+        # defaults to 0 for non-property symbols.
         @store.insert_symbol(
           framework_id:        fw_id,
           name:                selector,
@@ -523,7 +543,8 @@ module AppleSDKKnowledge
           swift_imported_name: swift_name,
           is_throws:           decl[:throws]   ? 1 : 0,
           is_async:            decl[:async]    ? 1 : 0,
-          is_failable:         decl[:failable] ? 1 : 0
+          is_failable:         decl[:failable] ? 1 : 0,
+          is_settable:         decl[:settable] ? 1 : 0
         )
       end
 
