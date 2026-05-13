@@ -100,6 +100,23 @@ module AppleSDKKnowledge
         @store = store
       end
 
+      # SDK root 直下の全 Swift overlay framework 配下から .swiftinterface
+      # を broad に列挙する library helper。 既存の Pipeline#import_swift_overlay
+      # は SDKResolver.frameworks を経由して 1 framework ずつ同等の glob を
+      # 回しており、 本 helper はそれを「SDK 全体を 1 ショットで列挙」する
+      # 形に再パッケージしたもの。 外部 caller (subagent / 検査 script /
+      # debugging) から Foundation / AppKit / SwiftUI 等 主要 overlay を
+      # 含む macOS SDK の swiftinterface セット全体を取得する用途。
+      #
+      # macOS framework は `Modules/` が `Versions/Current/Modules` への
+      # symlink になっているため、 トップレベル glob だけで Versions 配下も
+      # follow される。
+      def self.framework_swiftinterface_paths(sdk_root)
+        Dir.glob(
+          File.join(sdk_root, "System/Library/Frameworks/*.framework/Modules/*.swiftmodule/*.swiftinterface")
+        ).uniq
+      end
+
       # -- extension scanner --------------------------------------------------
 
       # Returns [{klass: String, body: String}] for each `extension Foo { ... }`

@@ -397,4 +397,30 @@ class TestSwiftOverlayImporterPhase1 < Test::Unit::TestCase
       end
     end
   end
+
+  # Framework discovery / file enumeration の lib 経路で macOS SDK 内の
+  # swift overlay framework 一覧が拾えてるかを smoke test。 importer
+  # entry API は `SwiftOverlay.framework_swiftinterface_paths(sdk_root)`
+  # を library 化して expose する (本 T15 で追加)。
+  #
+  # 既存 discovery は importer.rb の Pipeline#import_swift_overlay が
+  # SDKResolver.frameworks (= 全 *.framework) をループしながら
+  # `Modules/*.swiftmodule/*.swiftinterface` を glob する形で実装されて
+  # おり、 既に AVFAudio 限定ではなく broad に拾える。 本 test は
+  # library 経路 (subagent / 外部 caller から呼べる public helper) を
+  # 介して Foundation/AppKit/SwiftUI 等の主要 overlay が確実に
+  # discover されることを smoke 検証する。
+  def test_framework_discovery_includes_main_overlays
+    sdk_root = `xcrun --show-sdk-path 2>/dev/null`.strip
+    omit "macOS SDK not found (xcrun missing)" if sdk_root.empty?
+    omit "macOS SDK path does not exist" unless File.directory?(sdk_root)
+
+    paths = AppleSDKKnowledge::Importer::SwiftOverlay.framework_swiftinterface_paths(sdk_root)
+    framework_names = paths.map { |p| File.basename(p, ".swiftinterface") }.uniq
+
+    %w[Foundation AppKit SwiftUI].each do |fw|
+      assert paths.any? { |p| p.include?("/#{fw}.framework/") },
+        "expected overlay #{fw}.framework swiftinterface to be discovered (実機 sample: #{framework_names.take(20).inspect})"
+    end
+  end
 end
