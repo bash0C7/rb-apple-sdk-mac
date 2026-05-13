@@ -142,4 +142,39 @@ class TestClangObjcImporterPhase1 < Test::Unit::TestCase
       store.close
     end
   end
+
+  # Phase 1 T5: ObjC method の block parameter (typed callback) を
+  # `callback_signature_json` column に構造化 JSON で persist。 Phase 2
+  # emitter は runtime_callback_pillar_register_* の auto-route 判定に
+  # この列を使う (現状は header_parser が string-only な qualType を吐く
+  # だけで、 block の return type / 引数 type / nullable 情報を runtime
+  # 経路に渡せていない)。 block parameter が無い method は NULL のまま。
+  def test_typed_block_parameter_lifts_callback_signature_json
+    Dir.mktmpdir do |dir|
+      header = File.join(dir, "TestFW.h")
+      File.write(header, <<~HEADER)
+        #import <Foundation/Foundation.h>
+        @interface TestObj : NSObject
+        - (void)doAsync:(void (^)(NSError * _Nullable))handler;
+        @end
+      HEADER
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      AppleSDKKnowledge::Importer::ClangObjc.import_file(
+        store: store, framework: "TestFW", file: header
+      )
+      row = store.db.execute(
+        "SELECT callback_signature_json FROM symbols WHERE name = ?", ["doAsync:"]
+      ).first
+      assert_not_nil row, "doAsync: が import されてへん"
+      json = row[0]
+      assert_not_nil json, "callback_signature_json が NULL"
+      parsed = JSON.parse(json)
+      assert_equal "Void", parsed["return_type"]
+      assert_equal 1, parsed["params"].size
+      assert_equal "NSError",  parsed["params"][0]["type"]
+      assert_equal true,       parsed["params"][0]["nullable"]
+      store.close
+    end
+  end
 end

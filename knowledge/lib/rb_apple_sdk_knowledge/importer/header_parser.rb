@@ -84,6 +84,7 @@ module AppleSDKKnowledge
             # this distinction at import time instead of forcing every
             # method to instance_method.
             is_instance = node["instance"] != false
+            cb_sig = extract_first_block_signature(node)
             symbols << {
               name: node["name"],
               kind: is_instance ? "instance_method" : "class_method",
@@ -93,7 +94,15 @@ module AppleSDKKnowledge
               return_type: node.dig("returnType", "qualType"),
               parameters: function_parameters(node),
               documentation: extract_documentation(node),
-              return_ownership: returns_retained?(node) ? "retained" : nil
+              return_ownership: returns_retained?(node) ? "retained" : nil,
+              # Phase 1 T5: lift the first typed block parameter
+              # (`void (^)(NSError * _Nullable)` etc.) into a structured
+              # JSON signature so Phase 2 emitter can route the call
+              # site through runtime_callback_pillar_register_* without
+              # re-parsing the qual_type string at codegen time. When
+              # no block parameter is present this stays nil so the
+              # callback_signature_json column remains NULL.
+              callback_signature_json: cb_sig && JSON.generate(cb_sig)
             }
           end
         when "FunctionDecl"
@@ -227,6 +236,58 @@ module AppleSDKKnowledge
         return true  if qual_type.match?(/_Nullable\b/)
         return false if qual_type.match?(/_Nonnull\b/)
         nil
+      end
+
+      # Phase 1 T5: scan an ObjCMethodDecl's ParmVarDecl children and
+      # return a structured signature ({ params:, return_type: }) for
+      # the first typed block parameter (`Ret (^[_Nullable|_Nonnull]?)(args)`).
+      # Returns nil if the method has no block-typed parameter. Multiple
+      # block params (rare in practice) collapse to the first one;
+      # Phase 2 may expand to an array if real APIs demand it.
+      def extract_first_block_signature(node)
+        params = (node["inner"] || []).select { |i| i["kind"] == "ParmVarDecl" }
+        params.each do |p|
+          qt = p.dig("type", "qualType") || ""
+          next unless qt.include?("(^")
+          sig = extract_block_signature_from_qualtype(qt)
+          return sig if sig
+        end
+        nil
+      end
+
+      # clang prints typed block pointers as either `Ret (^)(args)` or
+      # `Ret (^ _Nullable)(args)` / `Ret (^ _Nonnull)(args)`. The regex
+      # tolerates the optional block-pointer nullability tag because
+      # method-level callbacks are commonly `_Nonnull`-annotated in
+      # Foundation headers (NSURLSession etc.) and we still want to lift
+      # the inner arg types.
+      def extract_block_signature_from_qualtype(qual_type)
+        m = qual_type.match(/\A([^\(]+?)\s*\(\^(?:\s*_Nullable|\s*_Nonnull)?\)\s*\(([^)]*)\)\z/)
+        return nil unless m
+        return_type = simple_type_name(m[1])
+        args_str = m[2].strip
+        args =
+          if args_str.empty? || args_str == "void"
+            []
+          else
+            args_str.split(/,\s*/).map do |arg|
+              nullable = arg.match?(/\b_Nullable\b/)
+              type_clean = arg.sub(/\b_Nullable\b|\b_Nonnull\b/, "").strip
+              { type: simple_type_name(type_clean), nullable: nullable }
+            end
+          end
+        { params: args, return_type: return_type }
+      end
+
+      # Normalises a clang-emitted type fragment to a Knowledge-Base
+      # facing short form: drops trailing `*`, collapses `void` to "Void",
+      # and strips any leaked nullability tokens. Leaves primitive
+      # spellings (int / long long / unsigned long) untouched so emitters
+      # can dispatch on them without further parsing.
+      def simple_type_name(s)
+        s = s.to_s.sub(/\b_Nullable\b|\b_Nonnull\b/, "").strip
+        return "Void" if s == "void"
+        s.sub(/\s*\*+\s*\z/, "").strip
       end
 
       # Phase 1 T4: clang surfaces `cf_returns_retained` /

@@ -47,6 +47,12 @@ module AppleSDKKnowledge
             # `return_ownership` column. Unannotated symbols stay nil
             # so the emitter naming heuristic remains the fallback.
             return_ownership: sym[:return_ownership],
+            # Phase 1 T5: lift the typed-block signature that HeaderParser
+            # already structured (return_type + params with nullability)
+            # into the dedicated column. Pre-serialised by HeaderParser so
+            # we just pass it through; nil stays nil → column is NULL when
+            # the method takes no block parameter.
+            callback_signature_json: sym[:callback_signature_json],
             parameters_json: sym[:parameters] && JSON.generate(sym[:parameters]),
             fields_json: sym[:fields] && JSON.generate(sym[:fields]),
             content_hash: content_hash
