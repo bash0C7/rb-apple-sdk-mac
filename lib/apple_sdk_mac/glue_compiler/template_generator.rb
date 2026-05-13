@@ -268,12 +268,20 @@ module AppleSDKMac
         swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
         exported = "glue_#{glue_id}_#{swift_id}"
 
-        # selector 末尾 `:error:` は Swift throws bridge に変換。
-        # ObjC `- (BOOL)method:(...)error:(NSError **)err` → Swift
-        # `func method(...) throws`。 emit は do/catch で包み、 success →
-        # Qtrue、 throw → Qfalse。 user 側 params 配列に error_out は含めない。
-        throws_bridge = selector.end_with?(":error:")
-        effective_selector = throws_bridge ? selector.sub(/:error:\z/, ":") : selector
+        # selector 末尾 `:error:` (multi-segment) と `<Word>Error:`
+        # (single-segment、 AVAudioEngine.startAndReturnError: 等) は Swift
+        # throws bridge に変換。 ObjC `- (BOOL)method:(...)error:(NSError **)err`
+        # / `- (BOOL)methodAndReturnError:(NSError **)err` → Swift
+        # `func method(...) throws` / `func method() throws`。 emit は do/catch で
+        # 包み、 success → Qtrue、 throw → Qfalse。 user 側 params 配列に
+        # error_out は含めない。
+        throws_bridge = selector.end_with?(":error:") || selector.match?(/(?:AndReturn|Returning)Error:\z/)
+        effective_selector =
+          if throws_bridge
+            selector.sub(/(?::error:|(?:AndReturn|Returning)Error:)\z/, "")
+          else
+            selector
+          end
 
         body =
           if selector.start_with?("init")
@@ -310,7 +318,11 @@ module AppleSDKMac
               if params.empty? && return_kind_sym != :void
                 call_expr = call_expr.sub(/\(\s*\)\z/, "")
               end
-              [receiver_load] + in_loads + ["let raw = #{call_expr}"] + ObjcMarshalling.return_lines(return_kind, "raw")
+              # void return の call を `let raw =` に bind すると Swift 6 で
+              # "constant 'raw' inferred to have type 'Void'" warning。 void は
+              # 単独 statement で emit、 return_lines (`return Qnil`) を続ける。
+              call_statement = return_kind_sym == :void ? call_expr : "let raw = #{call_expr}"
+              [receiver_load] + in_loads + [call_statement] + ObjcMarshalling.return_lines(return_kind, "raw")
             end
           end
 
@@ -360,9 +372,15 @@ module AppleSDKMac
         # non-failable。 Apple SDK の majority は non-failable のため default は
         # `let v = ...`、 user が `swift_initializer: "init?(string:)"` のように
         # `?` を含めて指定したときのみ `guard let v = ... else { Qnil }`。
+        # throws init (`init(...) throws`) は `try?` で wrap、 失敗時 Qnil。
+        # user は `swift_initializer: "init(forReading:) throws"` と書くと
+        # この path に乗る (AVAudioFile / AVAudioRecorder 等)。
         failable = initializer.to_s.include?("?")
+        throwing = initializer.to_s.include?("throws")
         init_binding =
-          if labels.empty? || !failable
+          if throwing
+            "guard let v = try? #{call_expr} else { return Qnil }"
+          elsif labels.empty? || !failable
             "let v = #{call_expr}"
           else
             "guard let v = #{call_expr} else { return Qnil }"
@@ -512,8 +530,8 @@ module AppleSDKMac
       # `init(label1:label2:)` から ["label1", "label2"] を抜き出す。
       # `init()` → []。
       def swift_init_labels(initializer)
-        # `init?(...)` (failable) も受ける regex。
-        m = initializer.match(/\Ainit\??\((.*)\)\z/)
+        # `init?(...)` (failable) と `init(...) throws` の両方受ける regex。
+        m = initializer.match(/\Ainit\??\((.*)\)(?:\s+throws)?\z/)
         return [] unless m
         m[1].split(":", -1).reject(&:empty?)
       end

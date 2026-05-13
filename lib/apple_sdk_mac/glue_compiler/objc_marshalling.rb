@@ -70,6 +70,11 @@ module AppleSDKMac
           # swift_init/swift_property) では Int で emit。 Knowledge Base 由来の
           # C function path (IntMarshaller 経路) は引き続き Int64 を emit。
           "let arg#{index}: Int = Int(rb_num2ll(argv[#{ai}]))"
+        when :uint32
+          # AVFoundation の AVAudioChannelCount (typealias UInt32) 等、 Swift
+          # bridged API で UInt32 を取る param 用。 escape-hatch C function path
+          # と同じ rb_num2ull 経由で Ruby Integer を UInt32 に narrow。
+          "let arg#{index}: UInt32 = UInt32(rb_num2ull(argv[#{ai}]))"
         when :bool
           "let arg#{index}: Bool = (argv[#{ai}] != Qfalse && argv[#{ai}] != Qnil)"
         when :float
