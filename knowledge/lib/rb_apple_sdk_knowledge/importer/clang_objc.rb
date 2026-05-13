@@ -53,6 +53,12 @@ module AppleSDKKnowledge
             # we just pass it through; nil stays nil → column is NULL when
             # the method takes no block parameter.
             callback_signature_json: sym[:callback_signature_json],
+            # Phase 1 T6: `static inline` 関数は body が header に inline
+            # 展開されるだけで dylib export を持たへん。 HeaderParser が
+            # `inline_only` marker を立てた symbol を `unsupported_pattern`
+            # 列に渡し、 Phase 2 dispatcher が call 時に rich diagnostic
+            # で raise する判定材料とする。 通常 extern 関数は nil のまま。
+            unsupported_pattern: sym[:unsupported_pattern],
             parameters_json: sym[:parameters] && JSON.generate(sym[:parameters]),
             fields_json: sym[:fields] && JSON.generate(sym[:fields]),
             content_hash: content_hash

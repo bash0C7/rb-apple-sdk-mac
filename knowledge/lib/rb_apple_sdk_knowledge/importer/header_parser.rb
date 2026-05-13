@@ -106,7 +106,14 @@ module AppleSDKKnowledge
             }
           end
         when "FunctionDecl"
-          if node["storageClass"] != "static"
+          # Phase 1 T6: `static inline` 関数は header に body を持つだけで
+          # dylib export を持たへんため、 通常の static (body 無し or static
+          # storage の internal helper) と区別して import する。 marker
+          # `unsupported_pattern = "inline_only"` を立て、 Phase 2 emitter /
+          # dispatcher は call 時に rich diagnostic raise の判定材料として
+          # この cell を読む。 通常の static (非 inline) は今まで通り
+          # 取り込まへん (export されてへんし body も別 TU で参照不可)。
+          if node["storageClass"] != "static" || inline_only_function?(node)
             symbols << {
               name: node["name"],
               kind: "function",
@@ -116,7 +123,8 @@ module AppleSDKKnowledge
               return_type: node.dig("type", "qualType"),
               parameters: function_parameters(node),
               documentation: extract_documentation(node),
-              return_ownership: returns_retained?(node) ? "retained" : nil
+              return_ownership: returns_retained?(node) ? "retained" : nil,
+              unsupported_pattern: inline_only_function?(node) ? "inline_only" : nil
             }
           end
         when "RecordDecl"
@@ -303,6 +311,19 @@ module AppleSDKKnowledge
           kind = child["kind"].to_s
           kind == "CFReturnsRetainedAttr" || kind == "NSReturnsRetainedAttr"
         end
+      end
+
+      # Phase 1 T6: clang AST JSON は `static inline` を
+      # `storageClass: "static"` + `inline: true` の組み合わせで露出する。
+      # `extern inline` / `inline alone` (storageClass 欠落) は dylib に
+      # 一意 symbol が出るため import 対象外として除外し、 純粋な
+      # `static inline` だけを `unsupported_pattern = "inline_only"` で
+      # mark する。 これにより header body を runtime に call できへん
+      # 関数のみが diagnostic 対象になる。
+      def inline_only_function?(node)
+        return false unless node["kind"] == "FunctionDecl"
+        return false unless node["inline"] == true
+        node["storageClass"] == "static"
       end
 
       def objc_method_signature(node, is_instance: true)

@@ -177,4 +177,34 @@ class TestClangObjcImporterPhase1 < Test::Unit::TestCase
       store.close
     end
   end
+
+  # Phase 1 T6: clang `static inline` 関数は header に body を持つだけで
+  # dylib に export された symbol を持たへん。 import 自体は許可するが、
+  # `unsupported_pattern = "inline_only"` を立てて Phase 2 emitter /
+  # dispatcher に「 call 時 raise / fallback」 の判定材料を渡す。 通常の
+  # `extern` 関数は今まで通り marker 無し (NULL) を維持。
+  def test_static_inline_function_is_marked_unsupported_inline_only
+    Dir.mktmpdir do |dir|
+      header = File.join(dir, "TestFW.h")
+      File.write(header, <<~HEADER)
+        #import <Foundation/Foundation.h>
+        static inline int MyFastDouble(int x) { return x * 2; }
+        extern int MyRegularFunc(int x);
+      HEADER
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      AppleSDKKnowledge::Importer::ClangObjc.import_file(
+        store: store, framework: "TestFW", file: header
+      )
+      row1 = store.db.execute("SELECT unsupported_pattern FROM symbols WHERE name = ?", ["MyFastDouble"]).first
+      row2 = store.db.execute("SELECT unsupported_pattern FROM symbols WHERE name = ?", ["MyRegularFunc"]).first
+      assert_not_nil row1, "MyFastDouble が import されてへん"
+      assert_equal "inline_only", row1[0],
+        "static inline は dylib symbol 無し、 marker 必須"
+      assert_not_nil row2, "MyRegularFunc が import されてへん"
+      assert_nil row2[0],
+        "通常 extern は marker 無し"
+      store.close
+    end
+  end
 end
