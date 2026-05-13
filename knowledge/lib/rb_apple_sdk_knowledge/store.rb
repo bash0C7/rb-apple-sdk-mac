@@ -6,7 +6,7 @@ module AppleSDKKnowledge
     # Bumped when the on-disk schema shape changes. Bumping invalidates any
     # existing Knowledge Base SQLite at the project-scoped path; the next
     # `apple:knowledge:rebuild` regenerates it.
-    SCHEMA_VERSION = 7
+    SCHEMA_VERSION = 9
 
     SCHEMA_SQL = <<~SQL.freeze
       PRAGMA journal_mode = WAL;
@@ -42,6 +42,15 @@ module AppleSDKKnowledge
         requires_main_thread INTEGER DEFAULT 0,
         content_hash         TEXT NOT NULL UNIQUE,
         fields_json          TEXT,
+        is_throws            INTEGER NOT NULL DEFAULT 0,
+        is_async             INTEGER NOT NULL DEFAULT 0,
+        is_failable          INTEGER NOT NULL DEFAULT 0,
+        is_settable          INTEGER NOT NULL DEFAULT 0,
+        return_ownership     TEXT,
+        throws_error_type    TEXT,
+        callback_signature_json TEXT,
+        enum_cases_json      TEXT,
+        unsupported_pattern  TEXT,
         swift_imported_name  TEXT
       );
 
