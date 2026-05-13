@@ -111,21 +111,30 @@ module AppleSDKMac
 
     def insert(glue_id:, framework:, symbol:, swift_source:, dylib_path:,
                exported_symbol:, generator:, llm_model_version: nil, llm_prompt_hash: nil)
-      # OR REPLACE so re-compilation (cache wiped at FS layer but row still
-      # present, or re-running after generator/template changes) is idempotent.
-      # PK is glue_id which is content-addressed by framework + symbol +
-      # parameters_json + generator HEADER; REPLACE is correct under that hash.
-      @db.execute(
-        <<~SQL,
-          INSERT OR REPLACE INTO compiled_glue
-          (glue_id, framework_name, symbol_name, swift_source, dylib_path,
-           exported_symbol, generator, llm_model_version, llm_prompt_hash,
-           generated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        SQL
-        [glue_id, framework, symbol, SQLite3::Blob.new(swift_source), dylib_path,
-         exported_symbol, generator, llm_model_version, llm_prompt_hash, Time.now.to_i]
-      )
+      # Invariant: at most 1 row per (framework_name, symbol_name).
+      # 同 (framework, symbol) で別 glue_id (= parameters_json 差) の row が並存すると、
+      # lookup が LIMIT 1 / no ORDER BY で旧 row を返して dlopen に古い dylib が当たる
+      # cache pollution が起きる (postmortem 2026-05-14 #1)。 Apple.discover 経由で
+      # override (`params:` / `return_kind:`) が渡された場合や、 transient synth record の
+      # 形が変わった場合、 旧 glue_id row を invalidate して invariant を保つ。
+      # 同 glue_id 再 insert は OR REPLACE 経路で idempotent。
+      @db.transaction do |db|
+        db.execute(
+          "DELETE FROM compiled_glue WHERE framework_name = ? AND symbol_name = ? AND glue_id != ?",
+          [framework, symbol, glue_id]
+        )
+        db.execute(
+          <<~SQL,
+            INSERT OR REPLACE INTO compiled_glue
+            (glue_id, framework_name, symbol_name, swift_source, dylib_path,
+             exported_symbol, generator, llm_model_version, llm_prompt_hash,
+             generated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          SQL
+          [glue_id, framework, symbol, SQLite3::Blob.new(swift_source), dylib_path,
+           exported_symbol, generator, llm_model_version, llm_prompt_hash, Time.now.to_i]
+        )
+      end
     end
 
     def record_attempt(framework:, symbol:, generator:, llm_response: nil,

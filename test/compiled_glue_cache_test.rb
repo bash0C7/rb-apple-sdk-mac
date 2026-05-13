@@ -69,4 +69,56 @@ class TestCompiledGlueCache < Test::Unit::TestCase
       "same schema_version must preserve cache rows across reopens"
     cache2.close
   end
+
+  # 同 (framework, symbol) で別 glue_id (= parameters_json 差) の row が並存すると、
+  # lookup は LIMIT 1 / no ORDER BY で旧 row を返す可能性がある。 これは Apple.discover が
+  # `params:` / `return_kind:` override を渡したときに発生する cache pollution の真因
+  # (postmortem 2026-05-14 #1)。 insert は同 (framework, symbol) の旧 row を invalidate して
+  # 「(framework, symbol) は最新 1 row のみ」 の invariant を保つ。
+  def test_insert_invalidates_prior_row_with_same_framework_and_symbol
+    @cache.insert(
+      glue_id: "old_id", framework: "AVFAudio",
+      symbol: "AVAudioEngine.startAndReturnError",
+      swift_source: "old_src",
+      dylib_path: File.join(@tmpdir, "lib", "old_id.dylib"),
+      exported_symbol: "glue_old_id_start", generator: "template"
+    )
+    @cache.insert(
+      glue_id: "new_id", framework: "AVFAudio",
+      symbol: "AVAudioEngine.startAndReturnError",
+      swift_source: "new_src",
+      dylib_path: File.join(@tmpdir, "lib", "new_id.dylib"),
+      exported_symbol: "glue_new_id_start", generator: "template"
+    )
+
+    rec = @cache.lookup(framework: "AVFAudio",
+                        symbol: "AVAudioEngine.startAndReturnError")
+    assert_equal "new_id", rec[:glue_id],
+      "lookup must return the newly inserted row, not the stale one"
+
+    count = @cache.db.execute(
+      "SELECT COUNT(*) FROM compiled_glue WHERE framework_name=? AND symbol_name=?",
+      ["AVFAudio", "AVAudioEngine.startAndReturnError"]
+    ).first[0]
+    assert_equal 1, count,
+      "stale row with different glue_id must be invalidated"
+  end
+
+  # 同 glue_id の再 insert は既存 INSERT OR REPLACE 経路に乗って idempotent。
+  # 新 invariant 導入で他 (framework, symbol) row が誤って消えないことも保証。
+  def test_insert_does_not_disturb_unrelated_rows
+    @cache.insert(
+      glue_id: "id_a", framework: "F1", symbol: "S1",
+      swift_source: "a", dylib_path: File.join(@tmpdir, "a.dylib"),
+      exported_symbol: "glue_a", generator: "template"
+    )
+    @cache.insert(
+      glue_id: "id_b", framework: "F2", symbol: "S2",
+      swift_source: "b", dylib_path: File.join(@tmpdir, "b.dylib"),
+      exported_symbol: "glue_b", generator: "template"
+    )
+
+    assert_equal "id_a", @cache.lookup(framework: "F1", symbol: "S1")[:glue_id]
+    assert_equal "id_b", @cache.lookup(framework: "F2", symbol: "S2")[:glue_id]
+  end
 end
