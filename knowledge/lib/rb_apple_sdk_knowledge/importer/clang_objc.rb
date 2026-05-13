@@ -22,8 +22,16 @@ module AppleSDKKnowledge
 
         parser = HeaderParser.new
         parser.parse_file(file).each do |sym|
+          # Salt content_hash with a stable parameters serialisation so
+          # overloaded selectors (same parent_name / name / abi / signature
+          # but divergent parameter types) do not collide on ON CONFLICT.
+          # `objc_method_signature` only carries the return type and
+          # selector, so without this salt e.g. `apply:(NSString *)` and
+          # `apply:(NSNumber *)` hash identically and the second insert
+          # silently clobbers the first.
+          params_salt = sym[:parameters] ? JSON.generate(sym[:parameters]) : ""
           content_hash = Digest::SHA256.hexdigest(
-            "#{framework}|#{sym[:parent_name]}|#{sym[:name]}|#{sym[:abi]}|#{sym[:signature]}"
+            "#{framework}|#{sym[:parent_name]}|#{sym[:name]}|#{sym[:abi]}|#{sym[:signature]}|#{params_salt}"
           )
           store.insert_symbol(
             framework_id: fw_id,

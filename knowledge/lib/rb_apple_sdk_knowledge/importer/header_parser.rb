@@ -77,12 +77,19 @@ module AppleSDKKnowledge
         case node["kind"]
         when "ObjCMethodDecl"
           if node["name"]
+            # clang AST exposes `instance: true|false` on ObjCMethodDecl.
+            # `-` form methods carry instance=true; `+` form class methods
+            # carry instance=false. Phase 2 dispatch routes class methods
+            # to the metaclass call site, so the kind column must reflect
+            # this distinction at import time instead of forcing every
+            # method to instance_method.
+            is_instance = node["instance"] != false
             symbols << {
               name: node["name"],
-              kind: "instance_method",
+              kind: is_instance ? "instance_method" : "class_method",
               abi: "objc",
               parent_name: parent_objc,
-              signature: objc_method_signature(node),
+              signature: objc_method_signature(node, is_instance: is_instance),
               return_type: node.dig("returnType", "qualType"),
               parameters: function_parameters(node),
               documentation: extract_documentation(node)
@@ -220,9 +227,10 @@ module AppleSDKKnowledge
         nil
       end
 
-      def objc_method_signature(node)
+      def objc_method_signature(node, is_instance: true)
         return_type = node.dig("returnType", "qualType") || "void"
-        "- (#{return_type}) #{node['name']}"
+        prefix = is_instance ? "-" : "+"
+        "#{prefix} (#{return_type}) #{node['name']}"
       end
     end
   end
