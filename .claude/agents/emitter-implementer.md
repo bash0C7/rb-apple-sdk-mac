@@ -10,7 +10,7 @@ description: rb-apple-sdk-mac の HITL emitter improvement workflow で dispatch
 ```
 __CANDIDATE_JSON__   # candidate 詳細 JSON (mode/score/summary/evidence/recommended_action)
 __BRANCH_NAME__      # 既に作られとる branch name
-__BASE_BRANCH__      # 比較先 branch (例: feature/v1.2-bootstrap-principle)
+__BASE_BRANCH__      # 比較先 branch (例: main)
 __WORKTREE_PATH__    # 作業ディレクトリ (= worktree)。 全操作はこの中で
 ```
 

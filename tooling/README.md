@@ -48,9 +48,9 @@ namespace `apple:emitter:` に 4 task。 定義は `tooling/lib/tasks/emitter.ra
 
 ```bash
 bundle exec rake apple:emitter:candidates MODE=add TOP=5
-bundle exec rake apple:emitter:worktree_create CANDIDATE_ID=1 BASE=feature/v1.2-bootstrap-principle
-bundle exec rake apple:emitter:fact_bundle BRANCH=emitter/add-... BASE=feature/v1.2-bootstrap-principle
-bundle exec rake apple:emitter:merge BRANCH=emitter/add-... BASE=feature/v1.2-bootstrap-principle WORKTREE_PATH=...
+bundle exec rake apple:emitter:worktree_create CANDIDATE_ID=1 BASE=main
+bundle exec rake apple:emitter:fact_bundle BRANCH=emitter/add-... BASE=main
+bundle exec rake apple:emitter:merge BRANCH=emitter/add-... BASE=main WORKTREE_PATH=...
 ```
 
 ## Slash command + Agent

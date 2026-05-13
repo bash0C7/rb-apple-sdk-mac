@@ -10,7 +10,6 @@ require_relative "glue_compiler/llm_generator"
 require_relative "dispatcher"
 require_relative "namespace_builder"
 require_relative "opaque_ref"
-require_relative "did_you_mean"
 require_relative "selector_bridge"
 require_relative "discovery_shape"
 
@@ -21,7 +20,6 @@ module AppleSDKMac
   @loader = nil
   @compiler = nil
   @dispatcher = nil
-  @box_modules = {}
 
   class << self
     def configure
@@ -140,14 +138,6 @@ module AppleSDKMac
         Fiber.scheduler&.yield
         yield(ctx) if block_given?
       end
-    end
-
-    def box_module?(mod)
-      @box_modules.value?(mod)
-    end
-
-    def register_framework_module(name, mod)
-      @box_modules[name] = mod
     end
 
     private
