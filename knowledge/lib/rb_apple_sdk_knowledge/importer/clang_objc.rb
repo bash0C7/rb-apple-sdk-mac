@@ -42,6 +42,11 @@ module AppleSDKKnowledge
             signature: sym[:signature],
             documentation: sym[:documentation],
             return_type: sym[:return_type],
+            # Phase 1 T4: lift clang `cf_returns_retained` /
+            # `NS_RETURNS_RETAINED` attributes from the AST to the
+            # `return_ownership` column. Unannotated symbols stay nil
+            # so the emitter naming heuristic remains the fallback.
+            return_ownership: sym[:return_ownership],
             parameters_json: sym[:parameters] && JSON.generate(sym[:parameters]),
             fields_json: sym[:fields] && JSON.generate(sym[:fields]),
             content_hash: content_hash

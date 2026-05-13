@@ -92,7 +92,8 @@ module AppleSDKKnowledge
               signature: objc_method_signature(node, is_instance: is_instance),
               return_type: node.dig("returnType", "qualType"),
               parameters: function_parameters(node),
-              documentation: extract_documentation(node)
+              documentation: extract_documentation(node),
+              return_ownership: returns_retained?(node) ? "retained" : nil
             }
           end
         when "FunctionDecl"
@@ -105,7 +106,8 @@ module AppleSDKKnowledge
               signature: function_signature(node),
               return_type: node.dig("type", "qualType"),
               parameters: function_parameters(node),
-              documentation: extract_documentation(node)
+              documentation: extract_documentation(node),
+              return_ownership: returns_retained?(node) ? "retained" : nil
             }
           end
         when "RecordDecl"
@@ -225,6 +227,21 @@ module AppleSDKKnowledge
         return true  if qual_type.match?(/_Nullable\b/)
         return false if qual_type.match?(/_Nonnull\b/)
         nil
+      end
+
+      # Phase 1 T4: clang surfaces `cf_returns_retained` /
+      # `NS_RETURNS_RETAINED` as direct `inner` children of the
+      # owning FunctionDecl / ObjCMethodDecl, with kinds
+      # `CFReturnsRetainedAttr` and `NSReturnsRetainedAttr`.
+      # Both map to the same `return_ownership = "retained"` cell;
+      # downstream emitters treat CF/NS retain semantics identically
+      # for the autorelease-decision question.
+      def returns_retained?(node)
+        (node["inner"] || []).any? do |child|
+          next false unless child.is_a?(Hash)
+          kind = child["kind"].to_s
+          kind == "CFReturnsRetainedAttr" || kind == "NSReturnsRetainedAttr"
+        end
       end
 
       def objc_method_signature(node, is_instance: true)

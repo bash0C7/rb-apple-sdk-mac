@@ -108,4 +108,38 @@ class TestClangObjcImporterPhase1 < Test::Unit::TestCase
       store.close
     end
   end
+
+  # Phase 1 T4: clang exposes `cf_returns_retained` / `NS_RETURNS_RETAINED`
+  # as a `CFReturnsRetainedAttr` / `NSReturnsRetainedAttr` child of the
+  # function or method decl. The importer lifts that into the
+  # `return_ownership = "retained"` schema column so emitters stop
+  # depending on the `Copy` / `Create` naming heuristic. Annotation-less
+  # function rows stay NULL — the heuristic remains as the last-resort
+  # fallback until phase 2 retires it.
+  def test_cf_returns_retained_captured_to_return_ownership
+    Dir.mktmpdir do |dir|
+      header = File.join(dir, "TestFW.h")
+      # Foundation #import transitively provides `CFStringRef`; redefining
+      # the typedef locally collides with CoreFoundation's `__CFString`
+      # forward decl. Rely on the SDK header for the type and only
+      # declare the two function prototypes the test cares about.
+      File.write(header, <<~HEADER)
+        #import <Foundation/Foundation.h>
+        CFStringRef MyCopyName(void) __attribute__((cf_returns_retained));
+        CFStringRef MyGetName(void);
+      HEADER
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      AppleSDKKnowledge::Importer::ClangObjc.import_file(
+        store: store, framework: "TestFW", file: header
+      )
+      row1 = store.db.execute("SELECT return_ownership FROM symbols WHERE name = ?", ["MyCopyName"]).first
+      row2 = store.db.execute("SELECT return_ownership FROM symbols WHERE name = ?", ["MyGetName"]).first
+      assert_equal "retained", row1[0],
+        "cf_returns_retained 付きは return_ownership = 'retained'"
+      assert_nil row2[0],
+        "annotation 無しは unspecified (NULL)、 emitter 側 heuristic にゆずる"
+      store.close
+    end
+  end
 end
