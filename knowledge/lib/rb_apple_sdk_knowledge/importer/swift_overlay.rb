@@ -329,6 +329,10 @@ module AppleSDKKnowledge
         # column in the same statement.
         # return_type は downstream emitter (rb-apple-sdk-mac) が wrap_class /
         # marshalling 判定に使うため Swift overlay 由来 row でも DB に乗せる。
+        # Phase 1 T8: lift parse-time effect modifiers (throws / async /
+        # failable) into schema columns so Phase 2 emitter can pick
+        # AndReturnError marshalling and Optional unwrap paths from a
+        # SELECT without re-parsing the signature string.
         @store.insert_symbol(
           framework_id:        fw_id,
           name:                selector,
@@ -338,7 +342,10 @@ module AppleSDKKnowledge
           content_hash:        hash,
           signature:            decl[:signature],
           return_type:         decl[:return_type],
-          swift_imported_name: swift_name
+          swift_imported_name: swift_name,
+          is_throws:           decl[:throws]   ? 1 : 0,
+          is_async:            decl[:async]    ? 1 : 0,
+          is_failable:         decl[:failable] ? 1 : 0
         )
       end
 
