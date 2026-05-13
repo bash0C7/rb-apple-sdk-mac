@@ -861,6 +861,117 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
     assert_match(/rb_float_new\(Double\(raw\)\)/, out,
                  ":float return は Double に明示 cast (Swift 6 互換)")
   end
+
+  # postmortem 2026-05-14 #3 regression net: swift_init で `:uint32` param。
+  # AVAudioFormat(standardFormatWithSampleRate:channels:) の channels は
+  # AVAudioChannelCount (typealias UInt32)。 ObjcMarshalling.in_load の :uint32
+  # case が swift_init 経路にも適用されることを pin する。
+  def test_emit_swift_init_uint32_param_emits_uint32_narrow
+    s = sym(name: "AVAudioFormat.init(standardFormatWithSampleRate:channels:)",
+            kind: "swift_init",
+            signature: "init(standardFormatWithSampleRate:channels:)",
+            parameters: [])
+    s[:swift_class] = "AVAudioFormat"
+    s[:swift_initializer] = "init(standardFormatWithSampleRate:channels:)"
+    s[:params] = [:float, :uint32]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "AVFAudio", symbol: s, glue_id: "abc")
+    refute_nil out, ":uint32 param must be supported in swift_init path"
+    assert_match(/let arg1:\s*UInt32\s*=\s*UInt32\(rb_num2ull\(argv\[1\]\)\)/, out,
+                 ":uint32 in_load は rb_num2ull → UInt32 narrow")
+    assert_match(/AVAudioFormat\(standardFormatWithSampleRate:\s*arg0,\s*channels:\s*arg1\)/, out,
+                 "labels と args が swift_initializer signature に従う")
+  end
+
+  # postmortem 2026-05-14 #3 regression net: objc_method_instance で `:uint32`。
+  # AVAudioPlayerNode.scheduleFile(..., at: AVAudioTime?, completionHandler:) 等
+  # 直接 :uint32 を取る instance method は少ないが、 in_load matrix の網羅性
+  # のため pin する (ObjcMarshalling.in_load :uint32 case が argv_offset: 1
+  # 経由でも正しく出ること)。
+  def test_emit_objc_instance_method_uint32_param_offsets_argv
+    s = sym(name: "AVAudioBuffer.setFrameLength:",
+            kind: "objc_method_instance",
+            signature: nil, parameters: [])
+    s[:objc_class] = "AVAudioBuffer"
+    s[:selector] = "setFrameLength:"
+    s[:params] = [:uint32]
+    s[:return_kind] = :void
+
+    out = gen.generate(framework: "AVFAudio", symbol: s, glue_id: "abc")
+    refute_nil out, ":uint32 must be supported in objc_method_instance path"
+    assert_match(/let arg0:\s*UInt32\s*=\s*UInt32\(rb_num2ull\(argv\[1\]\)\)/, out,
+                 ":uint32 in_load は argv_offset 1 (receiver 後) で emit")
+  end
+
+  # postmortem 2026-05-14 #4 regression net: swift_initializer 末尾 `throws`。
+  # AVAudioFile.init(forReading:) は throws、 user が
+  # `swift_initializer: "init(forReading:) throws"` と書くと emit_swift_init が
+  # try? + guard let で wrap して失敗時 Qnil を返す。 swift_init_labels regex も
+  # 末尾 throws を許容して labels 抽出が止まらないことが必要。
+  def test_emit_swift_init_throws_wraps_in_try_question
+    s = sym(name: "AVAudioFile.init(forReading:)",
+            kind: "swift_init",
+            signature: nil, parameters: [])
+    s[:swift_class] = "AVAudioFile"
+    s[:swift_initializer] = "init(forReading:) throws"
+    s[:params] = [:opaque_ref]
+    s[:return_kind] = :opaque_ref
+
+    out = gen.generate(framework: "AVFAudio", symbol: s, glue_id: "abc")
+    refute_nil out, "throws swift_initializer must emit"
+    assert_match(/guard let v = try\?\s*AVAudioFile\(forReading:\s*arg0\)\s*else\s*\{\s*return Qnil\s*\}/, out,
+                 "throws init は try? + guard let で wrap、 失敗時 Qnil")
+    refute_match(/init\(forReading:\)\s+throws/, out,
+                 "Swift コード本体に末尾 throws マーカーが漏れたら label 抽出が壊れた印")
+  end
+
+  # postmortem 2026-05-14 #5 regression net: ObjC single-segment
+  # `<verb>AndReturnError:` の throws bridge。 `:error:` multi-segment と並んで
+  # AVAudioEngine.startAndReturnError: のような single-segment 末尾も同じ
+  # do/catch bridge に乗ること。
+  def test_emit_objc_instance_method_single_segment_and_return_error_throws_bridge
+    s = sym(name: "AVAudioEngine.startAndReturnError",
+            kind: "objc_method_instance",
+            signature: "- (BOOL)startAndReturnError:(NSError **)err",
+            parameters: [])
+    s[:objc_class] = "AVAudioEngine"
+    s[:selector] = "startAndReturnError:"
+    s[:params] = []
+    s[:return_kind] = :bool
+
+    out = gen.generate(framework: "AVFAudio", symbol: s, glue_id: "abc")
+    refute_nil out, "single-segment AndReturnError selector must emit"
+    assert_match(/do\s*\{/, out, "try call must be wrapped in do/catch")
+    assert_match(/try\s+receiver\.start\(\)/, out,
+                 "AndReturnError suffix を drop し try で Swift bridged start() call")
+    assert_match(/return Qtrue/, out, "success → Qtrue")
+    assert_match(/catch\b/, out, "throw を catch")
+    assert_match(/return Qfalse/, out, "throw → Qfalse")
+  end
+
+  # postmortem 2026-05-14 #7 regression net: void return の objc_method_instance
+  # は `let raw = receiver.method(args)` ではなく単独 statement `receiver.method(args)`
+  # で emit する。 `let raw` を Void に bind すると Swift 6 warning
+  # (`constant 'raw' inferred to have type 'Void'`)、 ValidationGates の
+  # error_stage が warning と本物 error を混同する原因になる。
+  def test_emit_objc_instance_method_void_return_emits_bare_statement
+    s = sym(name: "AVAudioEngine.attach",
+            kind: "objc_method_instance",
+            signature: nil, parameters: [])
+    s[:objc_class] = "AVAudioEngine"
+    s[:selector] = "attach:"
+    s[:params] = [{kind: :opaque_ref, type: "AVAudioNode"}]
+    s[:return_kind] = :void
+
+    out = gen.generate(framework: "AVFAudio", symbol: s, glue_id: "abc")
+    refute_nil out, "void return objc_method_instance must emit"
+    assert_match(/^\s{4}receiver\.attach\(arg0\)$/, out,
+                 "void return は単独 statement で emit (let raw bind しない)")
+    refute_match(/let raw\s*=\s*receiver\.attach\(arg0\)/, out,
+                 "void return を `let raw` に bind すると Swift 6 warning")
+    assert_match(/return Qnil/, out, "void return は Ruby 側に Qnil 返却")
+  end
 end
 class TestTemplateGenerator < Test::Unit::TestCase
   def setup

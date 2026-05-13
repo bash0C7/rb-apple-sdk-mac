@@ -155,6 +155,32 @@ class TestNamespaceBuilder < Test::Unit::TestCase
       "swift_init Ruby identifier sanitized from canonical 'init(string:)'"
   end
 
+  # postmortem 2026-05-14 #10 regression net: Swift identifier の末尾
+  # `throws` modifier は Ruby method 名に残してはいけない。 emit 側だけが
+  # throws マーカーを利用し、 namespace_builder の ruby_method_name_for は
+  # 末尾 `\s+throws` を strip した形を method 名にする。
+  # 例: `init(forReading:) throws` → Ruby method `init_forReading` (空白なし)。
+  def test_install_one_swift_init_throws_strips_throws_from_ruby_method_name
+    box = Module.new
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(framework:, symbol:, args:) { :ok }
+    )
+    rec = {
+      name: "AVAudioFile.init(forReading:) throws",
+      kind: "swift_init",
+      swift_class: "AVAudioFile",
+      swift_initializer: "init(forReading:) throws"
+    }
+    builder.install_one("AVFAudio", rec)
+
+    klass = box.const_get(:AVFAudio).const_get(:AVAudioFile)
+    assert_respond_to klass, :init_forReading,
+      "throws 末尾 modifier は Ruby method 名から strip され、 `init_forReading` で呼べる"
+    refute klass.singleton_methods.any? { |m| m.to_s.include?("throws") },
+      "Ruby method 名に `throws` トークンが残ったら strip が壊れた印 (空白入り method 名は呼べん)"
+  end
+
   def test_install_one_swift_property_installs_under_klass
     box = Module.new
     builder = AppleSDKMac::NamespaceBuilder.new(
