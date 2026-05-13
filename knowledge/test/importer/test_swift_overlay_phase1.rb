@@ -354,4 +354,47 @@ class TestSwiftOverlayImporterPhase1 < Test::Unit::TestCase
       end
     end
   end
+
+  # Phase 1 T14: Swift macro / result-builder attribute lift.
+  # `@Observable` / `@ViewBuilder` 等の compile-time syntactic
+  # transformation を unsupported_pattern marker
+  # (`swift_macro` / `result_builder`) に lift。 phase 2 emitter /
+  # dispatcher が call 時に rich diagnostic raise する trigger。
+  # class-level macro と property-level result builder の両方が
+  # 同じ marker 経路に乗ることを確認する。
+  def test_swift_macro_attribute_marked_unsupported
+    Dir.mktmpdir do |dir|
+      interface = File.join(dir, "TestFW.swiftinterface")
+      File.write(interface, <<~SWIFT)
+        // swift-interface-format-version: 1.0
+        @Observable public class WatchedThing {
+          public var value: Int { get set }
+        }
+        public class PlainThing {
+          @ViewBuilder public var body: AnyView { get }
+        }
+      SWIFT
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      begin
+        AppleSDKKnowledge::Importer::SwiftOverlay.new(store).import!(
+          framework: "TestFW", path: interface
+        )
+        r1 = store.db.execute("SELECT unsupported_pattern FROM symbols WHERE name = ?", ["WatchedThing"]).first
+        assert_not_nil r1, "WatchedThing が import されてへん"
+        assert_equal "swift_macro", r1[0],
+          "@Observable class は macro marker"
+
+        r2 = store.db.execute(<<~SQL, ["body", "PlainThing"]).first
+          SELECT s.unsupported_pattern FROM symbols s JOIN symbols p ON s.parent_id = p.id
+          WHERE s.name = ? AND p.name = ?
+        SQL
+        assert_not_nil r2, "body property が import されてへん"
+        assert_equal "result_builder", r2[0],
+          "@ViewBuilder property は result_builder marker"
+      ensure
+        store.close
+      end
+    end
+  end
 end

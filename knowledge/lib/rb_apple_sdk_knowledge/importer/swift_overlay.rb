@@ -68,6 +68,34 @@ module AppleSDKKnowledge
       # identifier head(s) and lets parse_enum_block_cases split commas.
       CASE_RE = /^\s*case\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)/.freeze
 
+      # Matches: (open|public) [final] class <Name>[: <Conformances>]? {
+      # Captures: [1] class name. Top-level class declaration scanner —
+      # extension blocks are handled separately (extract_extension_blocks).
+      # Phase 1 T14: class-level macro attribute (`@Observable` etc.) は
+      # `extract_class_blocks` で header 直前の `@<Attr>` 行群と組で蓄積、
+      # detect_unsupported で marker に lift する。
+      DECL_CLASS_RE = /(?:open|public)\s+(?:final\s+)?class\s+(\w+)(?:[^\n{]*)\{/.freeze
+
+      # Swift macros (compile-time syntactic transformation). When a decl is
+      # preceded by one of these attributes, the symbol is marked
+      # `unsupported_pattern = "swift_macro"` so phase 2 emitter / dispatcher
+      # raise a rich diagnostic at call time instead of silently generating
+      # glue that misses the macro expansion. Fixed list — unknown `@<Attr>`
+      # is left unmarked (normal import).
+      SWIFT_MACRO_ATTRS = %w[
+        @Observable @attached @freestanding
+      ].freeze
+
+      # Swift result builders (declarative DSL transform). Same lift policy
+      # as SWIFT_MACRO_ATTRS but distinguished as `result_builder` so phase 2
+      # can word the diagnostic differently (DSL vs macro). Apple-defined
+      # builder attributes are enumerated; user-defined `@*Builder` outside
+      # this list is left unmarked.
+      SWIFT_RESULT_BUILDER_ATTRS = %w[
+        @ViewBuilder @SceneBuilder @CommandsBuilder @ToolbarContentBuilder
+        @RegexComponentBuilder
+      ].freeze
+
       def initialize(store)
         @store = store
       end
@@ -143,6 +171,108 @@ module AppleSDKKnowledge
         end
 
         blocks
+      end
+
+      # -- class scanner -----------------------------------------------------
+
+      # Returns [{name: String, body: String, attrs: Array<String>}] for each
+      # top-level `public class Foo { ... }` block found in +source+.
+      # +attrs+ is the list of `@<Attr>` lines that appeared immediately
+      # before the class header (with no intervening non-attribute, non-blank
+      # line). Phase 1 T14: the class-level macro attribute is lifted to
+      # `unsupported_pattern` via detect_unsupported.
+      #
+      # Brace-counted body extraction mirrors extract_extension_blocks so
+      # nested type braces don't bleed across class boundaries.
+      def extract_class_blocks(source)
+        scanner = StringScanner.new(source)
+        blocks  = []
+
+        until scanner.eos?
+          if scanner.scan_until(DECL_CLASS_RE)
+            name = scanner.captures.first
+            # Scan back from the match start to collect contiguous
+            # `@<Attr>` lines preceding the class header. `pre_match`
+            # gives us everything up to (but not including) the matched
+            # `public class ...{` chunk; the last newline-delimited
+            # tokens that look like attributes are the class's adornments.
+            attrs = preceding_attrs_for(scanner.pre_match)
+
+            body_start = scanner.pos
+            depth      = 1
+
+            until scanner.eos? || depth == 0
+              ch = scanner.getch
+              case ch
+              when "{" then depth += 1
+              when "}" then depth -= 1
+              end
+            end
+
+            body_end = depth == 0 ? scanner.pos - 1 : scanner.pos
+            body     = source[body_start...body_end]
+            blocks << { name: name, body: body, attrs: attrs }
+          else
+            break
+          end
+        end
+
+        blocks
+      end
+
+      # Returns the contiguous `@<Attr>` token lines immediately preceding
+      # the end of +text+ (a `pre_match` slice up to a decl header). Lines
+      # are returned in source order. Blank lines and `@_`-prefixed
+      # underscored attributes (Swift internal markers like `@_specialize`)
+      # are skipped — `@_` is also filtered by the existing line-scanner
+      # `next if line.start_with?("@_")` in import!, so we mirror that
+      # policy here. Non-attribute lines terminate the lookback.
+      def preceding_attrs_for(text)
+        return [] if text.nil? || text.empty?
+        attrs = []
+        text.lines.reverse_each do |raw|
+          stripped = raw.strip
+          next if stripped.empty?
+          break unless stripped.start_with?("@")
+          # `@_specialize`, `@_implementationOnly` 等 underscored internal
+          # markers は marker 判定対象外 (lookback も継続させて、 上に
+          # 通常 macro attr が積んであれば検出する)。
+          next if stripped.start_with?("@_")
+          attrs.unshift(stripped)
+        end
+        attrs
+      end
+
+      # Splits a line that begins with `@<Attr>` into [head, rest] where
+      # head is the bare attribute token (`@ViewBuilder`) and rest is the
+      # remainder of the line after consuming the attribute (and its
+      # optional `(...)` argument list). Returns [head, nil] for a
+      # pure-attribute line (`@Observable` alone). Used by import! to
+      # detect inline-attached attributes like
+      # `@ViewBuilder public var body: AnyView { get }`.
+      def split_inline_attr(line)
+        # Attribute token: `@` + identifier. Optional argument list
+        # `(...)` is consumed greedily (no nested parens expected in
+        # macro / builder invocation forms used by Apple overlays).
+        if (m = line.match(/\A(@\w+(?:\([^)]*\))?)\s*(.*)\z/))
+          rest = m[2].strip
+          [m[1], rest.empty? ? nil : rest]
+        else
+          [nil, line]
+        end
+      end
+
+      # Maps a set of preceding `@<Attr>` lines to an unsupported_pattern
+      # marker. Returns "swift_macro" / "result_builder" / nil.
+      # Dotted attributes (`@MainActor.preconcurrency` 等の isolation
+      # marker / sub-attribute) は対象外 — そもそも fixed list に
+      # 含まれてへんので自然に nil 落ちする。
+      def detect_unsupported(attrs)
+        return nil if attrs.nil? || attrs.empty?
+        attr_heads = attrs.map { |line| line.strip.split(/[\s(]/, 2).first }.compact
+        return "swift_macro"    if attr_heads.any? { |a| SWIFT_MACRO_ATTRS.include?(a) }
+        return "result_builder" if attr_heads.any? { |a| SWIFT_RESULT_BUILDER_ATTRS.include?(a) }
+        nil
       end
 
       # Extracts flat case-name array from an enum body. Multi-name
@@ -417,6 +547,53 @@ module AppleSDKKnowledge
         extract_enum_blocks(source).each do |enum_block|
           upsert_enum(enum_block, fw_id: fw_id)
         end
+
+        # Phase 1 T14: top-level `public class X { ... }` blocks. The
+        # existing extension scanner only sees `extension X { ... }`,
+        # so class-direct bodies (`@Observable public class WatchedThing`
+        # / `public class PlainThing { @ViewBuilder var body ... }`)
+        # are imported here. The class-level macro attribute lifts to
+        # `unsupported_pattern` on the class symbol, and per-member
+        # `@<Attr>` lookback inside the body lifts to the member symbol.
+        extract_class_blocks(source).each do |class_block|
+          class_marker = detect_unsupported(class_block[:attrs])
+          klass_id = upsert_klass(class_block[:name], fw_id,
+                                  unsupported_pattern: class_marker)
+
+          pending_attrs = []
+          class_block[:body].each_line do |raw_line|
+            line = raw_line.strip
+            next if line.empty? || line.start_with?("//")
+
+            # Underscored Swift internal markers (`@_specialize` 等) は
+            # marker 判定対象外。 通常 attribute はここで蓄積し、 decl
+            # 本体行に到達した時点で detect_unsupported に流す。
+            # `@ViewBuilder public var body: AnyView { get }` のように
+            # attribute と decl が同一行にあるケースも吸収するため、
+            # 先頭 `@<Attr>` を剥がして残りを decl 本体として再評価する。
+            if line.start_with?("@_")
+              next
+            elsif line.start_with?("@")
+              head, rest = split_inline_attr(line)
+              pending_attrs << head if head
+              if rest.nil? || rest.empty?
+                next
+              end
+              line = rest
+            end
+
+            decl = parse_decl_line(line)
+            unless decl
+              pending_attrs.clear
+              next
+            end
+
+            decl_marker = detect_unsupported(pending_attrs)
+            pending_attrs.clear
+            upsert_decl(decl, klass: class_block[:name], klass_id: klass_id,
+                              fw_id: fw_id, unsupported_pattern: decl_marker)
+          end
+        end
       end
 
       private
@@ -485,25 +662,46 @@ module AppleSDKKnowledge
         )
       end
 
-      def upsert_klass(klass_name, fw_id)
+      def upsert_klass(klass_name, fw_id, unsupported_pattern: nil)
         row = @store.db.execute(
           "SELECT id FROM symbols WHERE framework_id = ? AND name = ? AND kind IN ('class', 'objc_class')",
           [fw_id, klass_name]
         ).first
-        return row.first if row
+        if row
+          # Class symbol was already inserted (e.g. via extract_extension_blocks
+          # or an earlier extract_class_blocks pass). Re-emit insert_symbol
+          # carrying the marker so the COALESCE path on unsupported_pattern
+          # picks up the macro lift on a subsequent class-block-direct
+          # ingest. Without this branch, an extension-first import would
+          # cement the class row before the `@Observable` lookback runs.
+          if unsupported_pattern
+            hash = Digest::SHA256.hexdigest("#{fw_id}|#{klass_name}|class|swift_overlay")
+            @store.insert_symbol(
+              framework_id:        fw_id,
+              name:                klass_name,
+              kind:                "class",
+              abi:                 "swift",
+              content_hash:        hash,
+              signature:           "class #{klass_name}",
+              unsupported_pattern: unsupported_pattern
+            )
+          end
+          return row.first
+        end
 
         hash = Digest::SHA256.hexdigest("#{fw_id}|#{klass_name}|class|swift_overlay")
         @store.insert_symbol(
-          framework_id: fw_id,
-          name:         klass_name,
-          kind:         "class",
-          abi:          "swift",
-          content_hash: hash,
-          signature:    "class #{klass_name}"
+          framework_id:        fw_id,
+          name:                klass_name,
+          kind:                "class",
+          abi:                 "swift",
+          content_hash:        hash,
+          signature:           "class #{klass_name}",
+          unsupported_pattern: unsupported_pattern
         )
       end
 
-      def upsert_decl(decl, klass:, klass_id:, fw_id:)
+      def upsert_decl(decl, klass:, klass_id:, fw_id:, unsupported_pattern: nil)
         selector = objc_selector_for(klass, decl)
         return unless selector
 
@@ -544,7 +742,8 @@ module AppleSDKKnowledge
           is_throws:           decl[:throws]   ? 1 : 0,
           is_async:            decl[:async]    ? 1 : 0,
           is_failable:         decl[:failable] ? 1 : 0,
-          is_settable:         decl[:settable] ? 1 : 0
+          is_settable:         decl[:settable] ? 1 : 0,
+          unsupported_pattern: unsupported_pattern
         )
       end
 
