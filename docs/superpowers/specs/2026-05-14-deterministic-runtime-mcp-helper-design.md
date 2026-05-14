@@ -434,9 +434,41 @@ memory:
 
 ## 17. Open items (spec 確定後、 writing-plans skill で詳細化)
 
-- Section 4 setter glue の Ruby 側 syntax (`obj.prop = val` で `__opaque_ref` をどう receive)
-- Section 9 robots.txt 遵守 gem 選定 (`robotex` 維持、 メンテ状況確認)
-- Section 11 各 framework 代表 symbol の具体 list (smoke test scaffold で fixture 化)
-- Section 8 docc archive の data/documentation JSON schema バージョン依存性 (Xcode version 互換性)
+- Section 4 setter glue の Ruby 側 syntax (`obj.prop = val` で `__opaque_ref` をどう receive) — Phase 2 で確定
+- Section 9 robots.txt 遵守 gem 選定 (`robotex` 維持、 メンテ状況確認) — Phase 4 で確定
+- Section 11 各 framework 代表 symbol の具体 list (smoke test scaffold で fixture 化) — Phase 5 で確定
+- Section 8 docc archive の data/documentation JSON schema バージョン依存性 (Xcode version 互換性) — Phase 4 で確定
 
 これらは spec 承認後、 writing-plans skill が出す implementation plan で詰める。
+
+### Phase 1 結果 (2026-05-14 完了)
+
+- [x] SCHEMA_VERSION 9 bump 完了、 既存 cache は migrate 経由 invalidate 動作確認 (T1)
+- [x] clang importer の `_Nullable` / `cf_returns_retained` / typed block / static inline / function macro capture 全 fixture test green (T3-T7)
+- [x] swift_overlay importer の effect flags / labels / default values / Optional / enum cases / `is_settable` / macro marker capture 全 test green (T8-T15)
+- [x] KnowledgeCache `lookup_symbol` / `lookup_klass_method` 戻り Hash に Phase 1 metadata expose (T16)
+- [x] `apple:knowledge:rebuild_async` smoke run で全 framework re-import、 stats 退行無しを確認 (T17、 commit 1127277 で `Pipeline#insert_one` の metadata pass-through 漏れを fix)
+
+最終 KB stats (sdk_knowledge_26.4.1):
+- total symbols: 163,541
+- `is_throws=1`: 1,438 / `is_async=1`: 440 / `is_failable=1`: 127 / `is_settable=1`: 748
+- `return_ownership IS NOT NULL`: 232
+- `callback_signature_json IS NOT NULL`: 10,640
+- `enum_cases_json IS NOT NULL`: 761
+- `unsupported_pattern IS NOT NULL`: 3,290
+- `throws_error_type IS NOT NULL`: 0 (Apple SDK は untyped throws のみ採用、 想定内)
+
+### Phase 2 開始時に再点検する Phase 1 backlog
+
+Phase 1 implementation で発見した edge case を Phase 2 で再評価:
+
+- T3: `ObjCCategoryDecl` の `parent_name` に category 名が入る latent bug (multi-category 環境で衝突予想)
+- T3: Consolidator hash strategy と `clang_objc.rb` 直 path の content_hash salt 不一致 (production rebuild では Consolidator 経由のみ、 直 path はテスト専用)
+- T5: callback signature の nested paren / generic comma split が fragile (`NSDictionary<NSString *, id> *` 等で word-boundary 誤判定の可能性)
+- T9: swift parameter label の inline doc comment + `@attribute` interleave 経路は現状 lookback 未対応
+- T10: swift string literal の escape-quote (`"foo\"bar"`) は現状 regex で誤 split の可能性
+- T11: swift IUO of Optional (`URL!?`) の edge case test 未追加
+- T12: swift nested enum 内側 / case payload with closure type の brace edge case
+- T14: swift macro doc comment + `@Observable` interleave 経路の preceding_attrs_for 拡張余地
+
+(以下 phase 2 / 3 / 4 / 5 の open items は既存記述のまま継続)
