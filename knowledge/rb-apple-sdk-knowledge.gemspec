@@ -37,6 +37,7 @@ Gem::Specification.new do |spec|
   MSG
 
   spec.add_dependency "sqlite3", "~> 2.0"
+  spec.add_dependency "ruby-progressbar", "~> 1.13"
   spec.add_development_dependency "test-unit", "~> 3.6"
   spec.add_development_dependency "rake", "~> 13.0"
 end
