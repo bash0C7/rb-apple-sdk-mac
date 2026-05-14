@@ -59,7 +59,8 @@ store.close
 
 | ENV var | Default | 用途 |
 |---------|---------|------|
-| `APPLE_SDK_MAC_KB_WORKERS` | `2` | rebuild 時の worker pool 並列度。 macOS の CPU core 数まで上げると 1/3 まで縮む見込み (Phase 2 target) |
+| `APPLE_SDK_MAC_KB_WORKERS` | `Etc.nprocessors` | rebuild 時の per-framework worker pool 並列度 (clang + swift overlay parse 用)。 Phase 2 default は CPU core 数 |
+| `APPLE_SDK_MAC_KB_FRAMEWORK_PARALLELISM` | `4` | 同時並列処理する framework 数 (FrameworkScheduler の K)。 Phase 2 で追加 |
 | `APPLE_SDK_MAC_KB_BATCH_SIZE` | `1000` | StoreWriter の transaction batch size |
 | `APPLE_SDK_MAC_KB_BASE_DIR` | (なし) | Knowledge Base SQLite の base dir。 親 gem の rake task 経由で設定される |
 | `APPLE_SDK_MAC_KB_INTEGRATION` | (なし) | `1` で `rake integration` が bit-identical test を実行 (heavy、 default skip) |
