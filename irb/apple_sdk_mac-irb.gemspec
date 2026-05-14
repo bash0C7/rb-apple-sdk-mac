@@ -30,7 +30,6 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency "rb-apple-sdk-mac"
-  spec.add_dependency "rb-foundation-model-mac"
   spec.add_dependency "irb", "~> 1.18"
   spec.add_dependency "reline", "~> 0.6"
   spec.add_dependency "repl_type_completor"

@@ -8,7 +8,6 @@ gemspec
 # Local sibling repo during development. Comment out once swift_gem is published.
 gem "swift_gem", git: "https://github.com/bash0C7/swift_gem"
 
-gem "rb-foundation-model-mac", path: "../rb-foundation-model-mac"
 gem "rb-apple-sdk-knowledge", path: "knowledge"
 
 gem "rake", "~> 13.0"
