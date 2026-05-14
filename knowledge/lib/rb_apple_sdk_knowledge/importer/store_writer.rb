@@ -7,18 +7,24 @@ module AppleSDKKnowledge
         @batch_size = batch_size
         @counter = 0
         @in_tx = false
+        @mutex = Mutex.new
       end
 
       def begin!
-        return if @in_tx
-        @store.db.execute("BEGIN")
-        @in_tx = true
-        @counter = 0
+        @mutex.synchronize do
+          return if @in_tx
+          @store.db.execute("BEGIN")
+          @in_tx = true
+          @counter = 0
+        end
       end
 
       def insert_symbol(**kwargs)
-        ret = @store.insert_symbol(**kwargs)
-        bump!
+        ret = nil
+        @mutex.synchronize do
+          ret = @store.insert_symbol(**kwargs)
+          bump!
+        end
         ret
       rescue SQLite3::ConstraintException
         # Caller (Pipeline#insert_one) handles duplicate-skip semantics.
@@ -26,40 +32,51 @@ module AppleSDKKnowledge
         # surrounding transaction in SQLite, so we must NOT rollback here.
         raise
       rescue
-        rollback!
+        @mutex.synchronize do
+          next unless @in_tx
+          @store.db.execute("ROLLBACK")
+          @in_tx = false
+          @counter = 0
+        end
         raise
       end
 
       def insert_framework(**kwargs)
-        ret = @store.insert_framework(**kwargs)
-        bump!
+        ret = nil
+        @mutex.synchronize do
+          ret = @store.insert_framework(**kwargs)
+          bump!
+        end
         ret
       rescue
-        rollback!
+        @mutex.synchronize do
+          next unless @in_tx
+          @store.db.execute("ROLLBACK")
+          @in_tx = false
+          @counter = 0
+        end
         raise
       end
 
       def flush
-        return unless @in_tx
-        @store.db.execute("COMMIT")
-        @in_tx = false
-        @counter = 0
+        @mutex.synchronize do
+          return unless @in_tx
+          @store.db.execute("COMMIT")
+          @in_tx = false
+          @counter = 0
+        end
       end
 
       private
 
-      def rollback!
-        return unless @in_tx
-        @store.db.execute("ROLLBACK")
-        @in_tx = false
-        @counter = 0
-      end
-
       def bump!
         @counter += 1
         return if @counter < @batch_size
-        flush
-        begin!
+        @store.db.execute("COMMIT")
+        @in_tx = false
+        @counter = 0
+        @store.db.execute("BEGIN")
+        @in_tx = true
       end
     end
   end

@@ -75,6 +75,32 @@ class TestStoreWriter < Test::Unit::TestCase
     end
   end
 
+  def test_concurrent_inserts_from_multiple_threads_serialized
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "kb.sqlite")
+      store = AppleSDKKnowledge::Store.open(path)
+      writer = AppleSDKKnowledge::Importer::StoreWriter.new(store: store, batch_size: 100)
+      writer.begin!
+      fw_id = writer.insert_framework(name: "F", swift_module: "F")
+
+      threads = 4.times.map do |t|
+        Thread.new do
+          25.times do |i|
+            writer.insert_symbol(framework_id: fw_id,
+                                 name: "T#{t}_S#{i.to_s.rjust(3, '0')}",
+                                 kind: "function", abi: "c",
+                                 content_hash: "h_t#{t}_s#{i}")
+          end
+        end
+      end
+      threads.each(&:join)
+      writer.flush
+      count = store.db.execute("SELECT COUNT(*) FROM symbols").flatten.first
+      assert_equal 100, count
+      store.close
+    end
+  end
+
   # SQLite3::ConstraintException (e.g. raised by a spy store) must be
   # re-raised by StoreWriter WITHOUT rolling back the surrounding transaction.
   # This allows Pipeline#insert_one to rescue that specific exception and skip
