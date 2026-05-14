@@ -442,8 +442,10 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
     )
     # ObjcError dispatch confirmation:
     # throws_error_type=NSError should route to ObjcError lookup
-    assert_match(/ObjcError|rb_eAppleSDK/, swift,
+    assert_match(/ObjcError/, swift,
       "throws_error_type=NSError should route to ObjcError")
+    assert_no_match(/SwiftError/, swift,
+      "throws_error_type=NSError must NOT route to SwiftError")
   end
 
   def test_emit_swift_property_setter_when_is_settable_true

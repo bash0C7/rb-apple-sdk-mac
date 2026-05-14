@@ -406,12 +406,9 @@ module AppleSDKMac
         init_binding =
           if throwing
             throws_error_type = kb_flag(framework, symbol[:name], :throws_error_type) { nil }
-            err_class_lookup =
-              if throws_error_type == "NSError"
-                %(rb_const_get(rb_const_get(rb_cObject, rb_intern("AppleSDKMac")), rb_intern("ObjcError")))
-              else
-                %(rb_const_get(rb_const_get(rb_cObject, rb_intern("AppleSDKMac")), rb_intern("SwiftError")))
-              end
+            module_lookup = %(rb_const_get(rb_cObject, rb_intern("AppleSDKMac")))
+            err_class_name = throws_error_type == "NSError" ? "ObjcError" : "SwiftError"
+            err_class_lookup = %(rb_const_get(#{module_lookup}, rb_intern("#{err_class_name}")))
             <<~SWIFT.chomp
               let v: #{swift_klass}
               do {
