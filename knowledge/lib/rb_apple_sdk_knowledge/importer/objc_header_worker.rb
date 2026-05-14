@@ -8,7 +8,10 @@ module AppleSDKKnowledge
         @parser = HeaderParser.new(sdk_path: sdk_path)
       end
 
+      # framework: は WorkerPool dispatch シグネチャと揃えるために受け取るが、
+      # HeaderParser#parse_file は path 単独で動くため現状未使用。
       def call(framework:, header:)
+        _ = framework
         t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         symbols = @parser.parse_file(header)
         {
