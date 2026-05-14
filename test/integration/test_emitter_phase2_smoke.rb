@@ -1,21 +1,42 @@
 # frozen_string_literal: true
 require "test-unit"
 require "sqlite3"
+require "tmpdir"
+require "fileutils"
 require "apple_sdk_mac/errors"
 require "apple_sdk_mac/glue_compiler/template_generator"
 
 # ruby-progressbar is not in the Gemfile (importer-only dependency).
-# Intercept the require so loading rb_apple_sdk_knowledge does not
-# abort with LoadError in parallel-session environments where the gem
-# is absent from the active bundle.
-module Kernel
-  alias_method :__phase2_smoke_original_require__, :require
-  def require(name)
-    return true if name == "ruby-progressbar"
-    __phase2_smoke_original_require__(name)
-  end
-  private :require
+# Install a no-op stub file at the front of $LOAD_PATH so that
+# rb_apple_sdk_knowledge's require "ruby-progressbar" resolves to the
+# stub rather than aborting with LoadError. This avoids monkey-patching
+# Kernel#require, which would persist across all test files in the
+# same process and could silently suppress real LoadErrors elsewhere.
+PHASE2_SMOKE_STUB_DIR = File.join(Dir.tmpdir, "phase2_smoke_stub_#{Process.pid}")
+unless File.exist?(PHASE2_SMOKE_STUB_DIR)
+  FileUtils.mkdir_p(PHASE2_SMOKE_STUB_DIR)
+  File.write(File.join(PHASE2_SMOKE_STUB_DIR, "ruby-progressbar.rb"), <<~RUBY)
+    # No-op stub for Phase 2 smoke isolation. ruby-progressbar is
+    # required by the Knowledge Base sub-gem's importer/progress_reporter,
+    # which is loaded via apple_sdk_mac/knowledge_cache. The main gem
+    # Gemfile does not declare ruby-progressbar (it is a sub-gem
+    # dependency), so we stub it at LOAD_PATH level to keep this smoke
+    # isolated without touching Kernel#require.
+    module ProgressBar
+      def self.create(*args, **kwargs); ProgressBarNoop.new; end
+    end
+    class ProgressBarNoop
+      def increment; end
+      def progress=(*); end
+      def finish; end
+      def total=(*); end
+      def title=(*); end
+    end
+  RUBY
 end
+$LOAD_PATH.unshift(PHASE2_SMOKE_STUB_DIR)
+
+at_exit { FileUtils.rm_rf(PHASE2_SMOKE_STUB_DIR) }
 
 KNOWLEDGE_DB = File.expand_path(
   "../../.rb-apple-sdk-mac/knowledge/26.4.1/sdk_knowledge.sqlite",
@@ -44,7 +65,19 @@ class TestEmitterPhase2Smoke < Test::Unit::TestCase
     @kc.register_transient(
       framework: "AVFoundation",
       symbol: "AVAudioFile.init(forReading:)",
-      record: { is_throws: true, is_failable: false, is_async: false, unsupported_pattern: nil }
+      record: {
+        name: "AVAudioFile.init(forReading:)",
+        kind: "swift_init",
+        is_throws: true,
+        is_async: false,
+        is_failable: false,
+        is_settable: false,
+        return_ownership: nil,
+        throws_error_type: nil,   # untyped throws → SwiftError dispatch
+        callback_signature_json: nil,
+        enum_cases_json: nil,
+        unsupported_pattern: nil
+      }
     )
     swift = @tg.generate(
       framework: "AVFoundation",
