@@ -375,8 +375,8 @@ module AppleSDKMac
         # throws init (`init(...) throws`) は `try?` で wrap、 失敗時 Qnil。
         # user は `swift_initializer: "init(forReading:) throws"` と書くと
         # この path に乗る (AVAudioFile / AVAudioRecorder 等)。
-        failable = initializer.to_s.include?("?")
-        throwing = initializer.to_s.include?("throws")
+        failable = kb_flag(framework, symbol[:name], :is_failable) { initializer.to_s.include?("?") }
+        throwing = kb_flag(framework, symbol[:name], :is_throws) { initializer.to_s.include?("throws") }
         init_binding =
           if throwing
             "guard let v = try? #{call_expr} else { return Qnil }"
@@ -853,6 +853,18 @@ module AppleSDKMac
 
       def cf_create_naming?(name)
         name.to_s =~ /\A(?:CF|CG|CV|CT|CM|CL|IO|Sec|AX)\w*(?:Create|Copy)/
+      end
+
+      # Knowledge Base record から flag column を読む。 @kc が無い / Knowledge Base
+      # miss / column が nil の場合は block の fallback (heuristic / signature 文字列
+      # include?) を返す。 既存の Apple.discover escape hatch で synth record を
+      # user 渡しする path を壊さない。
+      def kb_flag(framework, symbol_name, column)
+        return yield unless @kc
+        rec = @kc.lookup_symbol(framework: framework, symbol: symbol_name)
+        return yield unless rec
+        v = rec[column]
+        v.nil? ? yield : v
       end
 
       def return_kind(signature)
