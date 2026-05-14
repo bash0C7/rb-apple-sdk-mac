@@ -24,3 +24,16 @@ class TestSDKResolver < Test::Unit::TestCase
     assert_includes frameworks.map(&:name), "CoreMIDI"
   end
 end
+
+class TestSDKResolverFilter < Test::Unit::TestCase
+  def test_filter_returns_only_listed_frameworks
+    resolver = AppleSDKKnowledge::Importer::SDKResolver.new(filter: ["Foundation"])
+    names = resolver.frameworks.map(&:name)
+    assert_equal ["Foundation"], names
+  end
+
+  def test_filter_nil_returns_all_frameworks
+    resolver = AppleSDKKnowledge::Importer::SDKResolver.new(filter: nil)
+    assert_operator resolver.frameworks.size, :>=, 50
+  end
+end
