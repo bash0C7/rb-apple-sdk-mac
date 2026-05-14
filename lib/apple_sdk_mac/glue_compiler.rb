@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 require "digest"
 require_relative "glue_compiler/template_generator"
-require_relative "glue_compiler/llm_generator"
 require_relative "glue_compiler/validation_gates"
 require_relative "glue_compiler/swiftc_invoker"
 
@@ -11,28 +10,21 @@ module AppleSDKMac
                          :exported_symbol, :error_stage, :error_detail,
                          keyword_init: true)
 
-    # Sized to absorb Foundation Model on-device's ~1/3 off-format response rate.
-    DEFAULT_MAX_LLM_RETRIES = 6
-
     def initialize(cache:, runtime_dylib_path:, runtime_modules_paths: [],
-                    llm_generator: nil, swiftc_invoker: nil,
+                    swiftc_invoker: nil,
                     template_generator: nil,
                     knowledge_cache: nil,
-                    max_llm_retries: DEFAULT_MAX_LLM_RETRIES)
+                    gates: nil)
       @cache = cache
       @runtime_dylib_path = runtime_dylib_path
       @runtime_modules_paths = runtime_modules_paths
       @template = template_generator || GlueCompiler::TemplateGenerator.new(knowledge_cache: knowledge_cache)
-      @llm = llm_generator
-      @gates = GlueCompiler::ValidationGates.new
+      @gates = gates || GlueCompiler::ValidationGates.new
       @swiftc = swiftc_invoker || GlueCompiler::SwiftcInvoker.new
-      @max_llm_retries = max_llm_retries
     end
 
     def compile(framework:, symbol:)
-      result = try_template(framework: framework, symbol: symbol)
-      return result if result.success?
-      try_llm(framework: framework, symbol: symbol, prior_failure: result)
+      try_template(framework: framework, symbol: symbol)
     end
 
     private
@@ -42,20 +34,10 @@ module AppleSDKMac
       base = File.join(@cache.base_dir, @cache.sdk_version)
       src = File.join(base, "sources", "#{glue_id}.swift")
       dylib = File.join(base, "lib", "#{glue_id}.dylib")
-      # exported_symbol must be a Swift identifier; canonical_name contains
-      # `.` / `:` / `(` / `)` so we sanitize via gsub of non-[A-Za-z0-9_].
       swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
       exported = "glue_#{glue_id}_#{swift_id}"
 
-      swift_source =
-        begin
-          @template.generate(framework: framework, symbol: symbol, glue_id: glue_id)
-        rescue AppleSDKMac::UnsupportedPatternError
-          # Early propagate: LLM fallback is also pointless (Knowledge Base has
-          # explicitly marked this pattern as unsupported), so deliver the
-          # exception to the caller without entering try_llm.
-          raise
-        end
+      swift_source = @template.generate(framework: framework, symbol: symbol, glue_id: glue_id)
 
       if swift_source.nil?
         return Result.new(success?: false, error_stage: "template_nil",
@@ -92,75 +74,6 @@ module AppleSDKMac
                      exported_symbol: exported, generator: "template")
       Result.new(success?: true, glue_id: glue_id, generator: "template",
                   dylib_path: dylib, exported_symbol: exported)
-    end
-
-    def try_llm(framework:, symbol:, prior_failure: nil)
-      glue_id = compute_glue_id(framework, symbol)
-      base = File.join(@cache.base_dir, @cache.sdk_version)
-      src = File.join(base, "sources", "#{glue_id}.swift")
-      dylib = File.join(base, "lib", "#{glue_id}.dylib")
-
-      return Result.new(success?: false, error_stage: "no_llm",
-                         error_detail: "LLM generator not provided") unless @llm
-
-      # Same swift_id sanitization as the template path so GATE 5
-      # (`@c public func glue_<id>_<symbol>`) accepts canonical-name shapes
-      # like "NSString.stringWithUTF8String".
-      swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
-      exported = "glue_#{glue_id}_#{swift_id}"
-
-      @max_llm_retries.times do |attempt|
-        swift_source = begin
-          @llm.generate(framework: framework, symbol: symbol, glue_id: glue_id)
-        rescue StandardError => e
-          # Wrap LLM-side raises (Foundation Models context overflow, network
-          # failure, model load error) into a compile-history attempt row so
-          # Apple.discover surfaces a clean CompileError.
-          @cache.record_attempt(framework: framework, symbol: symbol[:name],
-                                 generator: "llm",
-                                 error_stage: "llm_raise",
-                                 error_detail: "#{e.class}: #{e.message[0..400]}")
-          nil
-        end
-        if swift_source.nil? || swift_source.strip.empty?
-          @cache.record_attempt(framework: framework, symbol: symbol[:name],
-                                 generator: "llm",
-                                 error_stage: "llm_empty",
-                                 error_detail: "LLM returned empty on attempt #{attempt}")
-          next
-        end
-
-        gate_result = @gates.validate(swift_source, framework: framework,
-                                                    glue_id: glue_id, symbol: swift_id)
-        unless gate_result.pass?
-          @cache.record_attempt(framework: framework, symbol: symbol[:name],
-                                 generator: "llm",
-                                 llm_response: swift_source,
-                                 error_stage: "static_check",
-                                 error_detail: gate_result.errors.join("; "))
-          next
-        end
-
-        File.write(src, swift_source)
-        ok, err = @swiftc.compile(source_path: src, dylib_path: dylib,
-                                   runtime_dylib_path: @runtime_dylib_path,
-                                   module_search_paths: @runtime_modules_paths)
-        unless ok
-          @cache.record_attempt(framework: framework, symbol: symbol[:name],
-                                 generator: "llm", llm_response: swift_source,
-                                 error_stage: "swiftc", error_detail: err)
-          next
-        end
-
-        @cache.insert(glue_id: glue_id, framework: framework, symbol: symbol[:name],
-                       swift_source: swift_source, dylib_path: dylib,
-                       exported_symbol: exported, generator: "llm")
-        return Result.new(success?: true, glue_id: glue_id, generator: "llm",
-                           dylib_path: dylib, exported_symbol: exported)
-      end
-
-      Result.new(success?: false, error_stage: "llm_max_retries",
-                  error_detail: "LLM exhausted #{@max_llm_retries} attempts")
     end
 
     def compute_glue_id(framework, symbol)

@@ -47,19 +47,14 @@ class TestGlueCompilerNoLLMFallback < Test::Unit::TestCase
     FileUtils.rm_rf(@tmpdir) if @tmpdir
   end
 
-  # NOTE: @gates is injected via instance_variable_set because the current
-  # GlueCompiler constructor has no `gates:` kwarg. Phase 3 Task 3 (GREEN)
-  # rewrites the constructor; once `gates:` kwarg is added there, these
-  # tests will be updated to use kwarg injection. Until then, this is the
-  # only injection point for a fake gate.
   def test_compile_returns_template_failure_directly_when_gate_fails
     compiler = AppleSDKMac::GlueCompiler.new(
       cache: @cache,
       runtime_dylib_path: "/dev/null",
       template_generator: FakeTemplate.new("dummy swift"),
       swiftc_invoker: FakeSwiftc.new(success: true),
+      gates: FakeGates.new(pass: false),
     )
-    compiler.instance_variable_set(:@gates, FakeGates.new(pass: false))
 
     result = compiler.compile(framework: "Foundation", symbol: @symbol)
 
@@ -77,8 +72,8 @@ class TestGlueCompilerNoLLMFallback < Test::Unit::TestCase
       runtime_dylib_path: "/dev/null",
       template_generator: FakeTemplate.new("import Foundation\n"),
       swiftc_invoker: FakeSwiftc.new(success: false),
+      gates: FakeGates.new(pass: true),
     )
-    compiler.instance_variable_set(:@gates, FakeGates.new(pass: true))
 
     result = compiler.compile(framework: "Foundation", symbol: @symbol)
 
