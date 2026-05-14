@@ -572,28 +572,37 @@ module AppleSDKMac
         klass = swift_bridged_class_name(symbol[:swift_class].to_s)
         prop = symbol[:swift_property].to_s
         instance = symbol[:instance] == true
+        params = symbol[:params] || []
+        # setter は value を必ず 1 個受け取る前提、 params が空なら明示 raise
+        if params.empty?
+          raise ArgumentError,
+            "emit_swift_property_setter requires symbol[:params] with >=1 element " \
+            "(setter value type) for #{symbol[:name]}"
+        end
         swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
         exported = "glue_#{glue_id}_#{swift_id}"
 
         body =
           if instance
-            arg0_load = ObjcMarshalling.in_load(symbol[:params][0], 1)
-            <<~SWIFT.chomp
-              let receiver = unsafeBitCast(
-                  OpaquePointer(bitPattern: UInt(rb_num2ull(argv[0])))!,
-                  to: #{klass}.self
-              )
-              let arg0 = #{arg0_load}
-              receiver.#{prop} = arg0
-              return Qnil
-            SWIFT
+            # receiver が argv[0] を占有、 value は argv[1] にある
+            arg0_load = ObjcMarshalling.in_load(params[0], 1)
+            [
+              "let receiver = unsafeBitCast(",
+              "    OpaquePointer(bitPattern: UInt(rb_num2ull(argv[0])))!,",
+              "    to: #{klass}.self",
+              ")",
+              "let arg0 = #{arg0_load}",
+              "receiver.#{prop} = arg0",
+              "return Qnil"
+            ]
           else
-            arg0_load = ObjcMarshalling.in_load(symbol[:params][0], 0)
-            <<~SWIFT.chomp
-              let arg0 = #{arg0_load}
-              #{klass}.#{prop} = arg0
-              return Qnil
-            SWIFT
+            # static setter — receiver なし、 value が argv[0]
+            arg0_load = ObjcMarshalling.in_load(params[0], 0)
+            [
+              "let arg0 = #{arg0_load}",
+              "#{klass}.#{prop} = arg0",
+              "return Qnil"
+            ]
           end
 
         <<~SWIFT
@@ -605,7 +614,7 @@ module AppleSDKMac
           public func #{exported}(
               _ argv: UnsafePointer<UInt>, _ argc: Int32
           ) -> UInt {
-              #{body}
+              #{body.join("\n    ")}
           }
         SWIFT
       end

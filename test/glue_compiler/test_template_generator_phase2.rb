@@ -490,4 +490,25 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
     assert_not_nil swift
     assert_match(/URLCache\.shared = /, swift)
   end
+
+  def test_emit_swift_property_setter_raises_when_params_missing
+    kc = FakeKnowledgeCache.new({})
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    err = assert_raise(ArgumentError) do
+      tg.generate(
+        framework: "AppKit",
+        symbol: {
+          kind: "swift_property_setter",
+          name: "NSWindow.title=",
+          swift_class: "NSWindow",
+          swift_property: "title",
+          # params 故意に未指定
+          return_kind: :void,
+          instance: true
+        },
+        glue_id: "abcd1234"
+      )
+    end
+    assert_match(/params/, err.message)
+  end
 end
