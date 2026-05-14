@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 require "json"
+require "etc"
 require_relative "importer/sdk_resolver"
 require_relative "importer/swift_interface_parser"
 require_relative "importer/swift_overlay"
@@ -29,7 +30,7 @@ module AppleSDKKnowledge
         writer        = StoreWriter.new(store: store, batch_size: (ENV["APPLE_SDK_MAC_KB_BATCH_SIZE"] || 1000).to_i)
         frameworks    = resolver.frameworks
         reporter      = ProgressReporter.new(io: $stderr, total_frameworks: frameworks.size)
-        workers       = [(ENV["APPLE_SDK_MAC_KB_WORKERS"] || 2).to_i, 1].max
+        workers       = [(ENV["APPLE_SDK_MAC_KB_WORKERS"] || Etc.nprocessors).to_i, 1].max
         sdk_path      = resolver.sdk_path
 
         t_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
