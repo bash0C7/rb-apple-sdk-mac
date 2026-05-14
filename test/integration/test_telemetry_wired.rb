@@ -115,6 +115,8 @@ class TestTelemetryWired < Test::Unit::TestCase
     assert_equal 1, events.size
     assert_equal "unsupported_pattern", events[0]["stage"]
     assert_equal "swift_macro",         events[0]["detail"]
+    assert_equal "Foundation",          events[0]["framework"]
+    assert_equal "x",                   events[0]["symbol"]
   end
 
   def test_compile_failed_raise_emits_telemetry
