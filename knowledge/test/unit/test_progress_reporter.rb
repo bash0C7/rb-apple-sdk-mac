@@ -36,6 +36,7 @@ class TestProgressReporter < Test::Unit::TestCase
     assert_match(/processed=5/, lines[1])
     assert_match(/skipped=0/, lines[1])
     assert_match(/0\.8s/, lines[1])
+    assert_match(/→ /, lines[1], "framework_finished line should start with Unicode arrow")
   end
 
   def test_non_tty_compresses_clang_error_to_single_line
@@ -54,5 +55,12 @@ class TestProgressReporter < Test::Unit::TestCase
     reporter = AppleSDKKnowledge::Importer::ProgressReporter.new(io: io, total_frameworks: 1)
     reporter.header_done(framework: "F", header: "/path/y.h", status: :ok, elapsed_ms: 5)
     assert_equal "", io.string
+  end
+
+  def test_finish_includes_checkmark_prefix
+    io = non_tty_io
+    reporter = AppleSDKKnowledge::Importer::ProgressReporter.new(io: io, total_frameworks: 1)
+    reporter.finish(processed_total: 10, skipped_total: 0, elapsed_ms: 500)
+    assert_match(/✓ done/, io.string)
   end
 end

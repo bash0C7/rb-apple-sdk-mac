@@ -39,12 +39,12 @@ module AppleSDKKnowledge
         if @tty
           @bar.increment
         else
-          @io.puts "-> processed=#{processed} skipped=#{skipped} elapsed=#{format_elapsed(elapsed_ms)}"
+          @io.puts "→ processed=#{processed} skipped=#{skipped} elapsed=#{format_elapsed(elapsed_ms)}"
         end
       end
 
       def finish(processed_total:, skipped_total:, elapsed_ms:)
-        msg = "done processed=#{processed_total} skipped=#{skipped_total} elapsed=#{format_elapsed(elapsed_ms)}"
+        msg = "✓ done processed=#{processed_total} skipped=#{skipped_total} elapsed=#{format_elapsed(elapsed_ms)}"
         @bar.finish if @tty
         @io.puts msg
       end
