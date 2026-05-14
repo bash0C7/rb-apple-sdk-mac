@@ -33,7 +33,11 @@ module AppleSDKMac
       row = @db.execute(<<~SQL, [framework, symbol]).first
         SELECT s.id, s.name, s.kind, s.signature, s.abi, s.documentation,
                s.parameters_json, s.requires_main_thread, s.content_hash,
-               s.fields_json, s.return_type
+               s.fields_json, s.return_type,
+               s.is_throws, s.is_async, s.is_failable, s.is_settable,
+               s.return_ownership, s.throws_error_type,
+               s.callback_signature_json, s.enum_cases_json,
+               s.unsupported_pattern
         FROM symbols s
         JOIN frameworks f ON s.framework_id = f.id
         WHERE f.name = ? AND s.name = ?
@@ -44,7 +48,16 @@ module AppleSDKMac
         id: row[0], name: row[1], kind: row[2], signature: row[3],
         abi: row[4], documentation: row[5], parameters_json: row[6],
         requires_main_thread: row[7] == 1, content_hash: row[8],
-        fields_json: row[9], return_type: row[10]
+        fields_json: row[9], return_type: row[10],
+        is_throws:    row[11] == 1,
+        is_async:     row[12] == 1,
+        is_failable:  row[13] == 1,
+        is_settable:  row[14] == 1,
+        return_ownership: row[15],
+        throws_error_type: row[16],
+        callback_signature_json: row[17],
+        enum_cases_json: row[18],
+        unsupported_pattern: row[19],
       }
     end
 
@@ -77,7 +90,11 @@ module AppleSDKMac
       row = @db.execute(<<~SQL, [framework, klass, method]).first
         SELECT s.id, s.name, s.kind, s.signature, s.abi, s.documentation,
                s.parameters_json, s.requires_main_thread, s.content_hash,
-               s.fields_json, s.return_type
+               s.fields_json, s.return_type,
+               s.is_throws, s.is_async, s.is_failable, s.is_settable,
+               s.return_ownership, s.throws_error_type,
+               s.callback_signature_json, s.enum_cases_json,
+               s.unsupported_pattern
         FROM symbols s
         JOIN symbols p     ON s.parent_id = p.id
         JOIN frameworks f  ON s.framework_id = f.id
@@ -89,7 +106,16 @@ module AppleSDKMac
         id: row[0], name: row[1], kind: row[2], signature: row[3],
         abi: row[4], documentation: row[5], parameters_json: row[6],
         requires_main_thread: row[7] == 1, content_hash: row[8],
-        fields_json: row[9], return_type: row[10]
+        fields_json: row[9], return_type: row[10],
+        is_throws:    row[11] == 1,
+        is_async:     row[12] == 1,
+        is_failable:  row[13] == 1,
+        is_settable:  row[14] == 1,
+        return_ownership: row[15],
+        throws_error_type: row[16],
+        callback_signature_json: row[17],
+        enum_cases_json: row[18],
+        unsupported_pattern: row[19],
       }
     end
 

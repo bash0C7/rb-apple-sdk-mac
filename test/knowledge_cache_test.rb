@@ -227,6 +227,64 @@ class TestKnowledgeCache < Test::Unit::TestCase
     end
   end
 
+  # Phase 1: lookup_symbol が新 column 9 個を expose する。
+  def test_lookup_symbol_surfaces_phase1_metadata
+    Dir.mktmpdir do |dir|
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      fid = store.insert_framework(name: "Acme", swift_module: "Acme")
+      store.insert_symbol(
+        framework_id: fid, name: "doThrow", kind: "function", abi: "c",
+        content_hash: "h-throw",
+        is_throws: 1, is_async: 1, is_failable: 0, is_settable: 0,
+        return_ownership: "retained",
+        throws_error_type: "NSError",
+        callback_signature_json: '{"params":[],"return_type":"Void"}',
+        enum_cases_json: nil,
+        unsupported_pattern: nil,
+      )
+      cache = AppleSDKMac::KnowledgeCache.new(store)
+      sym = cache.lookup_symbol(framework: "Acme", symbol: "doThrow")
+      assert_not_nil sym
+      assert_equal true,  sym[:is_throws]
+      assert_equal true,  sym[:is_async]
+      assert_equal false, sym[:is_failable]
+      assert_equal false, sym[:is_settable]
+      assert_equal "retained", sym[:return_ownership]
+      assert_equal "NSError",  sym[:throws_error_type]
+      assert_equal '{"params":[],"return_type":"Void"}', sym[:callback_signature_json]
+      assert_nil sym[:enum_cases_json]
+      assert_nil sym[:unsupported_pattern]
+      cache.close
+    end
+  end
+
+  # parent_id 経由 lookup でも同様。
+  def test_lookup_klass_method_surfaces_phase1_metadata
+    Dir.mktmpdir do |dir|
+      db_path = File.join(dir, "k.sqlite")
+      store = AppleSDKKnowledge::Store.open(db_path)
+      fid = store.insert_framework(name: "AVFAudio", swift_module: "AVFAudio")
+      pid = store.insert_symbol(
+        framework_id: fid, name: "AVAudioEngine",
+        kind: "class", abi: "swift", content_hash: "h-ae",
+      )
+      store.insert_symbol(
+        framework_id: fid, parent_id: pid, name: "start",
+        kind: "instance_method", abi: "swift", content_hash: "h-start",
+        is_throws: 1,
+      )
+      cache = AppleSDKMac::KnowledgeCache.new(store)
+      rec = cache.lookup_klass_method(framework: "AVFAudio",
+                                       klass: "AVAudioEngine",
+                                       method: "start")
+      assert_not_nil rec
+      assert_equal true, rec[:is_throws]
+      assert_equal false, rec[:is_async]
+      cache.close
+    end
+  end
+
   private
 
   def real_knowledge_built?
