@@ -135,4 +135,30 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
     assert_no_match(/Task \{/, swift, "is_async=false should NOT emit Task skeleton")
     assert_no_match(/DispatchSemaphore/, swift)
   end
+
+  def test_emit_swift_init_labels_from_kb_parameters_json
+    kc = FakeKnowledgeCache.new(
+      ["AVFoundation", "AVAudioFile.init(forReading:)"] => {
+        is_throws: true, is_failable: false, is_async: false,
+        parameters_json: JSON.generate([
+          { "external_label" => "forReading", "internal_name" => "url", "type" => "URL" }
+        ])
+      }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    swift = tg.generate(
+      framework: "AVFoundation",
+      symbol: {
+        kind: "swift_init",
+        name: "AVAudioFile.init(forReading:)",
+        swift_class: "AVAudioFile",
+        swift_initializer: "init()",  # 文字列 fallback では label 0 個 (誤判定)、 Knowledge Base driven なら正しく取れる
+        params: [:opaque_ref],
+        return_kind: :opaque_ref
+      },
+      glue_id: "abcd1234"
+    )
+    assert_match(/AVAudioFile\(forReading: arg0\)/, swift,
+      "labels should come from parameters_json external_label, not initializer string")
+  end
 end

@@ -356,7 +356,7 @@ module AppleSDKMac
         swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
         exported = "glue_#{glue_id}_#{swift_id}"
 
-        labels = swift_init_labels(initializer)
+        labels = kb_labels(framework, symbol[:name]) || swift_init_labels(initializer)
         in_loads = params.each_with_index.map { |k, i| ObjcMarshalling.in_load(k, i) }
         call_expr =
           if labels.empty?
@@ -865,6 +865,20 @@ module AppleSDKMac
         return yield unless rec
         v = rec[column]
         v.nil? ? yield : v
+      end
+
+      # Knowledge Base record の parameters_json から external_label 配列を取り出す。
+      # external_label が無い / `_` underscore label / parameters_json 不在は nil
+      # 返しで caller に文字列 split helper へ fallback してもらう。
+      def kb_labels(framework, symbol_name)
+        return nil unless @kc
+        rec = @kc.lookup_symbol(framework: framework, symbol: symbol_name)
+        return nil unless rec && rec[:parameters_json]
+        parsed = JSON.parse(rec[:parameters_json])
+        return nil unless parsed.is_a?(Array) && parsed.any?
+        labels = parsed.map { |p| p.is_a?(Hash) && p["external_label"] }
+        return nil if labels.any? { |l| l.nil? || l == "" || l == "_" }
+        labels
       end
 
       def return_kind(signature)
