@@ -23,6 +23,7 @@ namespace :apple do
     desc "Rebuild the local SDK knowledge base"
     task :rebuild do
       require "rb_apple_sdk_knowledge"
+      require "rb_apple_sdk_knowledge/importer"
       sdk_version = AppleSDKKnowledge::SDK.version
       # When APPLE_SDK_MAC_KB_BASE_DIR is set (e.g. by the parent gem's Rakefile),
       # write to that project-scoped directory; otherwise fall back to the gem-internal
@@ -50,6 +51,7 @@ namespace :apple do
     desc "Benchmark rebuild with given scope and worker count"
     task :benchmark_rebuild, [:scope, :workers] do |_, args|
       require "rb_apple_sdk_knowledge"
+      require "rb_apple_sdk_knowledge/importer"
       scope = (args[:scope] || "single").to_sym
       workers = (args[:workers] || "2").to_i
       filter = case scope
