@@ -124,6 +124,8 @@ module AppleSDKMac
           return emit_swift_init(framework: framework, symbol: symbol, glue_id: glue_id)
         when "swift_property"
           return emit_swift_property(framework: framework, symbol: symbol, glue_id: glue_id)
+        when "swift_property_setter"
+          return emit_swift_property_setter(framework: framework, symbol: symbol, glue_id: glue_id)
         when "swift_func"
           return emit_swift_func(framework: framework, symbol: symbol, glue_id: glue_id)
         end
@@ -561,6 +563,52 @@ module AppleSDKMac
               _ argv: UnsafePointer<UInt>, _ argc: Int32
           ) -> UInt {
               #{body.join("\n    ")}
+          }
+        SWIFT
+      end
+
+      # is_settable=1 の Swift property に対する setter glue。
+      # receiver.<prop> = arg0 形を emit、 void 戻りで Qnil を返す。
+      # instance: true の場合 argv[0] を receiver にとり、 argv[1] を value。
+      # instance: false (class static) の場合 argv[0] が value。
+      def emit_swift_property_setter(framework:, symbol:, glue_id:)
+        klass = swift_bridged_class_name(symbol[:swift_class].to_s)
+        prop = symbol[:swift_property].to_s
+        instance = symbol[:instance] == true
+        swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
+        exported = "glue_#{glue_id}_#{swift_id}"
+
+        body =
+          if instance
+            arg0_load = ObjcMarshalling.in_load(symbol[:params][0], 1)
+            <<~SWIFT.chomp
+              let receiver = unsafeBitCast(
+                  OpaquePointer(bitPattern: UInt(rb_num2ull(argv[0])))!,
+                  to: #{klass}.self
+              )
+              let arg0 = #{arg0_load}
+              receiver.#{prop} = arg0
+              return Qnil
+            SWIFT
+          else
+            arg0_load = ObjcMarshalling.in_load(symbol[:params][0], 0)
+            <<~SWIFT.chomp
+              let arg0 = #{arg0_load}
+              #{klass}.#{prop} = arg0
+              return Qnil
+            SWIFT
+          end
+
+        <<~SWIFT
+          import #{framework}
+          import Foundation
+
+          #{HEADER}
+          @c
+          public func #{exported}(
+              _ argv: UnsafePointer<UInt>, _ argc: Int32
+          ) -> UInt {
+              #{body}
           }
         SWIFT
       end

@@ -1,5 +1,9 @@
 # frozen_string_literal: true
-require "test_helper"
+require "test-unit"
+# Load only namespace_builder and its direct dependencies (not the full
+# apple_sdk_mac stack) so this test can run without the importer gem.
+$LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
+require "apple_sdk_mac/errors"
 require "apple_sdk_mac/namespace_builder"
 
 class TestNamespaceBuilder < Test::Unit::TestCase
@@ -460,5 +464,42 @@ class TestNamespaceBuilder < Test::Unit::TestCase
     builder.install_one("Foundation", rec)
     fw = box.const_get(:Foundation)
     assert_respond_to fw, :runtime_async_test_taskgroup_double
+  end
+
+  # swift_property_setter (instance): Knowledge Base record の is_settable=1
+  # instance property に対して Ruby setter method (<prop>=) を proxy instance
+  # に install する。 dispatcher.call が framework / symbol / args 付きで
+  # 呼ばれること、 args の先頭が receiver opaque ref であることを確認。
+  def test_install_one_swift_property_setter_instance_installs_setter_method
+    box = Module.new
+    calls = []
+    builder = AppleSDKMac::NamespaceBuilder.new(
+      knowledge_cache: EmptyKC.new, target: box,
+      dispatcher: ->(framework:, symbol:, args:) {
+        calls << { framework: framework, symbol: symbol, args: args }; :ok
+      }
+    )
+    rec = {
+      name: "NSWindow.title=",
+      kind: "swift_property_setter",
+      swift_class: "NSWindow",
+      swift_property: "title",
+      params: [:string],
+      return_kind: :void,
+      instance: true
+    }
+    builder.install_one("AppKit", rec)
+
+    ns_window = box.const_get(:AppKit).const_get(:NSWindow)
+    # proxy instance を simulate
+    win = ns_window.from_ref(0xBEEF)
+    win.send(:"title=", "Hello")
+
+    assert_equal 1, calls.size
+    call = calls.first
+    assert_equal "AppKit", call[:framework]
+    assert_equal "NSWindow.title=", call[:symbol]
+    assert_equal 0xBEEF, call[:args][0], "receiver opaque ref should be first arg"
+    assert_equal "Hello", call[:args][1]
   end
 end

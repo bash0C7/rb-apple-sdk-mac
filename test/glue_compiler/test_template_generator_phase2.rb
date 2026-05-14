@@ -445,4 +445,47 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
     assert_match(/ObjcError|rb_eAppleSDK/, swift,
       "throws_error_type=NSError should route to ObjcError")
   end
+
+  def test_emit_swift_property_setter_when_is_settable_true
+    kc = FakeKnowledgeCache.new(
+      ["AppKit", "NSWindow.title="] => { is_settable: true }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    swift = tg.generate(
+      framework: "AppKit",
+      symbol: {
+        kind: "swift_property_setter",
+        name: "NSWindow.title=",
+        swift_class: "NSWindow",
+        swift_property: "title",
+        params: [:string],
+        return_kind: :void,
+        instance: true
+      },
+      glue_id: "abcd1234"
+    )
+    assert_not_nil swift
+    assert_match(/receiver\.title = /, swift, "setter form should assign argv to property")
+    assert_match(/return Qnil/, swift, "void-return setter should return Qnil")
+  end
+
+  def test_emit_swift_property_setter_class_static
+    kc = FakeKnowledgeCache.new({})
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    swift = tg.generate(
+      framework: "Foundation",
+      symbol: {
+        kind: "swift_property_setter",
+        name: "URLCache.shared=",
+        swift_class: "URLCache",
+        swift_property: "shared",
+        params: [:opaque_ref],
+        return_kind: :void,
+        instance: false
+      },
+      glue_id: "abcd1234"
+    )
+    assert_not_nil swift
+    assert_match(/URLCache\.shared = /, swift)
+  end
 end

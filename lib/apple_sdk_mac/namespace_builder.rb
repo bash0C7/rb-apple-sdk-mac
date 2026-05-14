@@ -13,7 +13,8 @@ module AppleSDKMac
       "objc_method_class"    => :method_under_klass,
       "objc_method_instance" => :method_under_klass,
       "swift_init"           => :method_under_klass,
-      "swift_property"       => :method_under_klass,
+      "swift_property"        => :method_under_klass,
+      "swift_property_setter" => :method_under_klass,
       "class"                => :constant,
       "struct"               => :constant,
       "actor"                => :constant,
@@ -83,6 +84,15 @@ module AppleSDKMac
           # instance property template を出すため、 namespace 側も proxy
           # instance method として install。
           define_instance_method_under_klass(framework_module, framework_name, sym)
+        elsif sym[:kind] == "swift_property_setter" && sym[:instance] == true
+          # is_settable=1 の instance setter。 emit が receiver argv[0] / value
+          # argv[1] を取る instance form を出すため、 proxy instance method として
+          # install。 Ruby setter naming (<prop>=) は define_instance_method_under_klass
+          # の ruby_method_name_for が "=" suffix を保持する形で処理する。
+          define_instance_method_under_klass(framework_module, framework_name, sym)
+        elsif sym[:kind] == "swift_property_setter"
+          # class static setter: singleton method として install。
+          define_method_under_klass(framework_module, framework_name, sym)
         else
           define_method_under_klass(framework_module, framework_name, sym)
         end
