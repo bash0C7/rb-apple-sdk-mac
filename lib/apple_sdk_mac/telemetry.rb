@@ -2,6 +2,7 @@
 require "json"
 require "fileutils"
 require "time"
+require_relative "errors"
 
 module AppleSDKMac
   # Section 6.3 internal telemetry: append failure events to a daily jsonl
@@ -24,7 +25,7 @@ module AppleSDKMac
         symbol: symbol,
         detail: detail,
         gem_version: AppleSdkMac::VERSION,
-        kb_schema: AppleSDKMac::UnsupportedPatternError::KNOWLEDGE_BASE_SCHEMA
+        kb_schema: AppleSDKMac::KNOWLEDGE_BASE_SCHEMA
       }
       File.open(path, "a") { |f| f.write(JSON.generate(row) + "\n") }
     rescue SystemCallError, IOError => e

@@ -12,6 +12,12 @@ module AppleSDKMac
   # module that survives Box bootstrap, so it owns the canonical hierarchy.
   # Apple::Error etc. are aliased into the Apple Box after bootstrap so
   # `rescue Apple::Error` keeps working.
+
+  # Knowledge Base SQLite schema version (Phase 2 で導入)。
+  # bump 時は importer の rebuild と cache invalidation を伴う。
+  # Telemetry や error message が独立して参照するため module top-level に置く。
+  KNOWLEDGE_BASE_SCHEMA = 9
+
   class Error < StandardError; end
 
   # Raised when Apple.discover(...) cannot resolve a symbol or shape:
@@ -47,8 +53,6 @@ module AppleSDKMac
     end
 
     private
-
-    KNOWLEDGE_BASE_SCHEMA = 9
 
     def format_message
       require_relative "version" unless defined?(AppleSdkMac::VERSION)
