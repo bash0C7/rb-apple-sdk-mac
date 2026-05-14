@@ -20,8 +20,8 @@ module AppleSDKMac
   # - generic `type_args:` resolution failure
   class DiscoveryError < Error; end
 
-  # Raised when the Glue Compiler pipeline (TemplateGenerator → LLMGenerator
-  # → ValidationGates → SwiftcInvoker) fails to produce a working dylib.
+  # Raised when the Glue Compiler pipeline (TemplateGenerator → ValidationGates
+  # → SwiftcInvoker) fails to produce a working dylib.
   # Carries the failing stage in the message; raw swiftc stderr is captured
   # in `Apple.diagnostics` for issue reproduction.
   class CompileError < Error; end

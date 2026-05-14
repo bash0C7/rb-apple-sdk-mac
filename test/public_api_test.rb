@@ -6,8 +6,8 @@ require "test_helper"
 # Apple.discover accepts 7 keyword shapes and synthesizes a symbol record
 # with the correct `kind` for each. Each shape is registered into the
 # KnowledgeCache transient lookup tier so the existing compile pipeline
-# picks the right glue path (TemplateGenerator for kind=function/abi=c,
-# LLMGenerator for everything else).
+# picks the right glue path (TemplateGenerator + Knowledge Base for all
+# symbol kinds).
 #
 # These tests pin the synthesis + registration contract. End-to-end
 # compile + dispatch is exercised by integration tests / examples.
