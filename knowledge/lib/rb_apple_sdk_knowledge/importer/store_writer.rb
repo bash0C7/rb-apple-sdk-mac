@@ -20,12 +20,18 @@ module AppleSDKKnowledge
         ret = @store.insert_symbol(**kwargs)
         bump!
         ret
+      rescue
+        rollback!
+        raise
       end
 
       def insert_framework(**kwargs)
         ret = @store.insert_framework(**kwargs)
         bump!
         ret
+      rescue
+        rollback!
+        raise
       end
 
       def flush
@@ -36,6 +42,13 @@ module AppleSDKKnowledge
       end
 
       private
+
+      def rollback!
+        return unless @in_tx
+        @store.db.execute("ROLLBACK")
+        @in_tx = false
+        @counter = 0
+      end
 
       def bump!
         @counter += 1
