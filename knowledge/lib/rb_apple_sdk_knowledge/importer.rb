@@ -51,7 +51,12 @@ module AppleSDKKnowledge
             c_syms_all = []
 
             if !headers.empty?
-              channel = ResultChannel.new(buffer_size: workers * 8)
+              # Buffer must hold every pending out-of-order item: when a slow
+              # worker is still on seq 0, a fast worker can push all its later
+              # seqs (up to headers.size − 1). Smaller buffers deadlock the
+              # reader thread when round-robin scheduling produces an
+              # out-of-order span wider than the buffer.
+              channel = ResultChannel.new(buffer_size: headers.size + workers)
               pool = WorkerPool.new(
                 size: workers,
                 worker_factory: -> { ObjCHeaderWorker.new(sdk_path: sdk_path) },
