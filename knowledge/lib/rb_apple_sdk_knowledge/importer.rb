@@ -81,7 +81,16 @@ module AppleSDKKnowledge
           return_type: sym[:return_type],
           parameters_json: sym[:parameters] && JSON.generate(sym[:parameters]),
           fields_json: sym[:fields] && JSON.generate(sym[:fields]),
-          content_hash: sym[:content_hash]
+          content_hash: sym[:content_hash],
+          is_throws: sym[:is_throws] ? 1 : 0,
+          is_async: sym[:is_async] ? 1 : 0,
+          is_failable: sym[:is_failable] ? 1 : 0,
+          is_settable: sym[:is_settable] ? 1 : 0,
+          return_ownership: sym[:return_ownership],
+          throws_error_type: sym[:throws_error_type],
+          callback_signature_json: sym[:callback_signature_json],
+          enum_cases_json: sym[:enum_cases_json],
+          unsupported_pattern: sym[:unsupported_pattern]
         )
       rescue SQLite3::ConstraintException
         # symbol already exists from a prior run (content_hash UNIQUE): skip silently
