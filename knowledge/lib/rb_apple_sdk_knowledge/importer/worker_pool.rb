@@ -26,10 +26,14 @@ module AppleSDKKnowledge
         @next_worker = (@next_worker + 1) % @size
       end
 
-      # Fix C2: join reader before waitpid to drain pipes and avoid deadlock
+      # Fix C2: join reader before waitpid to drain pipes and avoid deadlock.
+      # Fix C3: close @from_worker read-ends after reader exits to prevent FD
+      # leak into subsequent Process.fork calls (children inherit open FDs,
+      # which can cause timing-sensitive deadlocks in the result channel).
       def shutdown(wait: true)
         @to_worker.each(&:close)
         @reader.join if wait
+        @from_worker.each(&:close)
         @pids.each { |pid| Process.waitpid(pid) }
         @channel.close
       end
@@ -100,7 +104,7 @@ module AppleSDKKnowledge
                     error: "worker crashed: pid=#{@pids[idx]} idx=#{idx}",
                     elapsed_ms: 0,
                     request: nil
-                  })
+                  }, may_block: false)
                 end
                 readers.delete(r)
                 next
@@ -109,7 +113,7 @@ module AppleSDKKnowledge
               seq = data[:seq]
               idx = @worker_idx_by_reader[r]
               @pending_mutex.synchronize { @pending_seqs[idx].delete(seq) }
-              @channel.push(seq: seq, payload: data)
+              @channel.push(seq: seq, payload: data, may_block: false)
             end
           end
         end

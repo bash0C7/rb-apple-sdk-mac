@@ -13,10 +13,16 @@ module AppleSDKKnowledge
         @buffer_size = buffer_size
       end
 
-      def push(seq:, payload:)
+      def push(seq:, payload:, may_block: true)
         @mutex.synchronize do
-          while @buffer.size >= @buffer_size && !@closed
-            @cond.wait(@mutex)
+          # When may_block: false (reader thread path), never stall: overflow the
+          # buffer rather than deadlock. Without this, a slow worker delivering
+          # seq=N while faster workers fill buffer with N+1, N+2... creates an
+          # unresolvable cycle (each_ordered waits for N; reader waits for space).
+          if may_block
+            while @buffer.size >= @buffer_size && !@closed
+              @cond.wait(@mutex)
+            end
           end
           @buffer[seq] = { seq: seq, payload: payload }
           @cond.broadcast
