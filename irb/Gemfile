@@ -6,6 +6,5 @@ gemspec
 # Path overrides for sibling repos in the user's local development setup.
 # Same path: pattern as the parent rb-apple-sdk-mac Gemfile.
 gem "rb-apple-sdk-mac", path: ".."
-gem "rb-foundation-model-mac", path: "../../rb-foundation-model-mac"
 gem "rb-apple-sdk-knowledge", path: "../knowledge"
 gem "swift_gem", git: "https://github.com/bash0C7/swift_gem"
