@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 require "json"
 require "set"
+require_relative "../errors"
 require_relative "marshallers"
 require_relative "swift_bridge_name"
 require_relative "../selector_bridge"
@@ -895,6 +896,33 @@ module AppleSDKMac
         labels = parsed.map { |p| p.is_a?(Hash) && p["external_label"] }
         return nil if labels.any? { |l| l.nil? || l == "" || l == "_" }
         labels
+      end
+
+      # Knowledge Base record の callback_signature_json から normalized route name を
+      # 取り出し、 CALLBACK_PILLAR_ROUTES.values.uniq の中に対応 route があれば
+      # そのまま返す。 Knowledge Base に signature record が無い場合は nil (caller
+      # 側 fallback 用)。 normalized が CALLBACK_PILLAR_ROUTES に未登録の場合は
+      # UnsupportedPatternError を raise する。 これにより signature shape を
+      # register する static path (ext/apple_sdk_mac_runtime/ への register/get_fnptr
+      # 追加 + Marshaller route map 追記) を user / AI に hint で示せる。
+      def resolve_callback_route(framework:, symbol_name:)
+        return nil unless @kc
+        rec = @kc.lookup_symbol(framework: framework, symbol: symbol_name)
+        return nil unless rec && rec[:callback_signature_json]
+        parsed = JSON.parse(rec[:callback_signature_json])
+        normalized = parsed["normalized"] || parsed[:normalized]
+        return nil unless normalized
+        route_table = ::AppleSDKMac::GlueCompiler::CALLBACK_PILLAR_ROUTES
+        hit = route_table.values.uniq.find { |r| r.to_s == normalized.to_s }
+        return hit if hit
+        raise AppleSDKMac::UnsupportedPatternError.new(
+          pattern: "callback_signature_unregistered",
+          framework: framework,
+          symbol: symbol_name,
+          hint: "callback signature '#{normalized}' is not registered in ext/apple_sdk_mac_runtime/. " \
+                "Add runtime_callback_pillar_register_#{normalized} / get_#{normalized}_fnptr + " \
+                "Marshaller route map entry."
+        )
       end
 
       def return_kind(signature)

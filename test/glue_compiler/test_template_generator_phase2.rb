@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 require "test-unit"
 require "json"
+require "apple_sdk_mac/errors"
 require "apple_sdk_mac/glue_compiler/template_generator"
 
 class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
@@ -197,5 +198,70 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
       symbol_name: "CFArrayGetCount"  # CFCreate / CFCopy なし、 Knowledge Base miss
     )
     assert_equal false, retained, "no Knowledge Base record + no CFCreate/CFCopy prefix should yield false"
+  end
+
+  def test_resolve_callback_route_known_signature_returns_route_name
+    # CALLBACK_PILLAR_ROUTES.values の中に必ず存在する route name を期待値とする。
+    # ::AppleSDKMac::GlueCompiler::CALLBACK_PILLAR_ROUTES.values.uniq.first を取得して
+    # それを stub の normalized 値とする (実 route と test data を結合)。
+    routes = ::AppleSDKMac::GlueCompiler::CALLBACK_PILLAR_ROUTES.values.uniq
+    omit "no callback routes registered" if routes.empty?
+    known_route = routes.first
+    kc = FakeKnowledgeCache.new(
+      ["TestFramework", "TestAPI_knownCallback"] => {
+        callback_signature_json: JSON.generate({
+          "params" => ["dummy"], "return_type" => "void",
+          "normalized" => known_route
+        })
+      }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    route = tg.send(:resolve_callback_route,
+      framework: "TestFramework",
+      symbol_name: "TestAPI_knownCallback"
+    )
+    assert_equal known_route, route
+  end
+
+  def test_resolve_callback_route_unregistered_raises_unsupported_pattern_error
+    kc = FakeKnowledgeCache.new(
+      ["MyFramework", "MyAPI_unknownCallback"] => {
+        callback_signature_json: JSON.generate({
+          "params" => ["MyCustomStruct*", "void*"],
+          "return_type" => "int",
+          "normalized" => "my_custom_unregistered_route_xyz_123"
+        })
+      }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    err = assert_raise(AppleSDKMac::UnsupportedPatternError) do
+      tg.send(:resolve_callback_route,
+        framework: "MyFramework",
+        symbol_name: "MyAPI_unknownCallback"
+      )
+    end
+    assert_equal "callback_signature_unregistered", err.pattern
+    assert_equal "MyFramework", err.framework
+    assert_equal "MyAPI_unknownCallback", err.symbol
+    assert_match(/my_custom_unregistered_route_xyz_123/, err.message)
+  end
+
+  def test_resolve_callback_route_returns_nil_on_kb_miss
+    kc = FakeKnowledgeCache.new({})
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    result = tg.send(:resolve_callback_route,
+      framework: "Foo",
+      symbol_name: "Bar"
+    )
+    assert_nil result
+  end
+
+  def test_resolve_callback_route_returns_nil_when_callback_signature_absent
+    kc = FakeKnowledgeCache.new(
+      ["Foo", "Bar"] => { is_throws: true }  # callback_signature_json 無し
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    result = tg.send(:resolve_callback_route, framework: "Foo", symbol_name: "Bar")
+    assert_nil result
   end
 end
