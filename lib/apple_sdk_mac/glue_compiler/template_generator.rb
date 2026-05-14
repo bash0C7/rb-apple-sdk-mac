@@ -411,7 +411,7 @@ module AppleSDKMac
         params = symbol[:params] || []
         return_kind = (symbol[:return_kind] || :void).to_sym
         type_args = symbol[:type_args]
-        is_async = symbol[:async] == true
+        is_async = kb_flag(framework, symbol[:name], :is_async) { symbol[:async] == true }
         swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
         exported = "glue_#{glue_id}_#{swift_id}"
 

@@ -88,4 +88,51 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
     assert_no_match(/guard let v/, swift)
     assert_no_match(/try\?/, swift)
   end
+
+  def test_emit_swift_func_async_from_kb_is_async_column
+    kc = FakeKnowledgeCache.new(
+      ["Foundation", "URLSession.data(from:)"] => {
+        is_throws: true, is_failable: false, is_async: true
+      }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    swift = tg.generate(
+      framework: "Foundation",
+      symbol: {
+        kind: "swift_func",
+        name: "URLSession.data(from:)",
+        swift_class: "URLSession",
+        swift_func: "data",
+        params: [:opaque_ref],
+        return_kind: :opaque_ref
+      },
+      glue_id: "abcd1234"
+    )
+    assert_match(/Task \{/, swift, "is_async=true should emit Task skeleton")
+    assert_match(/DispatchSemaphore/, swift)
+    assert_match(/try await /, swift)
+  end
+
+  def test_emit_swift_func_sync_from_kb_no_async_column
+    kc = FakeKnowledgeCache.new(
+      ["Foundation", "ProcessInfo.osVersion"] => {
+        is_throws: false, is_failable: false, is_async: false
+      }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    swift = tg.generate(
+      framework: "Foundation",
+      symbol: {
+        kind: "swift_func",
+        name: "ProcessInfo.osVersion",
+        swift_class: "ProcessInfo",
+        swift_func: "osVersion",
+        params: [],
+        return_kind: :int
+      },
+      glue_id: "abcd1234"
+    )
+    assert_no_match(/Task \{/, swift, "is_async=false should NOT emit Task skeleton")
+    assert_no_match(/DispatchSemaphore/, swift)
+  end
 end
