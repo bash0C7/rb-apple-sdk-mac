@@ -166,7 +166,7 @@ module AppleSDKMac
           end
           body << "return multi_out_h"
         else
-          ret_kind = effective_return_kind(symbol)
+          ret_kind = effective_return_kind(symbol, framework: framework)
           if ret_kind == "cftype_ref_autoarc"
             # CF Create-rule auto-ARC. Route the +1-retained CF return value
             # through runtime_arc_box_cftype, which wraps in a BoxedCFType whose
@@ -780,7 +780,7 @@ module AppleSDKMac
           # CF Create/Copy 命名規約に当てはまるなら autoarc box、 それ以外は raw。
           body << "let raw = #{call_expr}"
           body << "let raw_uint: UInt = raw.map { UInt(bitPattern: $0) } ?? 0"
-          if cf_create_naming?(c_symbol)
+          if cf_returns_retained?(framework: framework, symbol_name: c_symbol)
             body << "return rb_ull2inum(UInt64(runtime_arc_box_cftype(raw_uint)))"
           else
             body << "return rb_ull2inum(UInt64(raw_uint))"
@@ -838,7 +838,7 @@ module AppleSDKMac
         cftype_ref: "cftype_ref", cftype_ref_autoarc: "cftype_ref_autoarc"
       }.freeze
 
-      def effective_return_kind(symbol)
+      def effective_return_kind(symbol, framework: nil)
         if symbol[:return_kind] && (mapped = RETURN_KIND_OVERRIDE_TO_TEMPLATE[symbol[:return_kind].to_sym])
           return mapped
         end
@@ -846,13 +846,29 @@ module AppleSDKMac
         return kind unless kind == "cftype_ref"
         # Per CF ownership rules, any CF*Create* / CF*Copy* function returns
         # a +1-retained reference the caller must release — so it's auto-ARC
-        # eligible. The naming-prefix heuristic is the canonical signal.
-        return "cftype_ref_autoarc" if cf_create_naming?(symbol[:name])
+        # eligible. Knowledge Base return_ownership is the canonical signal;
+        # naming-prefix heuristic is the fallback.
+        return "cftype_ref_autoarc" if cf_returns_retained?(framework: framework.to_s, symbol_name: symbol[:name])
         kind
       end
 
       def cf_create_naming?(name)
         name.to_s =~ /\A(?:CF|CG|CV|CT|CM|CL|IO|Sec|AX)\w*(?:Create|Copy)/
+      end
+
+      # Knowledge Base record の return_ownership 列を真実値として CF retained 判定。
+      # Knowledge Base miss / column nil の場合のみ cf_create_naming? の名前 regex に
+      # fallback する。 名前 regex は heuristic のため、 Knowledge Base が
+      # 「retained でない」と marked した API (例 GetXxxCopy 系で実は autorelease) を
+      # 正しく扱うために Knowledge Base 優先。
+      def cf_returns_retained?(framework:, symbol_name:)
+        if @kc
+          rec = @kc.lookup_symbol(framework: framework, symbol: symbol_name)
+          if rec && rec[:return_ownership]
+            return rec[:return_ownership] == "cf_returns_retained"
+          end
+        end
+        cf_create_naming?(symbol_name) ? true : false
       end
 
       # Knowledge Base record から flag column を読む。 @kc が無い / Knowledge Base

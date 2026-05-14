@@ -161,4 +161,41 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
     assert_match(/AVAudioFile\(forReading: arg0\)/, swift,
       "labels should come from parameters_json external_label, not initializer string")
   end
+
+  def test_cf_returns_retained_uses_kb_return_ownership_over_name_regex
+    kc = FakeKnowledgeCache.new(
+      # 名前が CFCreate / CFCopy で始まらないが Knowledge Base で cf_returns_retained と marked
+      ["CoreFoundation", "CFBundleGetMainBundleCopyExecutableURL"] => {
+        return_ownership: "cf_returns_retained"
+      }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    retained = tg.send(:cf_returns_retained?,
+      framework: "CoreFoundation",
+      symbol_name: "CFBundleGetMainBundleCopyExecutableURL"
+    )
+    assert_equal true, retained,
+      "Knowledge Base return_ownership='cf_returns_retained' should override name regex"
+  end
+
+  def test_cf_returns_retained_falls_back_to_name_regex_when_kb_miss
+    kc = FakeKnowledgeCache.new({})  # 空 store、 lookup miss
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    # CFCreate で始まる名前 (cf_create_naming? が true 返す想定)
+    retained = tg.send(:cf_returns_retained?,
+      framework: "CoreFoundation",
+      symbol_name: "CFStringCreateWithCString"
+    )
+    assert_equal true, retained, "name regex fallback should detect CFCreate"
+  end
+
+  def test_cf_returns_retained_returns_false_when_kb_miss_and_no_naming_match
+    kc = FakeKnowledgeCache.new({})
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    retained = tg.send(:cf_returns_retained?,
+      framework: "CoreFoundation",
+      symbol_name: "CFArrayGetCount"  # CFCreate / CFCopy なし、 Knowledge Base miss
+    )
+    assert_equal false, retained, "no Knowledge Base record + no CFCreate/CFCopy prefix should yield false"
+  end
 end
