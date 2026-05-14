@@ -29,4 +29,45 @@ module AppleSDKMac
   # Raised when the Apple framework itself signals a runtime failure:
   # OSStatus != 0, NSError thrown across the bridge, kIOReturn* failures.
   class CallError < Error; end
+
+  # Raised when a requested framework is not present in the Knowledge Base.
+  class FrameworkMissingError < Error; end
+
+  # Raised when a requested symbol is absent from the Knowledge Base.
+  class SymbolMissingError < Error; end
+
+  # Raised when the requested API pattern (e.g. swift_macro, async throws)
+  # is not yet supported by the glue generator pipeline. Carries structured
+  # metadata (pattern / framework / symbol) for diagnostic surfacing.
+  class UnsupportedPatternError < Error
+    attr_reader :pattern, :framework, :symbol
+
+    def initialize(pattern:, framework:, symbol:, hint: nil)
+      @pattern = pattern
+      @framework = framework
+      @symbol = symbol
+      @hint = hint
+      super(format_message)
+    end
+
+    private
+
+    def format_message
+      parts = ["pattern=#{@pattern}", "framework=#{@framework}", "symbol=#{@symbol}"]
+      parts << "hint=#{@hint}" if @hint
+      "AppleSDKMac::UnsupportedPatternError #{parts.join(' ')}"
+    end
+  end
+
+  # Alias: GlueCompileError is the same class as CompileError.
+  # Callers in the glue pipeline may rescue either name.
+  GlueCompileError = CompileError
+
+  # Raised when an Objective-C runtime error crosses the bridge
+  # (NSError, OSStatus, kIOReturn*, etc.).
+  class ObjcError < Error; end
+
+  # Raised when a Swift-side error crosses the bridge
+  # (thrown Swift Error values, URLError, etc.).
+  class SwiftError < Error; end
 end
