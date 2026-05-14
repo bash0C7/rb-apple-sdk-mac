@@ -46,5 +46,31 @@ namespace :apple do
       puts "DB path:    #{store.path}"
       store.close
     end
+
+    desc "Benchmark rebuild with given scope and worker count"
+    task :benchmark_rebuild, [:scope, :workers] do |_, args|
+      require "rb_apple_sdk_knowledge"
+      scope = (args[:scope] || "single").to_sym
+      workers = (args[:workers] || "2").to_i
+      filter = case scope
+               when :single then %w[CoreFoundation]
+               when :ten then %w[Foundation CoreGraphics CoreFoundation AppKit AVFoundation Security CFNetwork CoreData CoreServices CoreText]
+               when :full then nil
+               else raise "unknown scope: #{scope}"
+               end
+      ENV["APPLE_SDK_MAC_KB_WORKERS"] = workers.to_s
+      sdk_version = AppleSDKKnowledge::SDK.version
+      base_dir = ENV["APPLE_SDK_MAC_KB_BASE_DIR"]
+      path = AppleSDKKnowledge.knowledge_path(sdk_version: sdk_version, base_dir: base_dir)
+      FileUtils.mkdir_p(File.dirname(path))
+      resolver = AppleSDKKnowledge::Importer::SDKResolver.new(filter: filter)
+      log_path = "tmp/longrun/benchmark-#{Time.now.strftime('%Y%m%d-%H%M%S')}-#{scope}-w#{workers}.log"
+      FileUtils.mkdir_p(File.dirname(log_path))
+      t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      AppleSDKKnowledge::Importer::Pipeline.new(store_path: path, resolver: resolver).run
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0
+      File.write(log_path, "scope=#{scope} workers=#{workers} elapsed=#{elapsed.round(2)}s sdk=#{sdk_version}\n")
+      puts "elapsed=#{elapsed.round(2)}s log=#{log_path}"
+    end
   end
 end
