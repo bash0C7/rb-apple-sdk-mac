@@ -163,41 +163,76 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
       "labels should come from parameters_json external_label, not initializer string")
   end
 
+  # CF retained detection via generate public API.
+  # Fixture: kind:"function" + abi:"c" + signature starting with CFStringRef
+  # so effective_return_kind reaches cftype_ref, then cf_returns_retained? decides
+  # whether to emit runtime_arc_box_cftype (retained) or raw rb_ull2inum (not retained).
+
   def test_cf_returns_retained_uses_kb_return_ownership_over_name_regex
+    # 名前が CFCreate / CFCopy で始まらないが Knowledge Base で cf_returns_retained と marked。
+    # generate 出力に runtime_arc_box_cftype(raw_uint) 呼び出しが現れることで Knowledge Base 優先を検証。
+    # Note: HEADER に @_silgen_name 宣言が常に含まれるため、呼び出し側 "raw_uint" 引数パターンで区別。
     kc = FakeKnowledgeCache.new(
-      # 名前が CFCreate / CFCopy で始まらないが Knowledge Base で cf_returns_retained と marked
       ["CoreFoundation", "CFBundleGetMainBundleCopyExecutableURL"] => {
         return_ownership: "cf_returns_retained"
       }
     )
     tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
-    retained = tg.send(:cf_returns_retained?,
+    swift = tg.generate(
       framework: "CoreFoundation",
-      symbol_name: "CFBundleGetMainBundleCopyExecutableURL"
+      symbol: {
+        kind: "function", abi: "c",
+        name: "CFBundleGetMainBundleCopyExecutableURL",
+        signature: "CFStringRef",
+        params: nil
+      },
+      glue_id: "test001"
     )
-    assert_equal true, retained,
-      "Knowledge Base return_ownership='cf_returns_retained' should override name regex"
+    assert_not_nil swift, "generate should produce Swift source for cftype_ref function"
+    assert_match(/runtime_arc_box_cftype\(raw_uint\)/, swift,
+      "Knowledge Base return_ownership='cf_returns_retained' should emit arc_box call with raw_uint arg")
   end
 
   def test_cf_returns_retained_falls_back_to_name_regex_when_kb_miss
-    kc = FakeKnowledgeCache.new({})  # 空 store、 lookup miss
+    # Knowledge Base miss + CFCreate prefix → 名前 regex fallback で retained と判定。
+    # Note: HEADER に @_silgen_name 宣言が常に含まれるため、呼び出し側 "raw_uint" 引数パターンで区別。
+    kc = FakeKnowledgeCache.new({})
     tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
-    # CFCreate で始まる名前 (cf_create_naming? が true 返す想定)
-    retained = tg.send(:cf_returns_retained?,
+    swift = tg.generate(
       framework: "CoreFoundation",
-      symbol_name: "CFStringCreateWithCString"
+      symbol: {
+        kind: "function", abi: "c",
+        name: "CFStringCreateWithCString",
+        signature: "CFStringRef",
+        params: nil
+      },
+      glue_id: "test002"
     )
-    assert_equal true, retained, "name regex fallback should detect CFCreate"
+    assert_not_nil swift
+    assert_match(/runtime_arc_box_cftype\(raw_uint\)/, swift,
+      "name regex fallback should detect CFCreate and emit arc_box call with raw_uint arg")
   end
 
   def test_cf_returns_retained_returns_false_when_kb_miss_and_no_naming_match
+    # Knowledge Base miss + 名前が CFCreate/CFCopy でない → retained=false → raw unsafeBitCast 経路。
+    # Note: HEADER に @_silgen_name 宣言が常に含まれるため、呼び出し側 "raw_uint" 引数パターンで区別。
     kc = FakeKnowledgeCache.new({})
     tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
-    retained = tg.send(:cf_returns_retained?,
+    swift = tg.generate(
       framework: "CoreFoundation",
-      symbol_name: "CFArrayGetCount"  # CFCreate / CFCopy なし、 Knowledge Base miss
+      symbol: {
+        kind: "function", abi: "c",
+        name: "CFArrayGetCount",
+        signature: "CFArrayRef",  # cftype_ref だが retained=false
+        params: nil
+      },
+      glue_id: "test003"
     )
-    assert_equal false, retained, "no Knowledge Base record + no CFCreate/CFCopy prefix should yield false"
+    assert_not_nil swift
+    assert_no_match(/runtime_arc_box_cftype\(raw_uint\)/, swift,
+      "no Knowledge Base record + no CFCreate/CFCopy prefix should not emit arc_box call")
+    assert_match(/unsafeBitCast/, swift,
+      "non-retained cftype_ref should emit raw unsafeBitCast path")
   end
 
   def test_resolve_callback_route_known_signature_returns_route_name

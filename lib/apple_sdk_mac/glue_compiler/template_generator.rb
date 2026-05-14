@@ -839,7 +839,7 @@ module AppleSDKMac
         cftype_ref: "cftype_ref", cftype_ref_autoarc: "cftype_ref_autoarc"
       }.freeze
 
-      def effective_return_kind(symbol, framework: nil)
+      def effective_return_kind(symbol, framework:)
         if symbol[:return_kind] && (mapped = RETURN_KIND_OVERRIDE_TO_TEMPLATE[symbol[:return_kind].to_sym])
           return mapped
         end
@@ -849,7 +849,7 @@ module AppleSDKMac
         # a +1-retained reference the caller must release — so it's auto-ARC
         # eligible. Knowledge Base return_ownership is the canonical signal;
         # naming-prefix heuristic is the fallback.
-        return "cftype_ref_autoarc" if cf_returns_retained?(framework: framework.to_s, symbol_name: symbol[:name])
+        return "cftype_ref_autoarc" if cf_returns_retained?(framework: framework, symbol_name: symbol[:name])
         kind
       end
 
@@ -862,7 +862,11 @@ module AppleSDKMac
       # fallback する。 名前 regex は heuristic のため、 Knowledge Base が
       # 「retained でない」と marked した API (例 GetXxxCopy 系で実は autorelease) を
       # 正しく扱うために Knowledge Base 優先。
+      #
+      # Keyword args: caller sites mix `framework` with other positional symbol-record
+      # fields; explicit labels prevent positional shuffle bugs.
       def cf_returns_retained?(framework:, symbol_name:)
+        framework = framework.to_s
         if @kc
           rec = @kc.lookup_symbol(framework: framework, symbol: symbol_name)
           if rec && rec[:return_ownership]
