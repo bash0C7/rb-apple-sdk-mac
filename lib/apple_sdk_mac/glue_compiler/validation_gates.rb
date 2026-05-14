@@ -29,9 +29,8 @@ module AppleSDKMac
 
       private
 
-      # Enforce the LLM Worked Example shapes literally. Malformed glue is
-      # rejected before swiftc invocation; LLMGenerator's retry loop
-      # (DEFAULT_MAX_LLM_RETRIES = 6) gets a chance to converge.
+      # Static violations (bad @c shape, unsupported imports, raw rb_raise from
+      # Ruby-side code) are rejected before swiftc invocation.
 
       ASYNC_REQUIRED_PATTERNS = [
         [/DispatchSemaphore\(value:\s*0\)/, "DispatchSemaphore(value: 0)"],

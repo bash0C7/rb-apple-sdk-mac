@@ -6,7 +6,6 @@ require_relative "knowledge_cache"
 require_relative "compiled_glue_cache"
 require_relative "glue_loader"
 require_relative "glue_compiler"
-require_relative "glue_compiler/llm_generator"
 require_relative "dispatcher"
 require_relative "namespace_builder"
 require_relative "opaque_ref"
@@ -48,8 +47,7 @@ module AppleSDKMac
         cache: glue_cache,
         runtime_dylib_path: runtime_dylib_path,
         runtime_modules_paths: runtime_modules_paths,
-        knowledge_cache: knowledge_cache,
-        llm_generator: GlueCompiler::LLMGenerator.new
+        knowledge_cache: knowledge_cache
       )
     end
 
