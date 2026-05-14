@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+require_relative "telemetry"
 
 module AppleSDKMac
   class Dispatcher
@@ -11,7 +12,15 @@ module AppleSDKMac
 
     def dispatch(framework:, symbol:, args: [])
       sym_meta = @knowledge.lookup_symbol(framework: framework, symbol: symbol)
-      raise SymbolMissingError, "unknown symbol #{framework}::#{symbol}" unless sym_meta
+      unless sym_meta
+        Telemetry.append_event(
+          stage: "symbol_missing",
+          framework: framework.to_s,
+          symbol: symbol.to_s,
+          detail: "no entry in Knowledge Base"
+        )
+        raise SymbolMissingError, "unknown symbol #{framework}::#{symbol}"
+      end
 
       # cache.lookup keys rows by canonical_name (sym_meta[:name]), not the
       # user-facing symbol arg which may arrive as an alias or single-segment shorthand.
@@ -21,9 +30,27 @@ module AppleSDKMac
         # Transparent auto-compile: trigger compile inline so callers don't need
         # an upfront `Apple.discover` for symbols the Knowledge Base already knows.
         # Apple.discover stays available for shapes that need explicit kwargs.
-        @compiler.compile(framework: framework, symbol: sym_meta)
+        begin
+          @compiler.compile(framework: framework, symbol: sym_meta)
+        rescue UnsupportedPatternError => e
+          Telemetry.append_event(
+            stage: "unsupported_pattern",
+            framework: framework.to_s,
+            symbol: symbol.to_s,
+            detail: e.respond_to?(:pattern) ? e.pattern.to_s : "unknown"
+          )
+          raise
+        end
         cache_hit = @cache.lookup(framework: framework, symbol: canonical)
-        raise GlueCompileError, "compile failed for #{framework}::#{canonical}" if cache_hit.nil?
+        if cache_hit.nil?
+          Telemetry.append_event(
+            stage: "compile_failed",
+            framework: framework.to_s,
+            symbol: symbol.to_s,
+            detail: "compile produced no cache row"
+          )
+          raise GlueCompileError, "compile failed for #{framework}::#{canonical}"
+        end
       end
 
       fn_ptr = @loader.load(
