@@ -76,9 +76,10 @@ S2 の bit-identical テストでこれを毎回検証する。
 ```ruby
 class WorkerPool
   # @param size [Integer] 同時並列度 (default ENV["APPLE_SDK_MAC_KB_WORKERS"] || 2)
-  # @param worker_class [Class] ObjCHeaderWorker など
+  # @param worker_factory [#call] fork 後の子 process で評価される proc。
+  #   呼び出しごとに 1 worker instance を返す (例: `-> { ObjCHeaderWorker.new(sdk_path: ...) }`)
   # @param channel [ResultChannel] worker が push する出力先
-  def initialize(size:, worker_class:, channel:)
+  def initialize(size:, worker_factory:, channel:)
 
   # work item を投入。 seq は呼び出し側が連番で付与
   def submit(seq:, payload:)
