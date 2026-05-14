@@ -5,6 +5,7 @@ require_relative "apple_sdk_mac/errors"
 require_relative "apple_sdk_mac/apple_sdk_mac_runtime"
 require_relative "apple_sdk_mac/public_api"
 require_relative "apple_sdk_mac/diagnostics"
+require_relative "apple_sdk_mac/telemetry"
 
 if defined?(Ruby::Box) && Ruby::Box.enabled?
   Object.send(:remove_const, :Apple) if Object.const_defined?(:Apple, false)
