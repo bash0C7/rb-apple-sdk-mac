@@ -89,6 +89,23 @@ module AppleSDKMac
       end
 
       def generate(framework:, symbol:, glue_id:)
+        # Knowledge Base unsupported_pattern early-exit.
+        # importer が Phase 1 で付与した marker (swift_macro / swift_result_builder /
+        # static_inline_function / function_like_macro 等) を check し、 marked なら
+        # 早期 raise。 marker 無し / Knowledge Base miss / unsupported_pattern nil は
+        # 通過して既存 dispatcher 経路へ。
+        if @kc
+          rec = @kc.lookup_symbol(framework: framework, symbol: symbol[:name])
+          if rec && rec[:unsupported_pattern]
+            raise AppleSDKMac::UnsupportedPatternError.new(
+              pattern: rec[:unsupported_pattern],
+              framework: framework,
+              symbol: symbol[:name].to_s,
+              hint: hint_for_pattern(rec[:unsupported_pattern])
+            )
+          end
+        end
+
         # Kind dispatcher。Apple.discover の synth record で objc/swift kinds が
         # 来たら専用 emitter に routing。C-function 経路は既存 path を維持。
         # 未対応 kind は nil で LLM fallback へ流す。
@@ -900,6 +917,20 @@ module AppleSDKMac
         labels = parsed.map { |p| p.is_a?(Hash) && p["external_label"] }
         return nil if labels.any? { |l| l.nil? || l == "" || l == "_" }
         labels
+      end
+
+      # 既知 unsupported_pattern marker → workaround 文 mapping。 importer が
+      # Phase 1 で付与する 4 marker を網羅。 未知 marker は generic fallback 文へ。
+      PATTERN_HINTS = {
+        "swift_macro"            => "Create a Swift package wrapping the macro-generated API as a public func, then add via apple:knowledge:add-framework.",
+        "swift_result_builder"   => "Result builders are compile-time DSLs; provide a builder-evaluated Swift wrapper func and add to Knowledge Base.",
+        "static_inline_function" => "Static inline C functions cannot be dlopen'd; provide a Swift / C wrapper function with external linkage and add to Knowledge Base.",
+        "function_like_macro"    => "C function-like macros are expansion-only; reimplement as Swift / C function and add to Knowledge Base."
+      }.freeze
+
+      def hint_for_pattern(pattern)
+        PATTERN_HINTS[pattern.to_s] ||
+          "Pattern '#{pattern}' is not directly bridgeable. Provide a public Swift/C wrapper and add it to the Knowledge Base."
       end
 
       # Knowledge Base record の callback_signature_json から normalized route name を

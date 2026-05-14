@@ -299,4 +299,97 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
     result = tg.send(:resolve_callback_route, framework: "Foo", symbol_name: "Bar")
     assert_nil result
   end
+
+  def test_emit_raises_unsupported_pattern_when_kb_has_swift_macro_marker
+    kc = FakeKnowledgeCache.new(
+      ["Foundation", "Observable.someMethod"] => {
+        unsupported_pattern: "swift_macro"
+      }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    err = assert_raise(AppleSDKMac::UnsupportedPatternError) do
+      tg.generate(
+        framework: "Foundation",
+        symbol: {
+          kind: "swift_func",
+          name: "Observable.someMethod",
+          swift_class: "Observable",
+          swift_func: "someMethod",
+          params: [],
+          return_kind: :void
+        },
+        glue_id: "abcd1234"
+      )
+    end
+    assert_equal "swift_macro", err.pattern
+    assert_equal "Foundation", err.framework
+    assert_equal "Observable.someMethod", err.symbol
+    assert_match(/Swift package wrapping/, err.message,
+      "hint should mention Swift package wrapper workaround")
+  end
+
+  def test_emit_raises_unsupported_pattern_with_generic_hint_for_unknown_marker
+    kc = FakeKnowledgeCache.new(
+      ["Foundation", "Foo.bar"] => {
+        unsupported_pattern: "novel_pattern_xyz"
+      }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    err = assert_raise(AppleSDKMac::UnsupportedPatternError) do
+      tg.generate(
+        framework: "Foundation",
+        symbol: {
+          kind: "swift_func", name: "Foo.bar",
+          swift_class: "Foo", swift_func: "bar",
+          params: [], return_kind: :void
+        },
+        glue_id: "abcd1234"
+      )
+    end
+    assert_equal "novel_pattern_xyz", err.pattern
+    assert_match(/not directly bridgeable/, err.message)
+  end
+
+  def test_emit_no_raise_when_kb_unsupported_pattern_is_nil
+    kc = FakeKnowledgeCache.new(
+      ["Foundation", "NSString.length"] => {
+        unsupported_pattern: nil, is_throws: false, is_failable: false
+      }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    begin
+      tg.generate(
+        framework: "Foundation",
+        symbol: {
+          kind: "swift_property",
+          name: "NSString.length",
+          swift_class: "NSString",
+          swift_property: "length",
+          return_kind: :int,
+          instance: true
+        },
+        glue_id: "abcd1234"
+      )
+    rescue AppleSDKMac::UnsupportedPatternError => e
+      flunk "should not raise UnsupportedPatternError when unsupported_pattern is nil, got: #{e.message}"
+    end
+  end
+
+  def test_emit_no_raise_when_kb_miss
+    kc = FakeKnowledgeCache.new({})
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    begin
+      tg.generate(
+        framework: "Foundation",
+        symbol: {
+          kind: "swift_func", name: "Foo.bar",
+          swift_class: "Foo", swift_func: "bar",
+          params: [], return_kind: :void
+        },
+        glue_id: "abcd1234"
+      )
+    rescue AppleSDKMac::UnsupportedPatternError
+      flunk "should not raise when Knowledge Base lookup misses (no record)"
+    end
+  end
 end
