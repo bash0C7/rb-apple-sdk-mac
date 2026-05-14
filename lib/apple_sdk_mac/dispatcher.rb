@@ -11,7 +11,7 @@ module AppleSDKMac
 
     def dispatch(framework:, symbol:, args: [])
       sym_meta = @knowledge.lookup_symbol(framework: framework, symbol: symbol)
-      raise Error, "unknown symbol #{framework}::#{symbol}" unless sym_meta
+      raise SymbolMissingError, "unknown symbol #{framework}::#{symbol}" unless sym_meta
 
       # cache.lookup keys rows by canonical_name (sym_meta[:name]), not the
       # user-facing symbol arg which may arrive as an alias or single-segment shorthand.
@@ -23,7 +23,7 @@ module AppleSDKMac
         # Apple.discover stays available for shapes that need explicit kwargs.
         @compiler.compile(framework: framework, symbol: sym_meta)
         cache_hit = @cache.lookup(framework: framework, symbol: canonical)
-        raise Error, "compile failed for #{framework}::#{canonical}" if cache_hit.nil?
+        raise GlueCompileError, "compile failed for #{framework}::#{canonical}" if cache_hit.nil?
       end
 
       fn_ptr = @loader.load(

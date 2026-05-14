@@ -47,7 +47,15 @@ module AppleSDKMac
       swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
       exported = "glue_#{glue_id}_#{swift_id}"
 
-      swift_source = @template.generate(framework: framework, symbol: symbol, glue_id: glue_id)
+      swift_source =
+        begin
+          @template.generate(framework: framework, symbol: symbol, glue_id: glue_id)
+        rescue AppleSDKMac::UnsupportedPatternError
+          # Early propagate: LLM fallback is also pointless (Knowledge Base has
+          # explicitly marked this pattern as unsupported), so deliver the
+          # exception to the caller without entering try_llm.
+          raise
+        end
 
       if swift_source.nil?
         return Result.new(success?: false, error_stage: "template_nil",
