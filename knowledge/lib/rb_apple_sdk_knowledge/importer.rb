@@ -5,7 +5,11 @@ require_relative "importer/swift_interface_parser"
 require_relative "importer/swift_overlay"
 require_relative "importer/header_parser"
 require_relative "importer/consolidator"
+require_relative "importer/result_channel"
 require_relative "importer/store_writer"
+require_relative "importer/progress_reporter"
+require_relative "importer/objc_header_worker"
+require_relative "importer/worker_pool"
 require_relative "store"
 
 module AppleSDKKnowledge
@@ -17,20 +21,6 @@ module AppleSDKKnowledge
       end
 
       def run
-        # Lazy-load rebuild-only dependencies so that requiring importer.rb
-        # from the main gem (which lacks ruby-progressbar) does not fail at
-        # load time. ProgressReporter depends on ruby-progressbar which is
-        # only bundled in the knowledge sub-gem; fall back to NullReporter
-        # when the gem is unavailable (e.g. root test suite context).
-        require_relative "importer/result_channel"
-        require_relative "importer/objc_header_worker"
-        require_relative "importer/worker_pool"
-        begin
-          require_relative "importer/progress_reporter"
-        rescue LoadError
-          # ruby-progressbar unavailable; NullReporter defined below
-        end
-
         resolver      = @resolver || SDKResolver.new
         store         = AppleSDKKnowledge::Store.open(@store_path)
         swift_parser  = SwiftInterfaceParser.new
@@ -38,10 +28,7 @@ module AppleSDKKnowledge
         swift_overlay = SwiftOverlay.new(store)
         writer        = StoreWriter.new(store: store, batch_size: (ENV["APPLE_SDK_MAC_KB_BATCH_SIZE"] || 1000).to_i)
         frameworks    = resolver.frameworks
-        reporter_class = defined?(AppleSDKKnowledge::Importer::ProgressReporter) ?
-                         AppleSDKKnowledge::Importer::ProgressReporter :
-                         NullReporter
-        reporter      = reporter_class.new(io: $stderr, total_frameworks: frameworks.size)
+        reporter      = ProgressReporter.new(io: $stderr, total_frameworks: frameworks.size)
         workers       = (ENV["APPLE_SDK_MAC_KB_WORKERS"] || 2).to_i
         sdk_path      = resolver.sdk_path
 
@@ -112,52 +99,6 @@ module AppleSDKKnowledge
       private
 
       PARENT_KINDS = %w[class struct protocol enum_module actor].freeze
-
-      # Minimal reporter used when ruby-progressbar is unavailable (e.g. root
-      # test suite context). Matches the ProgressReporter public interface.
-      class NullReporter
-        def initialize(io: $stderr, total_frameworks:); @io = io; end
-        def framework_started(name, idx:, total:)
-          @io.puts "=== #{name} (#{idx + 1}/#{total}) ==="
-        end
-        def header_done(framework:, header:, status:, elapsed_ms:, error: nil)
-          return unless status == :error
-          @io.puts "[importer] skipping #{header}: #{error.to_s.lines.first.to_s.strip}"
-        end
-        def framework_finished(name, processed:, skipped:, elapsed_ms:)
-          @io.puts "-> processed=#{processed} skipped=#{skipped}"
-        end
-        def finish(processed_total:, skipped_total:, elapsed_ms:)
-          @io.puts "done processed=#{processed_total} skipped=#{skipped_total}"
-        end
-      end
-
-      # Legacy entry point kept for test compatibility.
-      # Tests in test_importer_parameters_json.rb call this via +send+ with a
-      # duck-typed store (SpyStore) that implements +insert_symbol+ directly.
-      def process_framework(fw, store, swift_parser, header_parser, consolidator)
-        fw_id = store.find_framework_id_by_name(fw.name)
-        fw_id ||= store.insert_framework(name: fw.name, swift_module: fw.name)
-
-        swift_syms = collect_swift_symbols(fw, swift_parser)
-        c_syms = collect_c_symbols(fw, header_parser)
-
-        merged = consolidator.merge(swift_syms, c_syms)
-        two_pass_insert(merged, store, fw_id)
-      end
-
-      # Collect ObjC symbols using a HeaderParser directly (serial, legacy path
-      # used by process_framework and tests with a fake parser).
-      def collect_c_symbols(fw, parser)
-        headers_dir = File.join(fw.path, "Headers")
-        return [] unless File.directory?(headers_dir)
-        Dir.glob(File.join(headers_dir, "*.h")).flat_map do |h|
-          parser.parse_file(h)
-        rescue StandardError => e
-          warn "[importer] skipping header #{h}: #{e.class}: #{e.message}"
-          []
-        end
-      end
 
       def collect_header_paths(fw)
         headers_dir = File.join(fw.path, "Headers")

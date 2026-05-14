@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 require "test_helper"
 require "tmpdir"
-require "fileutils"
 require "rb_apple_sdk_knowledge/importer"
 
 class TestImporterParametersJson < Test::Unit::TestCase
@@ -14,37 +13,16 @@ class TestImporterParametersJson < Test::Unit::TestCase
     def vec_insert(*); end
   end
 
-  FakeFramework = Struct.new(:name, :path)
-
-  class FakeHeaderParser
-    def parse_file(_)
-      [{
+  def test_pipes_parameters_json_into_store
+    Dir.mktmpdir do |tmp|
+      pipeline = AppleSDKKnowledge::Importer::Pipeline.new(store_path: File.join(tmp, "kb.sqlite"))
+      spy = SpyStore.new
+      merged = [{
         name: "F", kind: "function", abi: "c", parent_name: nil,
         signature: "void F(int x)",
         parameters: [{ name: "x", type: "int" }]
       }]
-    end
-  end
-
-  class FakeSwiftParser
-    def parse_file(_); []; end
-  end
-
-  def test_pipes_parameters_json_into_store
-    Dir.mktmpdir do |tmp|
-      headers_dir = File.join(tmp, "Headers")
-      FileUtils.mkdir_p(headers_dir)
-      File.write(File.join(headers_dir, "F.h"), "")
-
-      pipeline = AppleSDKKnowledge::Importer::Pipeline.new(store_path: File.join(tmp, "kb.sqlite"))
-      spy = SpyStore.new
-      consolidator = AppleSDKKnowledge::Importer::Consolidator.new
-      pipeline.send(:process_framework,
-                    FakeFramework.new("X", tmp),
-                    spy,
-                    FakeSwiftParser.new,
-                    FakeHeaderParser.new,
-                    consolidator)
+      pipeline.send(:two_pass_insert, merged, spy, 1)
 
       sym = spy.inserted.first
       assert_not_nil sym, "expected exactly one insert_symbol call"
@@ -54,9 +32,11 @@ class TestImporterParametersJson < Test::Unit::TestCase
     end
   end
 
-  class FakeStructHeaderParser
-    def parse_file(_)
-      [{
+  def test_pipes_fields_json_into_store_for_struct
+    Dir.mktmpdir do |tmp|
+      pipeline = AppleSDKKnowledge::Importer::Pipeline.new(store_path: File.join(tmp, "kb.sqlite"))
+      spy = SpyStore.new
+      merged = [{
         name: "Pt", kind: "struct", abi: "c", parent_name: nil,
         signature: "struct Pt",
         fields: [
@@ -64,24 +44,7 @@ class TestImporterParametersJson < Test::Unit::TestCase
           { name: "y", type: "int", kind: "int" }
         ]
       }]
-    end
-  end
-
-  def test_pipes_fields_json_into_store_for_struct
-    Dir.mktmpdir do |tmp|
-      headers_dir = File.join(tmp, "Headers")
-      FileUtils.mkdir_p(headers_dir)
-      File.write(File.join(headers_dir, "Pt.h"), "")
-
-      pipeline = AppleSDKKnowledge::Importer::Pipeline.new(store_path: File.join(tmp, "kb.sqlite"))
-      spy = SpyStore.new
-      consolidator = AppleSDKKnowledge::Importer::Consolidator.new
-      pipeline.send(:process_framework,
-                    FakeFramework.new("X", tmp),
-                    spy,
-                    FakeSwiftParser.new,
-                    FakeStructHeaderParser.new,
-                    consolidator)
+      pipeline.send(:two_pass_insert, merged, spy, 1)
 
       sym = spy.inserted.first
       assert_not_nil sym, "expected exactly one insert_symbol call"
