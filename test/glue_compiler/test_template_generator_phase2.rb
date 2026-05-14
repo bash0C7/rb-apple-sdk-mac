@@ -39,8 +39,11 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
       glue_id: "abcd1234"
     )
     assert_not_nil swift, "emit_swift_init should produce Swift source"
-    assert_match(/try\?/, swift, "is_throws=true should emit try? wrap")
-    assert_match(/guard let v = try\?/, swift)
+    # T8: throws init now emits do { try ... } catch { rb_raise(...) }, no longer try?
+    assert_match(/do \{/, swift, "is_throws=true should emit do block")
+    assert_match(/try AVAudioFile\(/, swift, "do block should contain unwrapped try")
+    assert_no_match(/guard let v = try\?/, swift, "silent try? swallow must be eliminated")
+    assert_match(/rb_raise\(/, swift, "catch block should rb_raise")
   end
 
   def test_emit_swift_init_failable_from_kb_is_failable_column
@@ -391,5 +394,55 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
     rescue AppleSDKMac::UnsupportedPatternError
       flunk "should not raise when Knowledge Base lookup misses (no record)"
     end
+  end
+
+  def test_emit_swift_init_throws_emits_do_catch_with_swift_error_raise
+    kc = FakeKnowledgeCache.new(
+      ["AVFoundation", "AVAudioFile.init(forReading:)"] => {
+        is_throws: true, is_failable: false, throws_error_type: nil  # untyped throws
+      }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    swift = tg.generate(
+      framework: "AVFoundation",
+      symbol: {
+        kind: "swift_init",
+        name: "AVAudioFile.init(forReading:)",
+        swift_class: "AVAudioFile",
+        swift_initializer: "init(forReading:) throws",
+        params: [:opaque_ref], return_kind: :opaque_ref
+      },
+      glue_id: "abcd1234"
+    )
+    assert_not_nil swift
+    assert_match(/do \{/, swift, "throws init should emit do block")
+    assert_match(/try AVAudioFile\(/, swift, "do block should contain unwrapped try (no try?)")
+    assert_no_match(/guard let v = try\? /, swift, "try? else Qnil silent swallow must be eliminated")
+    # untyped throws (throws_error_type=nil) -> SwiftError dispatch
+    assert_match(/rb_raise\(/, swift, "catch block should rb_raise")
+  end
+
+  def test_emit_swift_init_throws_with_nserror_dispatches_to_objc_error
+    kc = FakeKnowledgeCache.new(
+      ["UIKit", "UIDocument.init(fileURL:)"] => {
+        is_throws: true, is_failable: false, throws_error_type: "NSError"
+      }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    swift = tg.generate(
+      framework: "UIKit",
+      symbol: {
+        kind: "swift_init",
+        name: "UIDocument.init(fileURL:)",
+        swift_class: "UIDocument",
+        swift_initializer: "init(fileURL:) throws",
+        params: [:opaque_ref], return_kind: :opaque_ref
+      },
+      glue_id: "abcd1234"
+    )
+    # ObjcError dispatch confirmation:
+    # throws_error_type=NSError should route to ObjcError lookup
+    assert_match(/ObjcError|rb_eAppleSDK/, swift,
+      "throws_error_type=NSError should route to ObjcError")
   end
 end

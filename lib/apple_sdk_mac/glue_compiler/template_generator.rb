@@ -77,6 +77,12 @@ module AppleSDKMac
         func runtime_threading_enqueue_3(_ procId: UInt64, _ a: Int64, _ b: Int64, _ c: Int64)
         @_silgen_name("runtime_callback_register_block_persistent")
         func runtime_callback_register_block_persistent(_ procId: UInt64) -> UInt64
+        @_silgen_name("rb_cObject")
+        var rb_cObject: UInt
+        @_silgen_name("rb_const_get")
+        func rb_const_get(_ klass: UInt, _ id: UInt) -> UInt
+        @_silgen_name("rb_intern")
+        func rb_intern(_ name: UnsafePointer<CChar>) -> UInt
         #{CALLBACK_BRIDGE_DECLS}
 
         let Qfalse: UInt = 0
@@ -397,7 +403,21 @@ module AppleSDKMac
         throwing = kb_flag(framework, symbol[:name], :is_throws) { initializer.to_s.include?("throws") }
         init_binding =
           if throwing
-            "guard let v = try? #{call_expr} else { return Qnil }"
+            throws_error_type = kb_flag(framework, symbol[:name], :throws_error_type) { nil }
+            err_class_lookup =
+              if throws_error_type == "NSError"
+                %(rb_const_get(rb_const_get(rb_cObject, rb_intern("AppleSDKMac")), rb_intern("ObjcError")))
+              else
+                %(rb_const_get(rb_const_get(rb_cObject, rb_intern("AppleSDKMac")), rb_intern("SwiftError")))
+              end
+            <<~SWIFT.chomp
+              let v: #{swift_klass}
+              do {
+                  v = try #{call_expr}
+              } catch {
+                  rb_raise(#{err_class_lookup}, "#{framework}.#{symbol[:name]}: \\(error.localizedDescription)")
+              }
+            SWIFT
           elsif labels.empty? || !failable
             "let v = #{call_expr}"
           else

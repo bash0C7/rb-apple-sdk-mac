@@ -907,9 +907,9 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
   # postmortem 2026-05-14 #4 regression net: swift_initializer 末尾 `throws`。
   # AVAudioFile.init(forReading:) は throws、 user が
   # `swift_initializer: "init(forReading:) throws"` と書くと emit_swift_init が
-  # try? + guard let で wrap して失敗時 Qnil を返す。 swift_init_labels regex も
-  # 末尾 throws を許容して labels 抽出が止まらないことが必要。
-  def test_emit_swift_init_throws_wraps_in_try_question
+  # do { try ... } catch { rb_raise(...) } を emit する (T8: try? silent swallow 廃止)。
+  # swift_init_labels regex も末尾 throws を許容して labels 抽出が止まらないことが必要。
+  def test_emit_swift_init_throws_emits_do_catch
     s = sym(name: "AVAudioFile.init(forReading:)",
             kind: "swift_init",
             signature: nil, parameters: [])
@@ -920,8 +920,13 @@ class TestTemplateGeneratorKindDispatch < Test::Unit::TestCase
 
     out = gen.generate(framework: "AVFAudio", symbol: s, glue_id: "abc")
     refute_nil out, "throws swift_initializer must emit"
-    assert_match(/guard let v = try\?\s*AVAudioFile\(forReading:\s*arg0\)\s*else\s*\{\s*return Qnil\s*\}/, out,
-                 "throws init は try? + guard let で wrap、 失敗時 Qnil")
+    # T8: do/catch + rb_raise replaces silent try? swallow
+    assert_match(/do \{/, out, "throws init must wrap in do block")
+    assert_match(/try AVAudioFile\(forReading:\s*arg0\)/, out,
+                 "do block must contain unwrapped try call (no try?)")
+    assert_no_match(/guard let v = try\?/, out,
+                    "silent try? else Qnil must be eliminated (T8)")
+    assert_match(/rb_raise\(/, out, "catch block must call rb_raise")
     refute_match(/init\(forReading:\)\s+throws/, out,
                  "Swift コード本体に末尾 throws マーカーが漏れたら label 抽出が壊れた印")
   end
