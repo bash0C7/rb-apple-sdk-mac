@@ -29,69 +29,72 @@ module AppleSDKKnowledge
         writer        = StoreWriter.new(store: store, batch_size: (ENV["APPLE_SDK_MAC_KB_BATCH_SIZE"] || 1000).to_i)
         frameworks    = resolver.frameworks
         reporter      = ProgressReporter.new(io: $stderr, total_frameworks: frameworks.size)
-        workers       = (ENV["APPLE_SDK_MAC_KB_WORKERS"] || 2).to_i
+        workers       = [(ENV["APPLE_SDK_MAC_KB_WORKERS"] || 2).to_i, 1].max
         sdk_path      = resolver.sdk_path
 
         t_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         total_processed = 0
         total_skipped = 0
 
-        writer.begin!
-        frameworks.each_with_index do |fw, idx|
-          reporter.framework_started(fw.name, idx: idx, total: frameworks.size)
-          fw_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        begin
+          writer.begin!
+          frameworks.each_with_index do |fw, idx|
+            reporter.framework_started(fw.name, idx: idx, total: frameworks.size)
+            fw_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
-          fw_id = store.find_framework_id_by_name(fw.name) ||
-                  writer.insert_framework(name: fw.name, swift_module: fw.name)
+            fw_id = store.find_framework_id_by_name(fw.name) ||
+                    writer.insert_framework(name: fw.name, swift_module: fw.name)
 
-          headers = collect_header_paths(fw)
-          processed = 0
-          skipped = 0
-          c_syms_all = []
+            headers = collect_header_paths(fw)
+            processed = 0
+            skipped = 0
+            c_syms_all = []
 
-          if !headers.empty?
-            channel = ResultChannel.new(buffer_size: workers * 8)
-            pool = WorkerPool.new(
-              size: workers,
-              worker_factory: -> { ObjCHeaderWorker.new(sdk_path: sdk_path) },
-              channel: channel
-            )
-            headers.each_with_index { |h, seq| pool.submit(seq: seq, payload: { framework: fw.name, header: h }) }
-            pool.shutdown(wait: true)
+            if !headers.empty?
+              channel = ResultChannel.new(buffer_size: workers * 8)
+              pool = WorkerPool.new(
+                size: workers,
+                worker_factory: -> { ObjCHeaderWorker.new(sdk_path: sdk_path) },
+                channel: channel
+              )
+              headers.each_with_index { |h, seq| pool.submit(seq: seq, payload: { framework: fw.name, header: h }) }
+              pool.shutdown(wait: true)
 
-            channel.each_ordered do |item|
-              response = item[:payload]
-              header_path = response[:request] && response[:request][:header]
-              if response[:error]
-                reporter.header_done(framework: fw.name, header: header_path,
-                                     status: :error, elapsed_ms: response[:elapsed_ms], error: response[:error])
-                skipped += 1
-              else
-                reporter.header_done(framework: fw.name, header: header_path,
-                                     status: :ok, elapsed_ms: response[:elapsed_ms])
-                # JSON round-trip: response[:result] is an array of symbol-keyed hashes
-                c_syms_all.concat(response[:result] || [])
-                processed += 1
+              channel.each_ordered do |item|
+                response = item[:payload]
+                header_path = response[:request] && response[:request][:header]
+                if response[:error]
+                  reporter.header_done(framework: fw.name, header: header_path,
+                                       status: :error, elapsed_ms: response[:elapsed_ms], error: response[:error])
+                  skipped += 1
+                else
+                  reporter.header_done(framework: fw.name, header: header_path,
+                                       status: :ok, elapsed_ms: response[:elapsed_ms])
+                  # JSON round-trip: response[:result] is an array of symbol-keyed hashes
+                  c_syms_all.concat(response[:result] || [])
+                  processed += 1
+                end
               end
             end
+
+            swift_syms = collect_swift_symbols(fw, swift_parser)
+            merged = consolidator.merge(swift_syms, c_syms_all)
+            two_pass_insert(merged, writer, fw_id)
+
+            import_swift_overlay(fw, swift_overlay)
+            fw_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - fw_start) * 1000).to_i
+            reporter.framework_finished(fw.name, processed: processed, skipped: skipped, elapsed_ms: fw_ms)
+            total_processed += processed
+            total_skipped += skipped
           end
+          writer.flush
 
-          swift_syms = collect_swift_symbols(fw, swift_parser)
-          merged = consolidator.merge(swift_syms, c_syms_all)
-          two_pass_insert(merged, writer, fw_id)
-
-          import_swift_overlay(fw, swift_overlay)
-          fw_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - fw_start) * 1000).to_i
-          reporter.framework_finished(fw.name, processed: processed, skipped: skipped, elapsed_ms: fw_ms)
-          total_processed += processed
-          total_skipped += skipped
+          store.rebuild_fts!
+          store.db.execute("INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
+                           ["sdk_version", resolver.sdk_version])
+        ensure
+          store.close
         end
-        writer.flush
-
-        store.rebuild_fts!
-        store.db.execute("INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
-                         ["sdk_version", resolver.sdk_version])
-        store.close
         reporter.finish(processed_total: total_processed, skipped_total: total_skipped,
                         elapsed_ms: ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - t_start) * 1000).to_i)
       end
