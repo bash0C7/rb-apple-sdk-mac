@@ -23,7 +23,6 @@ module Apple
   Error          = ::AppleSDKMac::Error          unless const_defined?(:Error, false)
   DiscoveryError = ::AppleSDKMac::DiscoveryError unless const_defined?(:DiscoveryError, false)
   CompileError   = ::AppleSDKMac::CompileError   unless const_defined?(:CompileError, false)
-  CallError      = ::AppleSDKMac::CallError      unless const_defined?(:CallError, false)
 
   def self.discover(**kwargs); ::AppleSDKMac.discover(**kwargs); end
   def self.event_loop(&block); ::AppleSDKMac.event_loop(&block); end

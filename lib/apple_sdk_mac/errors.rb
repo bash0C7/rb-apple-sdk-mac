@@ -26,10 +26,6 @@ module AppleSDKMac
   # in `Apple.diagnostics` for issue reproduction.
   class CompileError < Error; end
 
-  # Raised when the Apple framework itself signals a runtime failure:
-  # OSStatus != 0, NSError thrown across the bridge, kIOReturn* failures.
-  class CallError < Error; end
-
   # Raised when a requested framework is not present in the Knowledge Base.
   class FrameworkMissingError < Error; end
 

@@ -17,22 +17,24 @@ class TestErrors < Test::Unit::TestCase
     assert_operator Apple::CompileError, :<, Apple::Error
   end
 
-  def test_call_error_inherits_apple_error
-    assert_operator Apple::CallError, :<, Apple::Error
-  end
-
   def test_apple_sdk_mac_error_aliases_apple_error
     # `rescue AppleSDKMac::Error` resolves to the same class as Apple::Error.
     assert_equal Apple::Error,          AppleSDKMac::Error
     assert_equal Apple::DiscoveryError, AppleSDKMac::DiscoveryError
     assert_equal Apple::CompileError,   AppleSDKMac::CompileError
-    assert_equal Apple::CallError,      AppleSDKMac::CallError
   end
 
   def test_each_error_can_be_raised_and_carries_message
-    [Apple::Error, Apple::DiscoveryError, Apple::CompileError, Apple::CallError].each do |klass|
+    [Apple::Error, Apple::DiscoveryError, Apple::CompileError].each do |klass|
       e = assert_raises(klass) { raise klass, "test #{klass}" }
       assert_equal "test #{klass}", e.message
     end
+  end
+
+  def test_call_error_retired
+    refute Apple.const_defined?(:CallError, false),
+      "Apple::CallError は Phase 3 で retire (ObjcError / SwiftError へ移行済)"
+    refute AppleSDKMac.const_defined?(:CallError, false),
+      "AppleSDKMac::CallError は Phase 3 で retire"
   end
 end
