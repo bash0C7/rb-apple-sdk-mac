@@ -97,3 +97,42 @@ class TestWorkerPool < Test::Unit::TestCase
     assert_equal (0...20).map { |i| "h#{i}" }, collected
   end
 end
+
+class TestWorkerPoolPolymorphic < Test::Unit::TestCase
+  class EchoObjC
+    def call(framework:, header:)
+      { result: { kind: "objc", fw: framework, hdr: header }, error: nil, elapsed_ms: 1 }
+    end
+  end
+  class EchoSwift
+    def call(framework:, path:)
+      { result: { kind: "swift", fw: framework, p: path }, error: nil, elapsed_ms: 1 }
+    end
+  end
+
+  def test_polymorphic_dispatch_routes_by_kind
+    channel = AppleSDKKnowledge::Importer::ResultChannel.new(buffer_size: 16)
+    pool = AppleSDKKnowledge::Importer::WorkerPool.new(
+      size: 2,
+      worker_factory: -> do
+        objc = EchoObjC.new
+        swift = EchoSwift.new
+        ->(payload) do
+          case payload[:kind]
+          when "objc_header" then objc.call(framework: payload[:framework], header: payload[:header])
+          when "swift_interface" then swift.call(framework: payload[:framework], path: payload[:path])
+          end
+        end
+      end,
+      channel: channel
+    )
+    pool.submit(seq: 0, payload: { kind: "objc_header", framework: "F1", header: "h1" })
+    pool.submit(seq: 1, payload: { kind: "swift_interface", framework: "F2", path: "p2" })
+    pool.shutdown(wait: true)
+
+    collected = []
+    channel.each_ordered { |item| collected << item[:payload][:result] }
+    assert_equal "objc", collected[0][:kind]
+    assert_equal "swift", collected[1][:kind]
+  end
+end

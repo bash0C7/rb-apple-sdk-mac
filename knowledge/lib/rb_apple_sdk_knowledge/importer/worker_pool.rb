@@ -43,11 +43,20 @@ module AppleSDKKnowledge
           pid = Process.fork do
             req_w.close
             res_r.close
-            worker = @worker_factory.call
+            dispatch = @worker_factory.call
+            if dispatch.is_a?(Proc) && dispatch.arity == 1
+              # new polymorphic dispatcher
+            elsif dispatch.respond_to?(:call)
+              # legacy single-worker: wrap to payload signature
+              legacy = dispatch
+              dispatch = ->(payload) { legacy.call(framework: payload[:framework], header: payload[:header]) }
+            else
+              raise ArgumentError, "worker_factory must return a Proc or a worker with #call"
+            end
             req_r.each_line do |line|
               data = JSON.parse(line, symbolize_names: true)
               payload = data[:payload]
-              res = worker.call(framework: payload[:framework], header: payload[:header])
+              res = dispatch.call(payload)
               # Fix I4: rename inner :payload → :request to eliminate double-nesting
               res_w.puts JSON.dump(
                 seq: data[:seq],
