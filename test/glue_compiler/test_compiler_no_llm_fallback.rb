@@ -47,14 +47,19 @@ class TestGlueCompilerNoLLMFallback < Test::Unit::TestCase
     FileUtils.rm_rf(@tmpdir) if @tmpdir
   end
 
+  # NOTE: @gates is injected via instance_variable_set because the current
+  # GlueCompiler constructor has no `gates:` kwarg. Phase 3 Task 3 (GREEN)
+  # rewrites the constructor; once `gates:` kwarg is added there, these
+  # tests will be updated to use kwarg injection. Until then, this is the
+  # only injection point for a fake gate.
   def test_compile_returns_template_failure_directly_when_gate_fails
     compiler = AppleSDKMac::GlueCompiler.new(
       cache: @cache,
       runtime_dylib_path: "/dev/null",
       template_generator: FakeTemplate.new("dummy swift"),
+      swiftc_invoker: FakeSwiftc.new(success: true),
     )
     compiler.instance_variable_set(:@gates, FakeGates.new(pass: false))
-    compiler.instance_variable_set(:@swiftc, FakeSwiftc.new(success: true))
 
     result = compiler.compile(framework: "Foundation", symbol: @symbol)
 
@@ -71,9 +76,9 @@ class TestGlueCompilerNoLLMFallback < Test::Unit::TestCase
       cache: @cache,
       runtime_dylib_path: "/dev/null",
       template_generator: FakeTemplate.new("import Foundation\n"),
+      swiftc_invoker: FakeSwiftc.new(success: false),
     )
     compiler.instance_variable_set(:@gates, FakeGates.new(pass: true))
-    compiler.instance_variable_set(:@swiftc, FakeSwiftc.new(success: false))
 
     result = compiler.compile(framework: "Foundation", symbol: @symbol)
 
@@ -84,12 +89,22 @@ class TestGlueCompilerNoLLMFallback < Test::Unit::TestCase
     assert_equal "template", @cache.attempts.first[:generator]
   end
 
-  def test_compile_constructor_rejects_llm_kwargs
+  def test_compile_constructor_rejects_llm_generator_kwarg
     assert_raise(ArgumentError) do
       AppleSDKMac::GlueCompiler.new(
         cache: @cache,
         runtime_dylib_path: "/dev/null",
         llm_generator: :something,
+      )
+    end
+  end
+
+  def test_compile_constructor_rejects_max_llm_retries_kwarg
+    assert_raise(ArgumentError) do
+      AppleSDKMac::GlueCompiler.new(
+        cache: @cache,
+        runtime_dylib_path: "/dev/null",
+        max_llm_retries: 3,
       )
     end
   end
