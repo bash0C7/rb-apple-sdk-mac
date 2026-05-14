@@ -40,7 +40,7 @@ module AppleSDKMac
   # is not yet supported by the glue generator pipeline. Carries structured
   # metadata (pattern / framework / symbol) for diagnostic surfacing.
   class UnsupportedPatternError < Error
-    attr_reader :pattern, :framework, :symbol
+    attr_reader :pattern, :framework, :symbol, :hint
 
     def initialize(pattern:, framework:, symbol:, hint: nil)
       @pattern = pattern
@@ -52,10 +52,31 @@ module AppleSDKMac
 
     private
 
+    KNOWLEDGE_BASE_SCHEMA = 9
+
     def format_message
-      parts = ["pattern=#{@pattern}", "framework=#{@framework}", "symbol=#{@symbol}"]
-      parts << "hint=#{@hint}" if @hint
-      "AppleSDKMac::UnsupportedPatternError #{parts.join(' ')}"
+      require_relative "version" unless defined?(AppleSdkMac::VERSION)
+      sdk_version = ENV["APPLE_SDK_MAC_SDK_VERSION"] || "(macOS SDK detection requires KnowledgeCache.sdk_version)"
+      gem_version = defined?(AppleSdkMac::VERSION) ? AppleSdkMac::VERSION : "unknown"
+      workaround = @hint ||
+        "See https://github.com/bash0C7/rb-apple-sdk-mac for guidance on writing a Swift / C wrapper."
+      <<~MSG.chomp
+        AppleSDKMac::UnsupportedPatternError:
+          Symbol '#{@framework}::#{@symbol}' uses pattern that cannot be bridged.
+
+          Pattern: #{@pattern}
+          Framework: #{@framework}
+          Symbol: #{@symbol}
+          macOS SDK: #{sdk_version}
+          gem version: #{gem_version}
+          Knowledge Base schema: #{KNOWLEDGE_BASE_SCHEMA}
+
+          Workaround:
+            #{workaround}
+
+          Report at https://github.com/bash0C7/rb-apple-sdk-mac/issues if you
+          believe this pattern should be supported.
+      MSG
     end
   end
 

@@ -42,4 +42,37 @@ class TestErrorsPhase2 < Test::Unit::TestCase
     e = AppleSDKMac::SwiftError.new("Swift threw URLError")
     assert_kind_of AppleSDKMac::Error, e
   end
+
+  def test_unsupported_pattern_error_diagnostic_message_includes_section_6_2_fields
+    e = AppleSDKMac::UnsupportedPatternError.new(
+      pattern: "swift_macro",
+      framework: "Foundation",
+      symbol: "Observable::someMethod",
+      hint: "Use Swift package wrapper."
+    )
+    msg = e.message
+    assert_match(/Pattern: swift_macro/, msg)
+    assert_match(/Framework: Foundation/, msg)
+    assert_match(/Symbol: Observable::someMethod/, msg)
+    assert_match(/macOS SDK:/, msg)
+    assert_match(/gem version:/, msg)
+    assert_match(/Knowledge Base schema:/, msg)
+    assert_match(/Workaround:/, msg)
+    assert_match(/Use Swift package wrapper/, msg)
+    assert_match(%r{https://github.com/bash0C7/rb-apple-sdk-mac/issues}, msg)
+  end
+
+  def test_unsupported_pattern_error_diagnostic_message_default_workaround
+    e = AppleSDKMac::UnsupportedPatternError.new(
+      pattern: "novel_pattern",
+      framework: "Foo",
+      symbol: "Foo.bar"
+      # hint not specified
+    )
+    msg = e.message
+    # hint 無しでも Workaround セクションは存在する (default 文言)
+    assert_match(/Workaround:/, msg)
+    # default workaround 文は github URL / docs / wrapper 等の generic guidance を含む
+    assert_match(%r{https?://}, msg)
+  end
 end
