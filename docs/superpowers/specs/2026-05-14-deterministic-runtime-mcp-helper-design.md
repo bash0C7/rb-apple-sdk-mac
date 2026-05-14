@@ -505,4 +505,24 @@ Phase 3 引き継ぎ:
 - 並列 session 由来 `ruby-progressbar` LoadError が main gem test path に影響 (test/integration/test_emitter_phase2_smoke.rb で `Kernel.require` thin intercept で workaround、 根本 fix は knowledge sub-gem 側 importer の require chain を main gem load path から decouple すべき)
 - Section 4.1 廃止 heuristic 表は Phase 2 で全消化済、 Phase 1 backlog (T3 category / T5 callback split / T9-T14 swift edge case) は importer 改善として独立 track
 
+### Phase 3 結果 (2026-05-14 完了)
+
+- [x] `Apple::CallError` dead class 削除 (production raise site 無し、 ObjcError / SwiftError 階層に統合済) — T1 (commit 939b01a)
+- [x] `GlueCompiler#compile` から `try_llm` 経路全廃、 `try_template` Result そのまま return — T2-T3 (07f5c8e / 7e5675c / 03118e7)
+- [x] `LLMGenerator` / `LLMExamples` / 単体 test 削除、 `validation_gates.rb` の LLM comment / `public_api.rb` の wire 整理 — T4 (32b6082 / f36788e / 2ca777c)
+- [x] `rb-apple-sdk-mac.gemspec` から `rb-foundation-model-mac` runtime dep 削除、 `Gemfile` path entry / `irb/Gemfile` / `mcp/Gemfile` の path override も削除 — T5 (6bb8b7d / e6350de)
+- [x] `knowledge/lib/rb_apple_sdk_knowledge.rb` top-level require から importer 分離、 production runtime path から ruby-progressbar 連鎖排除、 Rakefile 側 で明示 require — T6 (af3fd9f)
+- [x] Phase 2 で入れた `test_emitter_phase2_smoke.rb` の LOAD_PATH stub 削除 (Task 6 で連鎖が解消したため不要に) — T7 (60015f8)
+- [x] `AppleSDKMac::Telemetry.append_event` (`~/.cache/rb-apple-sdk-mac/diagnostics/<date>.jsonl` daily append、 `APPLE_SDK_MAC_NO_DIAGNOSTICS=1` opt-out、 SystemCallError / IOError named rescue で primary path 不変) 実装 + review 段で発覚した design coupling 解消として `AppleSDKMac::KNOWLEDGE_BASE_SCHEMA` を `UnsupportedPatternError` nested から module top-level に昇格 — T8-T9 (cb75b15 / 8d7f327 / d79f1be)
+- [x] `dispatcher.rb` 内 3 typed raise (SymbolMissingError / UnsupportedPatternError / GlueCompileError) の直前で Telemetry.append_event 発火 + integration test (`test/integration/test_telemetry_wired.rb`) で 3 path coverage — T10 (fade71a / 0f3bcc9)
+
+Phase 4 引き継ぎ:
+
+- `AppleSDKMac::DiscoveryError` の deprecate は `Apple.discover` lazy 化 (Section 1 transparent namespace) とペアで Phase 4 に持ち越し
+- Section 1 lazy transparent namespace 本体 (`bootstrap!` 不要化、 `Apple::<F>` const_missing → Knowledge Base lookup)
+- Section 7 / 8 / 9 MCP server 拡張 (search_apple_api / lookup_documentation / web_fetch)
+- Phase 1 importer backlog (Consolidator hash divergence、 swift IUO-of-Optional、 nested enum case payload edge case)
+- `test/dispatcher_test.rb` の 2 件 pre-existing failure (`test_dispatch_raises_on_unknown_symbol` / `test_dispatch_raises_when_auto_compile_fails`) 対応。 Phase 2 commit `2573d28` (silent return-nil → typed raise 切替) 起因の test 残債。 test-unit の `assert_raise(klass)` が `instance_of?` 厳密 match する仕様、 dispatcher.rb が `AppleSDKMac::Error` (基底) から `SymbolMissingError` / `GlueCompileError` (subclass) に切替えた時、 test 側の expected class が未更新で残った。 Phase 4 で test 側を typed raise に追従させる fix を入れる
+- integration test の `rake test` coverage。 Phase 2 既存 pattern (`test_dispatcher_phase2_diagnostics.rb` / `test_emitter_phase2_smoke.rb`) と整合、 `test/integration/test_telemetry_wired.rb` も Rakefile L17-21 の exclusion で `rake test` full から外れる。 release_quality task 整備で別途 wire する判断、 Phase 3 plan の scope 外として持ち越し。 Phase 4 (or 別 plan) で integration test を CI rake target に組み入れる
+
 (以下 phase 2 / 3 / 4 / 5 の open items は既存記述のまま継続)
