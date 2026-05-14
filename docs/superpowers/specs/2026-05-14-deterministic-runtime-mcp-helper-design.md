@@ -471,4 +471,38 @@ Phase 1 implementation で発見した edge case を Phase 2 で再評価:
 - T12: swift nested enum 内側 / case payload with closure type の brace edge case
 - T14: swift macro doc comment + `@Observable` interleave 経路の preceding_attrs_for 拡張余地
 
+### Phase 2 結果 (2026-05-14 完了)
+
+- [x] AppleSDKMac::Error hierarchy 整備 (FrameworkMissingError / SymbolMissingError / UnsupportedPatternError / GlueCompileError / ObjcError / SwiftError) — T1
+- [x] emit_swift_init が Knowledge Base record の `is_throws` / `is_failable` から分岐 (kb_flag helper) — T2
+- [x] emit_swift_func が Knowledge Base record の `is_async` から分岐 — T3
+- [x] swift_init labels が Knowledge Base record の `parameters_json[].external_label` 由来 (kb_labels helper) — T4
+- [x] CF retained 判定が Knowledge Base record の `return_ownership` 由来、 name regex (`cf_create_naming?`) は fallback に降格 — T5
+- [x] `callback_signature_json` から route 解決 (`resolve_callback_route` helper)、 未登録 shape は UnsupportedPatternError raise — T6
+- [x] emitter 入口で `unsupported_pattern` marker 検出 → UnsupportedPatternError raise + PATTERN_HINTS workaround embed — T7
+- [x] Swift throws の `try? else Qnil` silent swallow 廃止、 `do { try ... } catch { rb_raise(klass, msg) }` の明示 raise に置換、 `throws_error_type=NSError` → ObjcError、 それ以外 → SwiftError dispatch (HEADER に rb_const_get / rb_cObject / rb_intern declarations 追加) — T8
+- [x] `is_settable=1` property の setter glue (`emit_swift_property_setter`) + namespace_builder の Ruby setter method install — T9
+- [x] dispatcher / glue_compiler の silent return-nil-cascade 廃止 (`unknown symbol` → SymbolMissingError、 `compile failed` → GlueCompileError、 UnsupportedPatternError は LLM fallback skip で propagate) — T10
+- [x] UnsupportedPatternError diagnostic message を Section 6.2 multiline shape (Pattern / Framework / Symbol / macOS SDK / gem version / Knowledge Base schema / Workaround / Report URL) に進化 — T11
+- [x] integration smoke (`test/integration/test_emitter_phase2_smoke.rb`) で real Knowledge Base 経路 (throws init + swift_macro unsupported) を verify — T12
+
+廃止 heuristic 一覧 (spec Section 4.1 全消化):
+
+- `initializer.include?("throws")` → `is_throws` column (kb_flag helper)
+- `initializer.include?("?")` → `is_failable` column (kb_flag helper)
+- `symbol[:async] == true` (Hash 由来) → `is_async` column (kb_flag helper)
+- `cf_create_naming?(name)` 正規表現 → `return_ownership` column (cf_returns_retained? helper)
+- `CALLBACK_PILLAR_ROUTES` 手書き → `callback_signature_json.normalized` 由来 auto-route + 未登録は UnsupportedPatternError raise
+- `swift_init_labels(initializer)` 文字列 split → `parameters_json[].external_label` (kb_labels helper)
+- `try? else Qnil` silent swallow → `throws_error_type` → SwiftError / ObjcError dispatch
+
+Phase 3 引き継ぎ:
+
+- `AppleSDKMac::DiscoveryError` の deprecate (Phase 3 で `Apple.discover` lazy 化と同時に整理)
+- `AppleSDKMac::CallError` を `ObjcError` / `SwiftError` 階層に統合 (現状 raw OSStatus 系は CallError、 Phase 3 で再評価)
+- LLM fallback path の dispatcher 経路全廃 (現状 `try_llm` は残置、 Phase 3 で removal)
+- Section 6.3 internal telemetry (opt-in `~/.cache/rb-apple-sdk-mac/diagnostics/<date>.jsonl` append) の wiring (Phase 3 or Phase 4 で実装)
+- 並列 session 由来 `ruby-progressbar` LoadError が main gem test path に影響 (test/integration/test_emitter_phase2_smoke.rb で `Kernel.require` thin intercept で workaround、 根本 fix は knowledge sub-gem 側 importer の require chain を main gem load path から decouple すべき)
+- Section 4.1 廃止 heuristic 表は Phase 2 で全消化済、 Phase 1 backlog (T3 category / T5 callback split / T9-T14 swift edge case) は importer 改善として独立 track
+
 (以下 phase 2 / 3 / 4 / 5 の open items は既存記述のまま継続)
