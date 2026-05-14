@@ -4,11 +4,31 @@ require "sqlite3"
 require "apple_sdk_mac/errors"
 require "apple_sdk_mac/glue_compiler/template_generator"
 
+# ruby-progressbar is not in the Gemfile (importer-only dependency).
+# Intercept the require so loading rb_apple_sdk_knowledge does not
+# abort with LoadError in parallel-session environments where the gem
+# is absent from the active bundle.
+module Kernel
+  alias_method :__phase2_smoke_original_require__, :require
+  def require(name)
+    return true if name == "ruby-progressbar"
+    __phase2_smoke_original_require__(name)
+  end
+  private :require
+end
+
+KNOWLEDGE_DB = File.expand_path(
+  "../../.rb-apple-sdk-mac/knowledge/26.4.1/sdk_knowledge.sqlite",
+  __dir__
+).freeze
+
 class TestEmitterPhase2Smoke < Test::Unit::TestCase
   def setup
-    omit "Knowledge Base 未 build (skip phase 2 smoke)" unless real_knowledge_built?
+    omit "Knowledge Base sqlite 未 build (skip phase 2 smoke)" unless File.exist?(KNOWLEDGE_DB)
+    require "rb_apple_sdk_knowledge/store"
     require "apple_sdk_mac/knowledge_cache"
-    @kc = AppleSDKMac::KnowledgeCache.open
+    store = AppleSDKKnowledge::Store.open(KNOWLEDGE_DB)
+    @kc = AppleSDKMac::KnowledgeCache.new(store)
     @tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: @kc)
   end
 
@@ -87,15 +107,7 @@ class TestEmitterPhase2Smoke < Test::Unit::TestCase
 
   private
 
-  def real_knowledge_built?
-    require "rb_apple_sdk_knowledge"
-    File.exist?(AppleSDKKnowledge.knowledge_path)
-  rescue LoadError, StandardError
-    false
-  end
-
   def knowledge_db_path
-    require "rb_apple_sdk_knowledge"
-    AppleSDKKnowledge.knowledge_path
+    KNOWLEDGE_DB
   end
 end
