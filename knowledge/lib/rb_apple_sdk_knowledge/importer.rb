@@ -58,7 +58,8 @@ module AppleSDKKnowledge
                 channel: channel
               )
               headers.each_with_index { |h, seq| pool.submit(seq: seq, payload: { framework: fw.name, header: h }) }
-              pool.shutdown(wait: true)
+
+              shutdown_thread = Thread.new { pool.shutdown(wait: true) }
 
               channel.each_ordered do |item|
                 response = item[:payload]
@@ -75,6 +76,7 @@ module AppleSDKKnowledge
                   processed += 1
                 end
               end
+              shutdown_thread.join
             end
 
             swift_syms = collect_swift_symbols(fw, swift_parser)

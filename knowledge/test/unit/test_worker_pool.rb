@@ -74,4 +74,26 @@ class TestWorkerPool < Test::Unit::TestCase
     assert_nil collected[0][:payload][:result]
     assert_match(/worker crashed/, collected[0][:payload][:error])
   end
+
+  def test_processes_more_items_than_buffer_size_without_deadlock
+    # ResultChannel buffer (4) より多くの item (20) を投入し、 deadlock せず取れる
+    channel = AppleSDKKnowledge::Importer::ResultChannel.new(buffer_size: 4)
+    pool = AppleSDKKnowledge::Importer::WorkerPool.new(
+      size: 2,
+      worker_factory: -> { EchoWorker.new },
+      channel: channel
+    )
+
+    # 別 thread で submit + shutdown を実行、 main は drain
+    bg = Thread.new do
+      20.times { |i| pool.submit(seq: i, payload: { framework: "F", header: "h#{i}" }) }
+      pool.shutdown(wait: true)
+    end
+
+    collected = []
+    channel.each_ordered { |item| collected << item[:payload][:request][:header] }
+    bg.join
+
+    assert_equal (0...20).map { |i| "h#{i}" }, collected
+  end
 end
