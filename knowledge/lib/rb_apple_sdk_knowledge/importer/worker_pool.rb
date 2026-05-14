@@ -11,6 +11,9 @@ module AppleSDKKnowledge
         @pids = []
         @to_worker = []     # parent → worker (request)
         @from_worker = []   # worker → parent (response)
+        @worker_idx_by_reader = {}
+        @pending_seqs = Array.new(size) { [] }
+        @pending_mutex = Mutex.new
         @next_worker = 0
         spawn_workers
         @reader = start_reader
@@ -19,20 +22,22 @@ module AppleSDKKnowledge
       def submit(seq:, payload:)
         msg = JSON.dump(seq: seq, payload: payload)
         @to_worker[@next_worker].puts(msg)
+        @pending_mutex.synchronize { @pending_seqs[@next_worker] << seq }
         @next_worker = (@next_worker + 1) % @size
       end
 
+      # Fix C2: join reader before waitpid to drain pipes and avoid deadlock
       def shutdown(wait: true)
         @to_worker.each(&:close)
-        @pids.each { |pid| Process.waitpid(pid) }
         @reader.join if wait
+        @pids.each { |pid| Process.waitpid(pid) }
         @channel.close
       end
 
       private
 
       def spawn_workers
-        @size.times do
+        @size.times do |worker_idx|
           req_r, req_w = IO.pipe
           res_r, res_w = IO.pipe
           pid = Process.fork do
@@ -43,12 +48,13 @@ module AppleSDKKnowledge
               data = JSON.parse(line, symbolize_names: true)
               payload = data[:payload]
               res = worker.call(framework: payload[:framework], header: payload[:header])
+              # Fix I4: rename inner :payload → :request to eliminate double-nesting
               res_w.puts JSON.dump(
                 seq: data[:seq],
                 result: res[:result],
                 error: res[:error],
                 elapsed_ms: res[:elapsed_ms],
-                payload: payload
+                request: payload
               )
             end
             res_w.close
@@ -59,6 +65,7 @@ module AppleSDKKnowledge
           @pids << pid
           @to_worker << req_w
           @from_worker << res_r
+          @worker_idx_by_reader[res_r] = worker_idx
         end
       end
 
@@ -70,11 +77,30 @@ module AppleSDKKnowledge
             ready.each do |r|
               line = r.gets
               if line.nil?
+                # Fix C1: synthesize error payloads for any pending seqs on crashed worker
+                idx = @worker_idx_by_reader[r]
+                crashed = nil
+                @pending_mutex.synchronize do
+                  crashed = @pending_seqs[idx]
+                  @pending_seqs[idx] = []
+                end
+                crashed.each do |seq|
+                  @channel.push(seq: seq, payload: {
+                    seq: seq,
+                    result: nil,
+                    error: "worker crashed: pid=#{@pids[idx]} idx=#{idx}",
+                    elapsed_ms: 0,
+                    request: nil
+                  })
+                end
                 readers.delete(r)
                 next
               end
               data = JSON.parse(line, symbolize_names: true)
-              @channel.push(seq: data[:seq], payload: data)
+              seq = data[:seq]
+              idx = @worker_idx_by_reader[r]
+              @pending_mutex.synchronize { @pending_seqs[idx].delete(seq) }
+              @channel.push(seq: seq, payload: data)
             end
           end
         end

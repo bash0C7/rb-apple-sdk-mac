@@ -36,4 +36,42 @@ class TestWorkerPool < Test::Unit::TestCase
   def test_n4_processes_items_in_seq_order
     assert_equal (0...20).map { |i| "h#{i}" }, submit_and_drain(size: 4, count: 20)
   end
+
+  def test_worker_response_includes_original_request_under_request_key
+    channel = AppleSDKKnowledge::Importer::ResultChannel.new(buffer_size: 16)
+    pool = AppleSDKKnowledge::Importer::WorkerPool.new(
+      size: 1,
+      worker_factory: -> { EchoWorker.new },
+      channel: channel
+    )
+    pool.submit(seq: 0, payload: { framework: "Foo", header: "h0" })
+    pool.shutdown(wait: true)
+    item = nil
+    channel.each_ordered { |i| item = i }
+    assert_equal "h0", item[:payload][:request][:header]
+    assert_equal "Foo", item[:payload][:request][:framework]
+  end
+
+  class CrashWorker
+    def call(framework:, header:)
+      Process.kill("KILL", $$)
+      sleep 1
+    end
+  end
+
+  def test_worker_crash_yields_error_payload_for_pending_seqs
+    channel = AppleSDKKnowledge::Importer::ResultChannel.new(buffer_size: 16)
+    pool = AppleSDKKnowledge::Importer::WorkerPool.new(
+      size: 1,
+      worker_factory: -> { CrashWorker.new },
+      channel: channel
+    )
+    pool.submit(seq: 0, payload: { framework: "Foo", header: "h0" })
+    pool.shutdown(wait: true)
+    collected = []
+    channel.each_ordered { |i| collected << i }
+    assert_equal 1, collected.size
+    assert_nil collected[0][:payload][:result]
+    assert_match(/worker crashed/, collected[0][:payload][:error])
+  end
 end
