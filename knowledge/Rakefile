@@ -12,6 +12,12 @@ end
 
 task default: :test
 
+Rake::TestTask.new(:integration) do |t|
+  t.libs << "test"
+  t.libs << "lib"
+  t.test_files = FileList["test/integration/test_*.rb"]
+end
+
 namespace :apple do
   namespace :knowledge do
     desc "Rebuild the local SDK knowledge base"
