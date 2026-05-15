@@ -11,12 +11,16 @@ class TestDispatcher < Test::Unit::TestCase
   end
 
   class FakeCache
-    def initialize; @hits = {}; end
+    attr_reader :attempts
+    def initialize; @hits = {}; @attempts = []; end
     def lookup(framework:, symbol:); @hits[[framework, symbol]]; end
     def fake_hit!(framework, symbol, exported, dylib)
       @hits[[framework, symbol]] = {
         glue_id: "g", dylib_path: dylib, exported_symbol: exported, generator: "template"
       }
+    end
+    def record_attempt(**kwargs)
+      @attempts << kwargs
     end
   end
 
@@ -124,5 +128,76 @@ class TestDispatcher < Test::Unit::TestCase
     assert_raise(AppleSDKMac::GlueCompileError) do
       d.dispatch(framework: "CoreMIDI", symbol: "MIDIClientCreate", args: [])
     end
+  end
+
+  # NS-0 — Dispatcher が 3 typed raise 経路で compile_history.record_attempt
+  # を必ず呼ぶ contract をピン止めする。 telemetry jsonl と compile_history
+  # SQLite の二重観測点を維持。
+
+  def test_record_attempt_on_symbol_missing
+    cache = FakeCache.new
+    loader = FakeLoader.new
+    d = AppleSDKMac::Dispatcher.new(
+      knowledge_cache: FakeKnowledge.new, glue_cache: cache,
+      loader: loader, compiler: nil
+    )
+    assert_raise(AppleSDKMac::SymbolMissingError) do
+      d.dispatch(framework: "CoreMIDI", symbol: "Missing")
+    end
+    assert_equal 1, cache.attempts.size
+    rec = cache.attempts.first
+    assert_equal "CoreMIDI", rec[:framework]
+    assert_equal "Missing", rec[:symbol]
+    assert_equal "symbol_missing", rec[:error_stage]
+    assert_equal "knowledge_lookup", rec[:generator]
+  end
+
+  class FakeCompilerUnsupported
+    def compile(**)
+      raise AppleSDKMac::UnsupportedPatternError.new(
+        pattern: "variadic+block",
+        framework: "Foundation",
+        symbol: "WeirdSym"
+      )
+    end
+  end
+
+  def test_record_attempt_on_unsupported_pattern
+    cache = FakeCache.new
+    loader = FakeLoader.new
+    d = AppleSDKMac::Dispatcher.new(
+      knowledge_cache: FakeKnowledge.new, glue_cache: cache,
+      loader: loader, compiler: FakeCompilerUnsupported.new
+    )
+    assert_raise(AppleSDKMac::UnsupportedPatternError) do
+      d.dispatch(framework: "Foundation", symbol: "WeirdSym")
+    end
+    assert_equal 1, cache.attempts.size
+    rec = cache.attempts.first
+    assert_equal "Foundation", rec[:framework]
+    assert_equal "WeirdSym", rec[:symbol]
+    assert_equal "unsupported_pattern", rec[:error_stage]
+    assert_match(/variadic\+block/, rec[:error_detail])
+  end
+
+  class FakeCompilerNoOp
+    def compile(**); end  # no exception, but also produces no cache row
+  end
+
+  def test_record_attempt_on_compile_failed
+    cache = FakeCache.new
+    loader = FakeLoader.new
+    d = AppleSDKMac::Dispatcher.new(
+      knowledge_cache: FakeKnowledge.new, glue_cache: cache,
+      loader: loader, compiler: FakeCompilerNoOp.new
+    )
+    assert_raise(AppleSDKMac::GlueCompileError) do
+      d.dispatch(framework: "Foundation", symbol: "GhostSym")
+    end
+    assert_equal 1, cache.attempts.size
+    rec = cache.attempts.first
+    assert_equal "compile_failed", rec[:error_stage]
+    assert_equal "Foundation", rec[:framework]
+    assert_equal "GhostSym", rec[:symbol]
   end
 end

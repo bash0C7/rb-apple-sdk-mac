@@ -19,6 +19,13 @@ module AppleSDKMac
           symbol: symbol.to_s,
           detail: "no entry in Knowledge Base"
         )
+        @cache.record_attempt(
+          framework: framework.to_s,
+          symbol: symbol.to_s,
+          generator: "knowledge_lookup",
+          error_stage: "symbol_missing",
+          error_detail: "no entry in Knowledge Base"
+        )
         raise SymbolMissingError, "unknown symbol #{framework}::#{symbol}"
       end
 
@@ -33,11 +40,19 @@ module AppleSDKMac
         begin
           @compiler.compile(framework: framework, symbol: sym_meta)
         rescue UnsupportedPatternError => e
+          detail = e.respond_to?(:pattern) ? e.pattern.to_s : "unknown"
           Telemetry.append_event(
             stage: "unsupported_pattern",
             framework: framework.to_s,
             symbol: symbol.to_s,
-            detail: e.respond_to?(:pattern) ? e.pattern.to_s : "unknown"
+            detail: detail
+          )
+          @cache.record_attempt(
+            framework: framework.to_s,
+            symbol: symbol.to_s,
+            generator: "template",
+            error_stage: "unsupported_pattern",
+            error_detail: detail
           )
           raise
         end
@@ -48,6 +63,13 @@ module AppleSDKMac
             framework: framework.to_s,
             symbol: symbol.to_s,
             detail: "compile produced no cache row"
+          )
+          @cache.record_attempt(
+            framework: framework.to_s,
+            symbol: symbol.to_s,
+            generator: "template",
+            error_stage: "compile_failed",
+            error_detail: "compile produced no cache row"
           )
           raise GlueCompileError, "compile failed for #{framework}::#{canonical}"
         end
