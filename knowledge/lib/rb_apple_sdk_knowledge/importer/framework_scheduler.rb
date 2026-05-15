@@ -63,54 +63,60 @@ module AppleSDKKnowledge
         headers = collect_header_paths(fw)
         swift_paths = collect_swift_paths(fw)
 
-        items = []
-        headers.each { |h| items << { kind: "objc_header", framework: fw.name, header: h } }
-        swift_paths.each { |p| items << { kind: "swift_interface", framework: fw.name, path: p } }
-
         processed = 0
         skipped = 0
         c_syms = []
         swift_syms = []
 
-        unless items.empty?
-          size = pool_size_for_framework(items.size)
-          channel = ResultChannel.new(buffer_size: items.size + size + 4)
+        # Swift interfaces are pure-Ruby parsing — no fork overhead needed.
+        swift_worker = SwiftInterfaceWorker.new
+        swift_paths.each do |path|
+          t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          result = swift_worker.call(framework: fw.name, path: path)
+          elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0) * 1000).to_i
+          if result[:error]
+            @reporter.header_done(framework: fw.name, header: path,
+                                  status: :error, elapsed_ms: elapsed_ms, error: result[:error])
+            skipped += 1
+          else
+            @reporter.header_done(framework: fw.name, header: path,
+                                  status: :ok, elapsed_ms: elapsed_ms)
+            swift_syms.concat(result[:result] || [])
+            processed += 1
+          end
+        end
+
+        # ObjC headers run clang in a subprocess — use WorkerPool for parallelism
+        # and process isolation (clang can crash without taking down the Ruby process).
+        unless headers.empty?
+          size = pool_size_for_framework(headers.size)
+          channel = ResultChannel.new(buffer_size: headers.size + size + 4)
           sdk = @sdk_path
           pool = WorkerPool.new(
             size: size,
-            worker_factory: -> do
-              objc = ObjCHeaderWorker.new(sdk_path: sdk)
-              swift = SwiftInterfaceWorker.new
-              ->(payload) do
-                case payload[:kind]
-                when "objc_header" then objc.call(framework: payload[:framework], header: payload[:header])
-                when "swift_interface" then swift.call(framework: payload[:framework], path: payload[:path])
-                end
-              end
-            end,
+            worker_factory: -> { ObjCHeaderWorker.new(sdk_path: sdk) },
             channel: channel
           )
 
-          items.each_with_index { |it, seq| pool.submit(seq: seq, payload: it) }
+          headers.each_with_index do |h, seq|
+            pool.submit(seq: seq, payload: { framework: fw.name, header: h })
+          end
           shutdown_thread = Thread.new { pool.shutdown(wait: true) }
 
           channel.each_ordered do |item|
             response = item[:payload]
             request = response[:request]
-            target_path = request && (request[:header] || request[:path])
+            header_path = request && request[:header]
             if response[:error]
-              @reporter.header_done(framework: fw.name, header: target_path,
+              @reporter.header_done(framework: fw.name, header: header_path,
                                     status: :error, elapsed_ms: response[:elapsed_ms],
                                     error: response[:error])
               skipped += 1
-              next
-            end
-            @reporter.header_done(framework: fw.name, header: target_path,
-                                  status: :ok, elapsed_ms: response[:elapsed_ms])
-            processed += 1
-            case request[:kind]
-            when "objc_header" then c_syms.concat(response[:result] || [])
-            when "swift_interface" then swift_syms.concat(response[:result] || [])
+            else
+              @reporter.header_done(framework: fw.name, header: header_path,
+                                    status: :ok, elapsed_ms: response[:elapsed_ms])
+              c_syms.concat(response[:result] || [])
+              processed += 1
             end
           end
           shutdown_thread.join
