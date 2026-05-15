@@ -19,7 +19,8 @@ module AppleSDKMac
           symbol: symbol.to_s,
           detail: "no entry in Knowledge Base"
         )
-        @cache.record_attempt(
+        # "knowledge_lookup" tags the pre-compile Knowledge Base lookup phase (no generator yet).
+        safe_record_attempt(
           framework: framework.to_s,
           symbol: symbol.to_s,
           generator: "knowledge_lookup",
@@ -47,7 +48,7 @@ module AppleSDKMac
             symbol: symbol.to_s,
             detail: detail
           )
-          @cache.record_attempt(
+          safe_record_attempt(
             framework: framework.to_s,
             symbol: symbol.to_s,
             generator: "template",
@@ -64,7 +65,7 @@ module AppleSDKMac
             symbol: symbol.to_s,
             detail: "compile produced no cache row"
           )
-          @cache.record_attempt(
+          safe_record_attempt(
             framework: framework.to_s,
             symbol: symbol.to_s,
             generator: "template",
@@ -80,6 +81,24 @@ module AppleSDKMac
         exported_symbol: cache_hit[:exported_symbol]
       )
       @loader.invoke(fn_ptr, args)
+    end
+
+    private
+
+    # Non-fatal wrapper around @cache.record_attempt. If the underlying SQLite
+    # write raises (locked DB / disk full / schema mismatch), we log the
+    # secondary failure to Telemetry under stage="record_attempt_failed" and
+    # swallow it, so the caller's intended typed error (SymbolMissingError /
+    # UnsupportedPatternError / GlueCompileError) survives unchanged.
+    def safe_record_attempt(**kwargs)
+      @cache.record_attempt(**kwargs)
+    rescue => record_err
+      Telemetry.append_event(
+        stage: "record_attempt_failed",
+        framework: kwargs[:framework],
+        symbol: kwargs[:symbol],
+        detail: "#{record_err.class}: #{record_err.message}"
+      )
     end
   end
 end

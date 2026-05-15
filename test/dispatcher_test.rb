@@ -199,5 +199,6 @@ class TestDispatcher < Test::Unit::TestCase
     assert_equal "compile_failed", rec[:error_stage]
     assert_equal "Foundation", rec[:framework]
     assert_equal "GhostSym", rec[:symbol]
+    assert_equal "compile produced no cache row", rec[:error_detail]
   end
 end
