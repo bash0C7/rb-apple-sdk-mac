@@ -73,7 +73,7 @@ class TestDispatcher < Test::Unit::TestCase
       knowledge_cache: FakeKnowledge.new, glue_cache: cache,
       loader: FakeLoader.new, compiler: nil
     )
-    assert_raise(AppleSDKMac::Error) do
+    assert_raise(AppleSDKMac::SymbolMissingError) do
       d.dispatch(framework: "CoreMIDI", symbol: "Missing", args: [])
     end
   end
@@ -121,7 +121,7 @@ class TestDispatcher < Test::Unit::TestCase
       knowledge_cache: FakeKnowledge.new, glue_cache: cache,
       loader: FakeLoader.new, compiler: FakeCompilerThatFails.new
     )
-    assert_raise(AppleSDKMac::Error) do
+    assert_raise(AppleSDKMac::GlueCompileError) do
       d.dispatch(framework: "CoreMIDI", symbol: "MIDIClientCreate", args: [])
     end
   end
