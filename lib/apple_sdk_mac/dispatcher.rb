@@ -92,7 +92,7 @@ module AppleSDKMac
     # UnsupportedPatternError / GlueCompileError) survives unchanged.
     def safe_record_attempt(**kwargs)
       @cache.record_attempt(**kwargs)
-    rescue => record_err
+    rescue StandardError => record_err
       Telemetry.append_event(
         stage: "record_attempt_failed",
         framework: kwargs[:framework],
