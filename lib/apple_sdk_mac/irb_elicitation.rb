@@ -6,12 +6,15 @@ module AppleSDKMac
 
     def available?
       return false unless defined?(IRB)
-      IRB.CurrentContext
-      true
+      # IRB.CurrentContext は対話 session が無いと raise せず nil を返すため、
+      # 戻り値を消費して判定する。raise 依存だと irb が(直接 or transitive に)
+      # require されているだけのプロセスで true となり、elicit が stdin.gets で
+      # blocking する false-positive が起きる。
+      !IRB.CurrentContext.nil?
     rescue StandardError
       # boolean 判定としての rescue (No Silent Exception Swallowing の例外):
-      # IRB 周辺で例外が起きる = 対話 session が利用不可、を意味する明示的な
-      # false 返却。握り潰しではなく「利用可否を bool に畳む」判定。
+      # 将来 IRB 内部が CurrentContext で raise する場合の防御的な bool 畳み込み。
+      # 握り潰しではなく「利用可否を bool に畳む」判定。
       false
     end
 

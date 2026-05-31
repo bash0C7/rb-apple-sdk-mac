@@ -19,6 +19,28 @@ class IrbElicitationTest < Test::Unit::TestCase
     assert_false AppleSDKMac::IrbElicitation.available?
   end
 
+  # irb が(直接 or transitive に)require されているだけで対話 session が無い
+  # プロセスでは available? は false を返さねばならない。IRB.CurrentContext は
+  # session が無いと raise せず nil を返すため、戻り値を消費して判定する必要がある。
+  #
+  # require "irb" はプロセス全体で IRB を定義してしまい、同一プロセス内の
+  # test_available_returns_false_when_irb_not_defined (IRB 未定義前提) を実行順序に
+  # よっては壊す。独立性を保つため subprocess で検証する。
+  def test_available_returns_false_when_irb_loaded_but_no_session
+    lib = File.expand_path("../lib", __dir__)
+    script = <<~RUBY
+      $LOAD_PATH.unshift(#{lib.inspect})
+      require "irb"
+      require "apple_sdk_mac/irb_elicitation"
+      # irb は load されているが対話 session(CurrentContext)は無い
+      print AppleSDKMac::IrbElicitation.available?.inspect
+    RUBY
+    out = IO.popen([RbConfig.ruby, "-e", script], &:read)
+    status = $?
+    assert_true status.success?, "subprocess failed: #{out}"
+    assert_equal "false", out
+  end
+
   def test_elicit_returns_nil_when_not_available
     result = AppleSDKMac::IrbElicitation.elicit(
       framework: "CoreAudio", symbol_name: "AudioObjectGetPropertyDataSize",
