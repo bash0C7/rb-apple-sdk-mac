@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 require "digest"
+require "fileutils"
 require_relative "glue_compiler/template_generator"
 require_relative "glue_compiler/validation_gates"
 require_relative "glue_compiler/swiftc_invoker"
@@ -53,7 +54,63 @@ module AppleSDKMac
     private
 
     def try_inference(framework:, symbol:, reason:)
-      raise NotImplementedError, "inference wiring lands in Task 9"
+      glue_id = compute_glue_id(framework, symbol)
+      base = File.join(@cache.base_dir, @cache.sdk_version)
+      FileUtils.mkdir_p(File.join(base, "sources"))
+      FileUtils.mkdir_p(File.join(base, "lib"))
+      src = File.join(base, "sources", "#{glue_id}.swift")
+      dylib = File.join(base, "lib", "#{glue_id}.dylib")
+      swift_id = symbol[:name].to_s.gsub(/[^A-Za-z0-9_]/, "_")
+      exported = "glue_#{glue_id}_#{swift_id}"
+      gen = "inference:#{@inference_backend.name}"
+
+      swift_source = @inference_backend.generate_glue(
+        framework: framework, symbol: symbol, glue_id: glue_id, exported: exported
+      )
+      # gate / swiftc 失敗時は失敗 detail を添えて 1 回だけ再投入。
+      attempt = 0
+      while attempt < 2
+        if swift_source.nil? || swift_source.empty?
+          break
+        end
+        gate_result = @gates.validate(swift_source, framework: framework,
+                                                    glue_id: glue_id, symbol: swift_id)
+        if gate_result.pass?
+          File.write(src, swift_source)
+          ok, err = @swiftc.compile(source_path: src, dylib_path: dylib,
+                                    runtime_dylib_path: @runtime_dylib_path,
+                                    module_search_paths: @runtime_modules_paths)
+          if ok
+            @cache.insert(glue_id: glue_id, framework: framework, symbol: symbol[:name],
+                          swift_source: swift_source, dylib_path: dylib,
+                          exported_symbol: exported, generator: gen)
+            return Result.new(success?: true, glue_id: glue_id, generator: gen,
+                              dylib_path: dylib, exported_symbol: exported)
+          end
+          fail_detail = "swiftc: #{err}"
+        else
+          fail_detail = "static_check: #{gate_result.errors.join('; ')}"
+        end
+        attempt += 1
+        break if attempt >= 2
+        # 1 回だけ失敗 detail を添えて再投入 (backend が retry hint を受けない
+        # 実装なら同じ結果になるが、契約上 1 回試みる)。
+        @cache.record_attempt(framework: framework, symbol: symbol[:name],
+                              generator: gen, error_stage: "inference_retry",
+                              error_detail: fail_detail)
+        swift_source = @inference_backend.generate_glue(
+          framework: framework, symbol: symbol, glue_id: glue_id, exported: exported
+        )
+      end
+
+      @cache.record_attempt(framework: framework, symbol: symbol[:name],
+                            generator: gen, error_stage: "inference_failed",
+                            error_detail: reason)
+      raise OutOfCoverageError.new(
+        framework: framework.to_s, symbol: symbol[:name].to_s,
+        pattern: symbol[:kind].to_s,
+        reason: "#{reason}; inference backend #{@inference_backend.name} could not produce valid glue"
+      )
     end
 
     def try_template(framework:, symbol:)

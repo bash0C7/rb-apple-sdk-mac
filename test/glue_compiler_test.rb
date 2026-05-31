@@ -142,3 +142,62 @@ class GlueCompilerCoverageBoundaryTest < Test::Unit::TestCase
     cache
   end
 end
+
+class GlueCompilerInferenceTest < Test::Unit::TestCase
+  # backend が valid Swift を返し、gate/swiftc が通れば cache.insert され成功。
+  def test_inference_success_inserts_with_inference_generator
+    inserted = {}
+    cache = Object.new
+    cache.define_singleton_method(:base_dir) { Dir.mktmpdir }
+    cache.define_singleton_method(:sdk_version) { "26.5" }
+    cache.define_singleton_method(:record_attempt) { |**| }
+    cache.define_singleton_method(:insert) { |**kw| inserted.replace(kw) }
+
+    fake_template = Object.new
+    def fake_template.generate(**) = nil   # template は必ず nil → 範囲外へ
+
+    gates = Object.new
+    def gates.validate(*, **) = Struct.new(:pass?, :errors).new(true, [])
+    swiftc = Object.new
+    def swiftc.compile(**) = [true, nil]
+
+    backend = Object.new
+    def backend.name = "claude_p"
+    def backend.generate_glue(**) = "@c public func glue_x_Sym() {}"
+
+    compiler = AppleSDKMac::GlueCompiler.new(
+      cache: cache, runtime_dylib_path: "/tmp/none.dylib",
+      template_generator: fake_template, gates: gates, swiftc_invoker: swiftc,
+      inference_backend: backend
+    )
+    sym = { name: "Sym", kind: "swift_macro", abi: "swift", signature: "()",
+            parameters_json: "[]" }   # 範囲外 kind
+    result = compiler.compile(framework: "F", symbol: sym)
+    assert_true result.success?
+    assert_equal "inference:claude_p", result.generator
+    assert_equal "inference:claude_p", inserted[:generator]
+  end
+
+  # backend が nil を返したら OutOfCoverageError。
+  def test_inference_nil_raises_out_of_coverage
+    cache = Object.new
+    cache.define_singleton_method(:base_dir) { Dir.mktmpdir }
+    cache.define_singleton_method(:sdk_version) { "26.5" }
+    cache.define_singleton_method(:record_attempt) { |**| }
+    fake_template = Object.new
+    def fake_template.generate(**) = nil
+    backend = Object.new
+    def backend.name = "claude_p"
+    def backend.generate_glue(**) = nil
+
+    compiler = AppleSDKMac::GlueCompiler.new(
+      cache: cache, runtime_dylib_path: "/tmp/none.dylib",
+      template_generator: fake_template, inference_backend: backend
+    )
+    sym = { name: "Sym", kind: "swift_macro", abi: "swift", signature: "()",
+            parameters_json: "[]" }
+    assert_raise(AppleSDKMac::OutOfCoverageError) do
+      compiler.compile(framework: "F", symbol: sym)
+    end
+  end
+end
