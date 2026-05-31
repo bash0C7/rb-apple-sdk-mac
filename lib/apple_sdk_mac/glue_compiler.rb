@@ -3,6 +3,7 @@ require "digest"
 require_relative "glue_compiler/template_generator"
 require_relative "glue_compiler/validation_gates"
 require_relative "glue_compiler/swiftc_invoker"
+require_relative "coverage_contract"
 
 module AppleSDKMac
   class GlueCompiler
@@ -14,20 +15,46 @@ module AppleSDKMac
                     swiftc_invoker: nil,
                     template_generator: nil,
                     knowledge_cache: nil,
-                    gates: nil)
+                    gates: nil,
+                    inference_backend: nil,
+                    coverage_contract: nil)
       @cache = cache
       @runtime_dylib_path = runtime_dylib_path
       @runtime_modules_paths = runtime_modules_paths
       @template = template_generator || GlueCompiler::TemplateGenerator.new(knowledge_cache: knowledge_cache)
       @gates = gates || GlueCompiler::ValidationGates.new
       @swiftc = swiftc_invoker || GlueCompiler::SwiftcInvoker.new
+      @inference_backend = inference_backend
+      @contract = coverage_contract || CoverageContract.new
     end
 
     def compile(framework:, symbol:)
-      try_template(framework: framework, symbol: symbol)
+      result = try_template(framework: framework, symbol: symbol)
+      return result if result.success?
+
+      # template が成功しなかった。契約範囲内なら「穴」= バグなので
+      # Result(success?:false) をそのまま返す(呼び出し側で別途修正対象)。
+      # 範囲外なら inference backend に委譲、無効なら loud fail。
+      if @contract.covered?(symbol)
+        return result
+      end
+
+      reason = @contract.uncovered_reason(symbol) || "uncovered shape"
+      if @inference_backend
+        return try_inference(framework: framework, symbol: symbol, reason: reason)
+      end
+
+      raise OutOfCoverageError.new(
+        framework: framework.to_s, symbol: symbol[:name].to_s,
+        pattern: symbol[:kind].to_s, reason: reason
+      )
     end
 
     private
+
+    def try_inference(framework:, symbol:, reason:)
+      raise NotImplementedError, "inference wiring lands in Task 9"
+    end
 
     def try_template(framework:, symbol:)
       glue_id = compute_glue_id(framework, symbol)

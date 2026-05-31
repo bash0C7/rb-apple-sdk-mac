@@ -56,6 +56,21 @@ module AppleSDKMac
             error_detail: detail
           )
           raise
+        rescue OutOfCoverageError => e
+          Telemetry.append_event(
+            stage: "out_of_coverage",
+            framework: framework.to_s,
+            symbol: symbol.to_s,
+            detail: e.reason
+          )
+          safe_record_attempt(
+            framework: framework.to_s,
+            symbol: symbol.to_s,
+            generator: "coverage_boundary",
+            error_stage: "out_of_coverage",
+            error_detail: e.reason
+          )
+          raise
         end
         cache_hit = @cache.lookup(framework: framework, symbol: canonical)
         if cache_hit.nil?

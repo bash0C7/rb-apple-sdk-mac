@@ -95,3 +95,50 @@ class TestGlueCompiler < Test::Unit::TestCase
     end
   end
 end
+
+class GlueCompilerCoverageBoundaryTest < Test::Unit::TestCase
+  # template が nil を返し、かつ契約範囲外なら OutOfCoverageError。
+  def test_out_of_coverage_raises_when_backend_none
+    fake_template = Object.new
+    def fake_template.generate(**) = nil   # 常に template_nil
+    cache = make_fake_cache
+    compiler = AppleSDKMac::GlueCompiler.new(
+      cache: cache, runtime_dylib_path: "/tmp/none.dylib",
+      template_generator: fake_template,
+      inference_backend: nil   # :none 相当
+    )
+    sym = { name: "WeirdMacro", kind: "swift_macro", abi: "swift",
+            signature: "()", parameters_json: "[]" }
+    assert_raise(AppleSDKMac::OutOfCoverageError) do
+      compiler.compile(framework: "Foo", symbol: sym)
+    end
+  end
+
+  # 範囲内 (covered) で template が nil の場合は OutOfCoverageError を上げず
+  # success?:false Result を返す (これは「穴」= バグとして別途修正対象)。
+  def test_in_coverage_template_nil_returns_failed_result_not_raise
+    fake_template = Object.new
+    def fake_template.generate(**) = nil
+    cache = make_fake_cache
+    compiler = AppleSDKMac::GlueCompiler.new(
+      cache: cache, runtime_dylib_path: "/tmp/none.dylib",
+      template_generator: fake_template, inference_backend: nil
+    )
+    sym = { name: "AudioObjectGetPropertyDataSize", kind: "function", abi: "c",
+            signature: "()",
+            parameters_json: JSON.generate([{ "type" => "UInt32*", "is_out_param" => true, "kind" => "int" }]) }
+    result = compiler.compile(framework: "CoreAudio", symbol: sym)
+    assert_false result.success?
+    assert_equal "template_nil", result.error_stage
+  end
+
+  private
+
+  def make_fake_cache
+    cache = Object.new
+    def cache.base_dir = "/tmp"
+    def cache.sdk_version = "26.5"
+    def cache.record_attempt(**) = nil
+    cache
+  end
+end
