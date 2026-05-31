@@ -27,3 +27,12 @@ lib/**/*.bundle.dSYM/
 
 # rake test transient cache (KB / glue dispatch). Always cleared before rake test.
 .rb-apple-sdk-mac/
+
+# Development process docs (spec / plan / handoff / smoke notes): kept on disk,
+# excluded from version control per ~/dev/src/CLAUDE.md. Public docs
+# (README / CHANGELOG / LICENSE) live at repo root and stay tracked.
+/docs/
+/HANDOFF*.md
+/SPEC*.md
+/PLAN*.md
+/NOTES*.md
