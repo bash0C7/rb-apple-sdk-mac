@@ -32,6 +32,13 @@ class InferenceRoundTripPocTest < Test::Unit::TestCase
   AUDIO_SCOPE_GLOBAL  = 0x676c6f62       # 'glob' kAudioObjectPropertyScopeGlobal
   AUDIO_ELEMENT_MAIN  = 0
 
+  # A generated glue that fails to compile (or is malformed) is a failed attempt,
+  # i.e. a round-trip RED — exactly what the closed loop must catch, feed back,
+  # and retry (matching production GlueCompiler, where a compile failure yields
+  # success?=false). It is NOT a test-infrastructure failure, so it must not
+  # flunk: harness_check_for rescues it into green?=false so PocLoop can retry.
+  GlueRed = Class.new(StandardError)
+
   def setup
     omit "PoC gate off (set RB_APPLE_SDK_MAC_POC=1)" unless ENV["RB_APPLE_SDK_MAC_POC"] == "1"
   end
@@ -89,7 +96,8 @@ class InferenceRoundTripPocTest < Test::Unit::TestCase
         framework: "CoreAudio", symbol: symbol, rule_scaffold: rule_scaffold_for(symbol)
       )
     rescue AppleSDKMac::RoundTrip::PocLoop::LoudFail => e
-      flunk "context 注入後も green に転じなかった: bare=#{bare_outcome.inspect} #{e.message}"
+      flunk "context 注入後も green に転じなかった: bare=#{bare_outcome.inspect} #{e.message}\n" \
+            "last glue RED detail: #{@last_glue_red}"
     end
     assert_true resume_outcome.green?,
                 "context 注入で RED が green に転じること (resume attempts=#{resume_outcome.attempts})"
@@ -140,6 +148,12 @@ class InferenceRoundTripPocTest < Test::Unit::TestCase
         ruby_runner: -> { call_ruby_via_glue(glue) }
       )
       harness.check(framework: "CoreAudio", symbol: symbol, value_kind: :value).green?
+    rescue GlueRed => e
+      # Glue did not compile / was malformed: round-trip RED. Stash the detail so
+      # an end-of-run diagnostic can surface it, then signal RED so PocLoop feeds
+      # the failure back and retries (or LoudFails when budget is exhausted).
+      @last_glue_red = e.message
+      false
     end
   end
 
@@ -185,7 +199,7 @@ class InferenceRoundTripPocTest < Test::Unit::TestCase
         runtime_dylib_path: runtime_dylib_path,
         module_search_paths: runtime_modules_paths
       )
-      flunk "glue compile failed: #{err}\n--- source ---\n#{glue}" unless ok
+      raise GlueRed, "glue did not compile (round-trip RED): #{err}\n--- source ---\n#{glue}" unless ok
       loader = AppleSDKMac::GlueLoader.new
       fn_ptr = loader.load(dylib_path: dylib, exported_symbol: exported)
       loader.invoke(fn_ptr, glue_invoke_args)
@@ -275,7 +289,7 @@ class InferenceRoundTripPocTest < Test::Unit::TestCase
   # Parse `public func glue_<id>_<name>(` to recover the exported C symbol.
   def extract_exported_symbol(glue)
     m = glue.match(/public\s+func\s+(glue_[A-Za-z0-9_]+)\s*\(/)
-    raise "could not find exported glue function in generated source" unless m
+    raise GlueRed, "malformed glue (round-trip RED): no exported glue_<id>_<name> function found" unless m
     m[1]
   end
 
