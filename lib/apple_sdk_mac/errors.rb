@@ -97,15 +97,34 @@ module AppleSDKMac
   # (which marks Knowledge-Base-flagged unbridgeable shapes): OutOfCoverageError
   # is the loud-fail boundary of the *currently guaranteed* rule coverage.
   class OutOfCoverageError < Error
-    attr_reader :framework, :symbol, :pattern, :reason
+    # Raised by retry_with(context:) when no inference backend was configured
+    # at the time the OutOfCoverageError was constructed, so there is nothing
+    # to re-run with the user-supplied hint.
+    RetryUnavailableError = Class.new(Error)
 
-    def initialize(framework:, symbol:, pattern:, reason:)
+    attr_reader :framework, :symbol, :pattern, :reason, :last_failure_detail
+
+    def initialize(framework:, symbol:, pattern:, reason:,
+                   retry_proc: nil, last_failure_detail: nil)
       @framework = framework
       @symbol = symbol
       @pattern = pattern
       @reason = reason
+      @retry_proc = retry_proc
+      @last_failure_detail = last_failure_detail
       super("#{framework}::#{symbol} is outside rule-based coverage " \
             "(pattern=#{pattern}): #{reason}")
+    end
+
+    # ユーザが埋まっていない gap を埋めるヒント (context) を渡して推論を再開する。
+    # inference backend が構築時に配線されていなければ RetryUnavailableError。
+    def retry_with(context:)
+      unless @retry_proc
+        raise RetryUnavailableError,
+          "retry_with is only available when an inference backend is configured. " \
+          "Initialize Apple SDK with an inference backend to enable this."
+      end
+      @retry_proc.call(context: context)
     end
   end
 end

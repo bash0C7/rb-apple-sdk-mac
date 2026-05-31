@@ -122,10 +122,18 @@ module AppleSDKMac
       @cache.record_attempt(framework: framework, symbol: symbol[:name],
                             generator: gen, error_stage: "inference_exhausted",
                             error_detail: last_failure)
+      # budget 枯渇。ユーザが retry_with(context:) で gap ヒントを渡したら
+      # 同 framework/symbol/reason の inference を context 付きで再開できるよう
+      # 自己再帰 lambda を error に持たせる。
+      retry_proc = ->(context:) {
+        try_inference(framework: framework, symbol: symbol, reason: reason, context: context)
+      }
       raise OutOfCoverageError.new(
         framework: framework.to_s, symbol: symbol[:name].to_s,
         pattern: symbol[:kind].to_s,
-        reason: "#{reason}; inference exhausted budget=#{@inference_budget}"
+        reason: "#{reason}; inference exhausted budget=#{@inference_budget}",
+        retry_proc: retry_proc,
+        last_failure_detail: last_failure
       )
     end
 

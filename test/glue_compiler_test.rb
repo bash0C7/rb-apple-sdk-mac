@@ -268,4 +268,56 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     end
     assert_match(/exhausted budget=2/, err.reason)
   end
+
+  # budget 枯渇で raise された OutOfCoverageError から retry_with(context:) を
+  # 呼ぶと, backend が context 入り seed で再試行され green になる統合契約。
+  # mock backend は seed[:context] が来たときだけ valid swift を返すので、
+  # context が実際に backend まで伝搬していないと success にならない (非トートロジー)。
+  def test_retry_with_resumes_inference_with_user_context_and_succeeds
+    seen_contexts = []
+    backend = Object.new
+    backend.define_singleton_method(:name) { "claude_p" }
+    backend.define_singleton_method(:generate_glue) do |**kw|
+      ctx = kw[:seed][:context]
+      seen_contexts << ctx
+      ctx ? "@c public func glue_x_Sym() {}" : nil
+    end
+
+    fake_template = Object.new
+    fake_template.define_singleton_method(:generate) { |**| nil }
+
+    cache = Object.new
+    cache.define_singleton_method(:base_dir) { Dir.mktmpdir }
+    cache.define_singleton_method(:sdk_version) { "26.5" }
+    cache.define_singleton_method(:record_attempt) { |**| }
+    cache.define_singleton_method(:insert) { |**| }
+
+    gates = Object.new
+    gates.define_singleton_method(:validate) { |*, **| Struct.new(:pass?, :errors).new(true, []) }
+
+    swiftc = Object.new
+    swiftc.define_singleton_method(:compile) { |**| [true, nil] }
+
+    compiler = AppleSDKMac::GlueCompiler.new(
+      cache: cache, runtime_dylib_path: "/dev/null",
+      template_generator: fake_template, gates: gates,
+      swiftc_invoker: swiftc, inference_backend: backend,
+      inference_budget: 1
+    )
+    sym = { name: "Sym", kind: "swift_macro", abi: "swift", signature: "()", parameters_json: "[]" }
+
+    # context 無しでは budget 枯渇 → OutOfCoverageError。
+    err = assert_raise(AppleSDKMac::OutOfCoverageError) do
+      compiler.compile(framework: "F", symbol: sym)
+    end
+    assert_nil seen_contexts.last, "first run should see no user context"
+    assert_not_nil err.last_failure_detail, "error should carry the last failure detail"
+
+    # retry_with(context:) で gap ヒントを渡すと backend が context 入り seed で再試行。
+    result = err.retry_with(context: "Use UInt32 return type")
+    assert_true result.success?, "retry with user context should succeed"
+    assert_equal "inference:claude_p", result.generator
+    assert_equal "Use UInt32 return type", seen_contexts.last,
+      "user context must reach the backend seed on retry"
+  end
 end
