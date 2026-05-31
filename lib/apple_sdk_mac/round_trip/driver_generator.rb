@@ -50,13 +50,15 @@ module AppleSDKMac
 
       def setter_body(symbol)
         # set → getter 読み戻し。set 値と readback を一緒に吐く。
-        # set_value はそのまま Swift リテラルとして埋め込むので、JSON を壊す
-        # unescaped double-quote を含む値は拒否する (numeric か single-quoted literal を使う)。
+        # set_value はそのまま raw-string JSON にも Swift リテラルにも埋め込まれる。
+        # double-quote を含む値は JSON を壊すため拒否する。single-quote literal も
+        # raw-string にそのまま入ると invalid JSON ('a' は JSON 値として不正) になるので、
+        # numeric Swift リテラルのみを推奨する。
         set_value = symbol[:set_value].to_s
         if set_value.include?('"')
           raise ArgumentError,
-            "setter_body set_value must not contain unescaped double-quote (got: #{set_value.inspect}). " \
-            "Use a numeric or single-quoted Swift literal."
+            "setter_body set_value must not contain a double-quote (got: #{set_value.inspect}). " \
+            "Use a numeric Swift literal."
         end
         <<~SWIFT
           #{symbol[:set_expr]}

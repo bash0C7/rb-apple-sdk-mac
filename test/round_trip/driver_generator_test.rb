@@ -69,6 +69,6 @@ class DriverGeneratorTest < Test::Unit::TestCase
     src = AppleSDKMac::RoundTrip::DriverGenerator.generate(
       framework: "F", symbol: sym, value_kind: :setter
     )
-    assert_match(/42/, src)
+    assert_match(/"set":42/, src)
   end
 end
