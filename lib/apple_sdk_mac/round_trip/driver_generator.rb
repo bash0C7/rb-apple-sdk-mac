@@ -42,7 +42,7 @@ module AppleSDKMac
         <<~SWIFT
           let __o = #{symbol[:call_expr]}
           let __t = String(describing: type(of: __o))
-          emit(#"{"type":"\#(__t)","null":false}"#)
+          emit(#"{"type":"\\#(__t)","null":false}"#)
         SWIFT
       end
 
@@ -51,7 +51,7 @@ module AppleSDKMac
         <<~SWIFT
           #{symbol[:set_expr]}
           let __rb = #{symbol[:read_expr]}
-          emit(#"{"set":#{symbol[:set_value]},"readback":\#(__rb)}"#)
+          emit(#"{"set":#{symbol[:set_value]},"readback":\\#(__rb)}"#)
         SWIFT
       end
     end
