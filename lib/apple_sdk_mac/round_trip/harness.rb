@@ -38,8 +38,8 @@ module AppleSDKMac
         line = stdout.to_s.each_line.find { |l| l.start_with?("RTRESULT:") }
         return nil unless line
         JSON.parse(line.sub("RTRESULT:", "").strip)
-      rescue JSON::ParserError => e
-        nil # parse 不能は RTRESULT 無し扱い (detail は呼び出し側で表面化)
+      rescue JSON::ParserError
+        nil # parse 不能は RTRESULT 無し扱い (caller が raw stdout 付き "no RTRESULT" detail で表面化)
       end
 
       # value_kind ごとに driver JSON から比較対象を取り出す。
