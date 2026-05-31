@@ -57,7 +57,7 @@ module AppleSDKMac
         next unless parts.size == 2
         entries << {
           framework: parts[0],
-          symbol_name: File.basename(parts[1], ".swift"),
+          symbol_name: unsafe_name(File.basename(parts[1], ".swift")),
           path: path
         }
       end
@@ -91,6 +91,13 @@ module AppleSDKMac
     # symbols are ASCII); the `_%02X` format would widen for >255 ordinals but
     # those do not occur here.
     def safe_name(name) = name.to_s.gsub(/[^A-Za-z0-9]/) { |c| format("_%02X", c.ord) }
+
+    # Inverse of safe_name: decode each `_XX` (XX = 2-digit uppercase hex) back
+    # to its byte. Alphanumerics never produce `_XX`, and `_` itself is always
+    # encoded as `_5F`, so this decode is unambiguous — it reconstructs the
+    # original symbol name exactly. Used by all_entries to surface the original
+    # (un-mangled) symbol for user-facing display (e.g. apple:tier1:list).
+    def unsafe_name(name) = name.gsub(/_([0-9A-F]{2})/) { $1.to_i(16).chr }
 
     def swift_path(fw, name) = File.join(framework_dir(fw), "#{safe_name(name)}.swift")
   end

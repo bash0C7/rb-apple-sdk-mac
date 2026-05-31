@@ -45,6 +45,19 @@ class GlueStoreTest < Test::Unit::TestCase
     assert_equal %w[CoreAudio Foundation], frameworks
   end
 
+  def test_all_entries_returns_decoded_original_symbol_name
+    @store.store(framework: "Foundation", symbol_name: "NSString.foo", swift_source: "// glue")
+    entries = @store.all_entries
+    assert_equal 1, entries.size
+    assert_equal "NSString.foo", entries.first[:symbol_name],
+                 "all_entries must decode the injective-escaped filename back to the original symbol"
+  end
+
+  def test_all_entries_decodes_objc_selector
+    @store.store(framework: "CoreAudio", symbol_name: "AudioObjectGetProperty:", swift_source: "// g")
+    assert_equal "AudioObjectGetProperty:", @store.all_entries.first[:symbol_name]
+  end
+
   def test_safe_name_is_injective_no_collision
     # "NSString.foo" and literal "NSString_foo" must NOT collapse to the same
     # path. With a lossy gsub(/[^A-Za-z0-9_]/, "_") both became "NSString_foo"
