@@ -5,6 +5,7 @@ require_relative "glue_compiler/template_generator"
 require_relative "glue_compiler/validation_gates"
 require_relative "glue_compiler/swiftc_invoker"
 require_relative "coverage_contract"
+require_relative "irb_elicitation"
 
 module AppleSDKMac
   class GlueCompiler
@@ -117,6 +118,16 @@ module AppleSDKMac
                            swift_source: swift_source)
         return Result.new(success?: true, glue_id: glue_id, generator: gen,
                           dylib_path: dylib, exported_symbol: exported)
+      end
+
+      # §3b: 対話実行中 (IRB) なら budget 枯渇時にその場で context を問い合わせ、
+      # 閉ループに再投入する。context.nil? ガードで retry_with(context:) 経由
+      # (既に context あり) の再試行では elicit せず、無限ループを防ぐ。
+      if context.nil? && IrbElicitation.available?
+        hint = IrbElicitation.elicit(framework: framework.to_s, symbol_name: symbol[:name].to_s)
+        if hint
+          return try_inference(framework: framework, symbol: symbol, reason: reason, context: hint)
+        end
       end
 
       @cache.record_attempt(framework: framework, symbol: symbol[:name],

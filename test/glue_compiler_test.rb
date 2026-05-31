@@ -320,4 +320,57 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     assert_equal "Use UInt32 return type", seen_contexts.last,
       "user context must reach the backend seed on retry"
   end
+
+  # test-unit 3.x は stub を同梱しないため、依存追加せず plain Ruby で
+  # singleton method を一時差し替え (ensure で復元)。
+  def with_stub(mod, name, value)
+    original = mod.method(name)
+    mod.define_singleton_method(name) { |*_args, **_kw| value }
+    yield
+  ensure
+    mod.singleton_class.send(:remove_method, name)
+    mod.define_singleton_method(name, original)
+  end
+
+  # §3b: budget 枯渇時、IRB session 中なら elicit した context を閉ループに
+  # 再投入して成功する経路。
+  def test_irb_elicitation_invoked_on_budget_exhaustion_in_irb_session
+    backend = Object.new
+    backend.define_singleton_method(:name) { "claude_p" }
+    contexts_received = []
+    backend.define_singleton_method(:generate_glue) do |**kw|
+      contexts_received << kw.dig(:seed, :context)
+      kw.dig(:seed, :context) ? "@c public func glue_x_Sym() {}" : nil
+    end
+
+    fake_template = Object.new
+    fake_template.define_singleton_method(:generate) { |**| nil }
+
+    cache = Object.new
+    cache.define_singleton_method(:base_dir) { Dir.mktmpdir }
+    cache.define_singleton_method(:sdk_version) { "26.5" }
+    cache.define_singleton_method(:record_attempt) { |**| }
+    cache.define_singleton_method(:insert) { |**| }
+
+    gates = Object.new
+    gates.define_singleton_method(:validate) { |*, **| Struct.new(:pass?, :errors).new(true, []) }
+    swiftc = Object.new
+    swiftc.define_singleton_method(:compile) { |**| [true, nil] }
+
+    compiler = AppleSDKMac::GlueCompiler.new(
+      cache: cache, runtime_dylib_path: "/dev/null",
+      template_generator: fake_template, gates: gates,
+      swiftc_invoker: swiftc, inference_backend: backend,
+      inference_budget: 1
+    )
+    sym = { name: "Sym", kind: "swift_macro", abi: "swift", signature: "()", parameters_json: "[]" }
+
+    with_stub(AppleSDKMac::IrbElicitation, :available?, true) do
+      with_stub(AppleSDKMac::IrbElicitation, :elicit, "Use UInt32 return") do
+        result = compiler.compile(framework: "F", symbol: sym)
+        assert_true result.success?
+        assert_includes contexts_received, "Use UInt32 return"
+      end
+    end
+  end
 end
