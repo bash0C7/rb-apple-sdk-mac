@@ -49,7 +49,18 @@ module AppleSDKMac
     private
 
     def framework_dir(framework) = File.join(@base, framework)
-    def safe_name(name) = name.to_s.gsub(/[^A-Za-z0-9_]/, "_")
+
+    # Injective (collision-free) filename encoding. Every non-alphanumeric
+    # byte — including `_` itself — is escaped to `_XX` (XX = 2-digit uppercase
+    # hex of the byte's ordinal). Because `_` is always an escape marker in the
+    # output, distinct symbols never collapse to the same path
+    # (e.g. "NSString.foo" → "NSString_2Efoo" vs literal "NSString_foo" →
+    # "NSString_5Ffoo"). Alphanumerics pass through unchanged, preserving
+    # readability of plain identifiers. ASCII symbol names assumed (Apple SDK
+    # symbols are ASCII); the `_%02X` format would widen for >255 ordinals but
+    # those do not occur here.
+    def safe_name(name) = name.to_s.gsub(/[^A-Za-z0-9]/) { |c| format("_%02X", c.ord) }
+
     def swift_path(fw, name) = File.join(framework_dir(fw), "#{safe_name(name)}.swift")
   end
 end

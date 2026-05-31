@@ -45,6 +45,29 @@ class GlueStoreTest < Test::Unit::TestCase
     assert_equal %w[CoreAudio Foundation], frameworks
   end
 
+  def test_safe_name_is_injective_no_collision
+    # "NSString.foo" and literal "NSString_foo" must NOT collapse to the same
+    # path. With a lossy gsub(/[^A-Za-z0-9_]/, "_") both became "NSString_foo"
+    # and the second store silently overwrote the first (1 entry). The injective
+    # encoding keeps them distinct (2 entries), each looking up its own content.
+    @store.store(framework: "Foundation", symbol_name: "NSString.foo",
+                 swift_source: "// dotted")
+    @store.store(framework: "Foundation", symbol_name: "NSString_foo",
+                 swift_source: "// underscored")
+    assert_equal 2, @store.all_entries.size
+    assert_equal "// dotted", @store.lookup(framework: "Foundation", symbol_name: "NSString.foo")
+    assert_equal "// underscored", @store.lookup(framework: "Foundation", symbol_name: "NSString_foo")
+  end
+
+  def test_safe_name_injective_objc_selector
+    # ObjC selector "foo:bar:" must not collide with literal "foo_bar_".
+    @store.store(framework: "Foundation", symbol_name: "foo:bar:", swift_source: "// selector")
+    @store.store(framework: "Foundation", symbol_name: "foo_bar_", swift_source: "// literal")
+    assert_equal 2, @store.all_entries.size
+    assert_equal "// selector", @store.lookup(framework: "Foundation", symbol_name: "foo:bar:")
+    assert_equal "// literal", @store.lookup(framework: "Foundation", symbol_name: "foo_bar_")
+  end
+
   def test_store_creates_round_trip_test_when_provided
     @store.store(framework: "CoreAudio", symbol_name: "AudioSym",
                  swift_source: "// glue", round_trip_test: "# ruby test content")

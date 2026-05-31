@@ -102,12 +102,35 @@ namespace :apple do
       end
     end
 
-    desc "Clear Tier 1 glue store for the given SDK version (default: env SDK_VERSION or 26.5)"
+    desc "Clear Tier 1 glue store for the resolved SDK version " \
+         "(rb_apple_sdk_knowledge if available, else env SDK_VERSION or 26.5; same resolution as tier1:list)"
     task :clear do
       require "fileutils"
       require_relative "lib/apple_sdk_mac/cache_dir"
-      sdk_ver = ENV["SDK_VERSION"] || "26.5"
-      target = File.join(AppleSDKMac.cache_dir, "glue", sdk_ver)
+      # Resolve sdk_ver the same way tier1:list does so "what list shows is what
+      # clear removes". A library-provided version is trusted; only the ENV
+      # fallback (attacker-controllable) gets the regex guard below.
+      sdk_ver = begin
+        require "rb_apple_sdk_knowledge"
+        AppleSDKKnowledge::SDK.version
+      rescue LoadError
+        env = ENV["SDK_VERSION"] || "26.5"
+        # Guard against path traversal (e.g. SDK_VERSION="../../etc") before
+        # this value flows into File.join → rm_rf. Mirrors cache:clear_glue.
+        unless env =~ /\A[0-9.]+\z/
+          abort "invalid SDK_VERSION '#{env}' (expected digits and dots only)"
+        end
+        env
+      end
+      glue_root = File.join(AppleSDKMac.cache_dir, "glue")
+      target = File.join(glue_root, sdk_ver)
+      # Containment guard: refuse to rm_rf anything outside the Tier 1 glue root,
+      # even if the resolved version somehow escaped (defense in depth).
+      abs_target = File.expand_path(target)
+      abs_root = File.expand_path(glue_root)
+      unless abs_target.start_with?(abs_root + File::SEPARATOR)
+        abort "refusing to clear: #{abs_target} is outside the glue root #{abs_root}"
+      end
       if Dir.exist?(target)
         FileUtils.rm_rf(target)
         puts "Cleared Tier 1 store: #{target}"
