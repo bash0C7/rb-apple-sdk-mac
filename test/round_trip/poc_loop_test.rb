@@ -38,7 +38,7 @@ class PocLoopTest < Test::Unit::TestCase
     assert_equal "glue-v2", r.glue
     assert_equal 2, backend.calls.size
     # 2 回目の seed には直前失敗 detail と直前 glue が入る
-    assert_not_nil backend.calls[1][:last_failure]
+    assert_not_nil backend.calls[1][:failure_detail]
     assert_equal "glue-v1", backend.calls[1][:last_glue]
   end
 

@@ -209,7 +209,7 @@ class InferenceRoundTripPocTest < Test::Unit::TestCase
   # Adapter: PocLoop calls backend.generate_glue(framework:, symbol:, seed:),
   # but ClaudePBackend#generate_glue takes (framework:, symbol:, glue_id:,
   # exported:). This wrapper computes a stable glue_id/exported for the symbol,
-  # folds the seed (rule_scaffold / last_failure / last_glue / context) into the
+  # folds the seed (rule_scaffold / failure_detail / last_glue / context) into the
   # symbol meta the backend prompts on, and delegates to the real backend.
   def wrap_backend(backend, symbol, context: nil)
     test = self
@@ -237,8 +237,8 @@ class InferenceRoundTripPocTest < Test::Unit::TestCase
     if rule
       sig_parts << "// Reference (rule scaffold) — emit glue with the SAME struct-key lookups, out-param handling, and exported function name:\n#{rule}"
     end
-    if seed && seed[:last_failure]
-      sig_parts << "// Previous attempt was REJECTED (round-trip RED): #{seed[:last_failure]}. Fix the glue."
+    if seed && seed[:failure_detail]
+      sig_parts << "// Previous attempt was REJECTED (round-trip RED): #{seed[:failure_detail]}. Fix the glue."
     end
     if seed && seed[:last_glue]
       sig_parts << "// Previous (rejected) glue:\n#{seed[:last_glue]}"

@@ -64,6 +64,17 @@ class ClaudePBackendTest < Test::Unit::TestCase
     assert_match(/swiftc: error: cannot convert Int to String/, captured)
   end
 
+  def test_seed_last_glue_appears_in_prompt
+    captured = nil
+    runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }
+    build(runner).generate_glue(
+      framework: "CoreAudio", symbol: SYM, glue_id: "abc", exported: "glue_abc_Sym",
+      seed: { last_glue: "@c public func glue_old() {}" }
+    )
+    assert_match(/PREVIOUS \(REJECTED\) GLUE/, captured)
+    assert_match(/glue_old/, captured)
+  end
+
   def test_seed_context_appears_in_prompt
     captured = nil
     runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }

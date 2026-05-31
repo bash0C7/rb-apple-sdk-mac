@@ -19,17 +19,17 @@ module AppleSDKMac
       end
 
       def run(framework:, symbol:, rule_scaffold:)
-        last_failure = nil
+        failure_detail = nil
         last_glue = nil
         attempt = 0
         while attempt < @budget
-          seed = { rule_scaffold: rule_scaffold, last_failure: last_failure, last_glue: last_glue }
+          seed = { rule_scaffold: rule_scaffold, failure_detail: failure_detail, last_glue: last_glue }
           glue = @backend.generate_glue(framework: framework, symbol: symbol, seed: seed)
           attempt += 1
           if @harness_check.call(glue)
             return Outcome.new(green?: true, glue: glue, attempts: attempt)
           end
-          last_failure = "round-trip RED on attempt #{attempt}"
+          failure_detail = "round-trip RED on attempt #{attempt}"
           last_glue = glue
         end
         raise LoudFail, "#{framework}.#{symbol[:name]}: no green round-trip glue within budget=#{@budget}"
