@@ -21,13 +21,19 @@ module AppleSDKMac
   #     its `kind`, with `is_out_param` an orthogonal boolean every out-capable
   #     marshaller honours.
   class CoverageContract
-    # Symbol kinds the template generator emits glue for. C functions additionally
-    # require abi == "c" (checked in covered?). Everything else routes to LLM /
-    # loud-fail.
+    # Symbol kinds the project COMMITS to round-tripping through the rule-based
+    # generator. C functions additionally require abi == "c" (checked in
+    # covered?). Everything else routes to LLM / loud-fail.
+    #
+    # NOTE: global_constant is declared covered because the project commits to
+    # making it round-trip. The generator emitter for global_constant is a known
+    # hole closed in a separate Track-1 task; the contract truthfully declares
+    # the 8-kind boundary the project owns, not the generator's current state.
     COVERED_KINDS = %w[
       function
       objc_method_class objc_method_instance
       swift_init swift_property swift_property_setter swift_func
+      global_constant
     ].freeze
 
     # Parameter kinds the marshaller REGISTRY can realize. 1:1 with
@@ -71,49 +77,23 @@ module AppleSDKMac
     private
 
     # A parameter is covered when its marshaller kind is in the REGISTRY set.
-    # Real metadata tags each param with an explicit "kind" (matching
-    # REGISTRY); when that is absent we infer the kind from the available
-    # shape hints (type string / is_out_param / is_struct_in) so the contract
-    # can also reason about partially-specified param hashes.
+    # Real metadata tags every param with an explicit "kind" (1:1 with
+    # Marshaller.for, which dispatches on param[:kind]); is_out_param is an
+    # orthogonal boolean each out-capable marshaller honours. A param the
+    # importer cannot bridge carries a kind outside SUPPORTED_PARAM_KINDS
+    # (e.g. "unsupported"), which reads as uncovered with no special-casing.
     def supported_param?(param)
       SUPPORTED_PARAM_KINDS.include?(param_kind(param))
     end
 
     def param_kind(param)
-      explicit = param["kind"] || param[:kind]
-      return explicit.to_s if explicit
-      infer_kind(param)
-    end
-
-    # Best-effort kind inference for params that omit an explicit "kind".
-    # Mirrors the shapes the importer / discover layer would tag. Anything we
-    # cannot map returns a sentinel ("unknown") that is never in
-    # SUPPORTED_PARAM_KINDS, so it reads as uncovered.
-    def infer_kind(param)
-      return "struct_in" if truthy(param["is_struct_in"] || param[:is_struct_in])
-      type = (param["type"] || param[:type]).to_s
-      out  = truthy(param["is_out_param"] || param[:is_out_param])
-      case type
-      when /\A(const\s+)?char\s*\*/                       then "string"
-      when /\A(U?Int(8|16|32|64)?|AudioObjectID|OSStatus|kern_return_t|CFIndex|NSInteger|NSUInteger|ItemCount)\s*\*?\z/
-        "int"
-      when /\A(Bool|BOOL|_Bool)\s*\*?\z/                  then "bool"
-      when /\A(Float|Double|CGFloat)\s*\*?\z/             then "float"
-      when /(CF|CG|CV|CT|CM|CL|IO|Sec|AX)\w+Ref/          then "cftype_ref"
-      when /\w+Ref\s*\*?\z/                               then "opaque_ref"
-      else
-        # An out-pointer to an otherwise-scalar type is still int/float-shaped;
-        # but a fully unknown type (e.g. C++ std::vector<...>) stays uncovered.
-        out ? "unknown_out" : "unknown"
-      end
-    end
-
-    def truthy(v)
-      v == true || v == "true"
+      (param["kind"] || param[:kind]).to_s
     end
 
     def param_label(param)
-      (param["type"] || param[:type] || param["kind"] || param[:kind]).to_s
+      kind = param_kind(param)
+      type = (param["type"] || param[:type]).to_s
+      type.empty? ? kind : "#{type} (kind '#{kind}')"
     end
 
     def parse_params(symbol)

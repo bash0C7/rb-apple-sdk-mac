@@ -5,16 +5,17 @@ class CoverageContractTest < Test::Unit::TestCase
     @contract = AppleSDKMac::CoverageContract.new
   end
 
-  # audio_device_count が依存する shape: C function + (uint32, struct-in,
-  # uint32, int-out-pointer)。これは「カバー済みと表明する」範囲 = true。
+  # AudioObjectGetPropertyDataSize が依存する shape: C function + (int, struct-in,
+  # int, int-out-pointer)。real pipeline は各 param を kind-tag する
+  # (is_out_param は orthogonal)。これは「カバー済みと表明する」範囲 = true。
   def test_audio_property_data_size_shape_is_covered
     sym = {
       kind: "function", abi: "c",
       parameters_json: JSON.generate([
-        { "type" => "AudioObjectID" },             # uint32
-        { "type" => "AudioObjectPropertyAddress*", "is_struct_in" => true },
-        { "type" => "UInt32" },
-        { "type" => "UInt32*", "is_out_param" => true }
+        { "name" => "objectID", "type" => "AudioObjectID", "kind" => "int", "is_out_param" => false },
+        { "name" => "addr", "type" => "AudioObjectPropertyAddress * _Nonnull", "kind" => "struct_in", "is_out_param" => false },
+        { "name" => "qualifierSize", "type" => "UInt32", "kind" => "int", "is_out_param" => false },
+        { "name" => "size", "type" => "UInt32 * _Nonnull", "kind" => "int", "is_out_param" => true }
       ])
     }
     assert_true @contract.covered?(sym)
@@ -25,10 +26,14 @@ class CoverageContractTest < Test::Unit::TestCase
     assert_false @contract.covered?(sym)
   end
 
+  # real pipeline は bridge できない型 (C++ std::vector 等) に REGISTRY 外の
+  # kind ("unsupported") を tag する (template_generator_test.rb と同形)。
   def test_known_kind_with_unsupported_param_is_not_covered
     sym = {
       kind: "function", abi: "c",
-      parameters_json: JSON.generate([{ "type" => "std::vector<NSObject*>" }])
+      parameters_json: JSON.generate([
+        { "name" => "v", "type" => "std::vector<NSObject *>", "kind" => "unsupported", "is_out_param" => false }
+      ])
     }
     assert_false @contract.covered?(sym)
   end
