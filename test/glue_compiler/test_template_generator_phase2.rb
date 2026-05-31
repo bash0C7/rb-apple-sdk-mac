@@ -491,6 +491,70 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
     assert_match(/URLCache\.shared = /, swift)
   end
 
+  # global_constant emitter: numeric (double) representative round-trips.
+  def test_emit_global_constant_double_references_constant_and_returns_float
+    kc = FakeKnowledgeCache.new(
+      ["CoreFoundation", "kCFCoreFoundationVersionNumber"] => {
+        kind: "global_constant", abi: "c",
+        signature: "extern double kCFCoreFoundationVersionNumber"
+      }
+    )
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    swift = tg.generate(
+      framework: "CoreFoundation",
+      symbol: {
+        kind: "global_constant", abi: "c",
+        name: "kCFCoreFoundationVersionNumber",
+        signature: "extern double kCFCoreFoundationVersionNumber"
+      },
+      glue_id: "gc000001"
+    )
+    assert_not_nil swift, "global_constant emitter should produce Swift source"
+    assert_match(/@c\s+public func glue_gc000001_kCFCoreFoundationVersionNumber/, swift,
+      "should export a @c public func for the constant")
+    assert_match(/kCFCoreFoundationVersionNumber/, swift,
+      "glue body must reference the constant by name")
+    assert_match(/rb_float_new\(/, swift,
+      "double constant should be returned via rb_float_new")
+  end
+
+  # global_constant emitter: integer family (NSUInteger) returns via rb_ull2inum/rb_ll2inum.
+  def test_emit_global_constant_integer_returns_inum
+    kc = FakeKnowledgeCache.new({})
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    swift = tg.generate(
+      framework: "Foundation",
+      symbol: {
+        kind: "global_constant", abi: "c",
+        name: "NSIntegerMaxConst",
+        signature: "extern const NSInteger NSIntegerMaxConst"
+      },
+      glue_id: "gc000002"
+    )
+    assert_not_nil swift, "integer global_constant should produce Swift source"
+    assert_match(/NSIntegerMaxConst/, swift)
+    assert_match(/rb_ll2inum\(|rb_ull2inum\(/, swift,
+      "integer constant should be returned via an inum helper")
+  end
+
+  # global_constant emitter: types not robustly bridgeable (CFStringRef / NSString)
+  # return nil so they stay out-of-coverage rather than emitting broken glue.
+  def test_emit_global_constant_unbridgeable_type_returns_nil
+    kc = FakeKnowledgeCache.new({})
+    tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
+    swift = tg.generate(
+      framework: "Foundation",
+      symbol: {
+        kind: "global_constant", abi: "c",
+        name: "NSSomeStringConstant",
+        signature: "extern NSString *const _Nonnull NSSomeStringConstant"
+      },
+      glue_id: "gc000003"
+    )
+    assert_nil swift,
+      "non-numeric (CF/NS opaque) constant should return nil (out of coverage), not broken glue"
+  end
+
   def test_emit_swift_property_setter_raises_when_params_missing
     kc = FakeKnowledgeCache.new({})
     tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)

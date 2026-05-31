@@ -128,6 +128,8 @@ module AppleSDKMac
           return emit_swift_property_setter(framework: framework, symbol: symbol, glue_id: glue_id)
         when "swift_func"
           return emit_swift_func(framework: framework, symbol: symbol, glue_id: glue_id)
+        when "global_constant"
+          return emit_global_constant(framework: framework, symbol: symbol, glue_id: glue_id)
         end
         return nil unless symbol[:kind] == "function" && symbol[:abi] == "c"
         params = parse_params(symbol[:parameters_json])
@@ -617,6 +619,73 @@ module AppleSDKMac
               #{body.join("\n    ")}
           }
         SWIFT
+      end
+
+      # global_constant emit. C/ObjC `extern <type> <name>` 形の global 定数を
+      # Swift glue で参照し、 値を Ruby に変換して返す。 Swift overlay は C の
+      # global constant を同名の Swift binding として import するため、 glue は
+      # 定数名をそのまま参照できる (`let raw = <name>`)。
+      #
+      # 値変換は numeric (Int / Double 系) のみ robust に対応する。 CF/NS opaque
+      # 型 (CFStringRef / NSString *const 等) は Swift bridge 後の型 (String /
+      # CFString) と Ruby VALUE 変換が一意でなく broken glue を生む危険があるため、
+      # nil を返して out-of-coverage に留める (spec の「bridge できない型は nil」
+      # 方針)。
+      def emit_global_constant(framework:, symbol:, glue_id:)
+        const_name = symbol[:name].to_s
+        kind = global_constant_value_kind(symbol[:signature])
+        return nil if kind.nil?
+
+        swift_id = const_name.gsub(/[^A-Za-z0-9_]/, "_")
+        exported = "glue_#{glue_id}_#{swift_id}"
+
+        return_line =
+          case kind
+          when :float
+            "return rb_float_new(Double(raw))"
+          when :int
+            "return rb_ll2inum(Int64(raw))"
+          when :uint
+            "return rb_ull2inum(UInt64(raw))"
+          end
+
+        body = ["let raw = #{const_name}", return_line]
+
+        <<~SWIFT
+          import #{framework}
+          import Foundation
+
+          #{HEADER}
+          @c
+          public func #{exported}(
+              _ argv: UnsafePointer<UInt>, _ argc: Int32
+          ) -> UInt {
+              #{body.join("\n    ")}
+          }
+        SWIFT
+      end
+
+      # `extern <qualifiers> <type> <name>` の signature から、 値変換の種別
+      # (:float / :int / :uint) を決める。 numeric でない (pointer / CF / NS
+      # opaque / enum case 等) は nil を返す = out-of-coverage。
+      #
+      # signature には `const` / `API_AVAILABLE` / `NS_SWIFT_NAME` 等の修飾子や
+      # 可用性マクロが任意位置に挟まるため、 numeric 型 token の有無で判定する。
+      # pointer (`*`) を含む signature は値型でないので numeric 判定から除外。
+      def global_constant_value_kind(signature)
+        sig = signature.to_s
+        return nil if sig.empty?
+        return nil if sig.include?("*")          # pointer-typed (NSString *const, CFStringRef const ...)
+        return nil if sig.include?("[")          # array-typed (SecAsn1Template[] ...)
+        return nil if sig =~ /\benum case\b/     # enum constant, not a value global
+
+        # 符号なし整数型 token。
+        return :uint if sig =~ /\b(?:NSUInteger|UInt(?:8|16|32|64)?|uint(?:8|16|32|64)_t|unsigned)\b/
+        # 浮動小数型 token。
+        return :float if sig =~ /\b(?:double|float|CGFloat|CFAbsoluteTime|CFTimeInterval|NSTimeInterval|TimeInterval)\b/
+        # 符号つき整数型 token。
+        return :int if sig =~ /\b(?:NSInteger|SInt(?:8|16|32|64)?|int(?:8|16|32|64)_t|int|signed|long|short)\b/
+        nil
       end
 
       # `init(label1:label2:)` から ["label1", "label2"] を抜き出す。
