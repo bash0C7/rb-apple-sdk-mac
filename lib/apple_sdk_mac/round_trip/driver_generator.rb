@@ -38,20 +38,30 @@ module AppleSDKMac
       end
 
       def opaque_body(symbol)
-        # 新規確保/参照: 非 nil なら null=false。type は Swift の動的型名。
+        # 参照/新規確保: Optional を意識し、実 nil チェックで null フィールドを出す。
+        # call_expr が nil を返しうる Optional 型でも "null":false ハードコードしない。
         <<~SWIFT
-          let __o = #{symbol[:call_expr]}
-          let __t = String(describing: type(of: __o))
-          emit(#"{"type":"\\#(__t)","null":false}"#)
+          let __o: AnyObject? = #{symbol[:call_expr]} as AnyObject?
+          let __null = (__o == nil)
+          let __t = __null ? "nil" : String(describing: type(of: __o!))
+          emit(#"{"type":"\\#(__t)","null":\\#(__null)}"#)
         SWIFT
       end
 
       def setter_body(symbol)
         # set → getter 読み戻し。set 値と readback を一緒に吐く。
+        # set_value はそのまま Swift リテラルとして埋め込むので、JSON を壊す
+        # unescaped double-quote を含む値は拒否する (numeric か single-quoted literal を使う)。
+        set_value = symbol[:set_value].to_s
+        if set_value.include?('"')
+          raise ArgumentError,
+            "setter_body set_value must not contain unescaped double-quote (got: #{set_value.inspect}). " \
+            "Use a numeric or single-quoted Swift literal."
+        end
         <<~SWIFT
           #{symbol[:set_expr]}
           let __rb = #{symbol[:read_expr]}
-          emit(#"{"set":#{symbol[:set_value]},"readback":\\#(__rb)}"#)
+          emit(#"{"set":#{set_value},"readback":\\#(__rb)}"#)
         SWIFT
       end
     end
