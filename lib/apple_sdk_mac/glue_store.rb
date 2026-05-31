@@ -69,7 +69,7 @@ module AppleSDKMac
     # into InferenceRecord. Glues stored without provenance fields contribute no
     # sidecar and are omitted.
     def provenance_entries
-      Dir.glob(File.join(@base, "*", "*.provenance.json")).map do |pj|
+      Dir.glob(File.join(@base, "*", "*.provenance.json")).sort.map do |pj|
         data = JSON.parse(File.read(pj))
         swift = pj.sub(/\.provenance\.json\z/, ".swift")
         data["inferred_glue"] = File.exist?(swift) ? File.read(swift) : nil
