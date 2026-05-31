@@ -6,6 +6,7 @@ require_relative "knowledge_cache"
 require_relative "compiled_glue_cache"
 require_relative "glue_loader"
 require_relative "glue_compiler"
+require_relative "glue_store"
 require_relative "dispatcher"
 require_relative "namespace_builder"
 require_relative "opaque_ref"
@@ -47,7 +48,11 @@ module AppleSDKMac
         cache: glue_cache,
         runtime_dylib_path: runtime_dylib_path,
         runtime_modules_paths: runtime_modules_paths,
-        knowledge_cache: knowledge_cache
+        knowledge_cache: knowledge_cache,
+        glue_store: GlueStore.new(
+          project_dir: AppleSDKMac.cache_dir,
+          sdk_version: AppleSDKKnowledge::SDK.version
+        )
       )
     end
 

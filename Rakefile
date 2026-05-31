@@ -77,6 +77,46 @@ namespace :apple do
     end
   end
 
+  namespace :tier1 do
+    desc "List all Tier 1 stored glues in .rb-apple-sdk-mac/glue/"
+    task :list do
+      require_relative "lib/apple_sdk_mac/cache_dir"
+      require_relative "lib/apple_sdk_mac/glue_store"
+      begin
+        sdk_ver = begin
+          require "rb_apple_sdk_knowledge"
+          AppleSDKKnowledge::SDK.version
+        rescue LoadError
+          ENV["SDK_VERSION"] || "26.5"
+        end
+        store = AppleSDKMac::GlueStore.new(project_dir: AppleSDKMac.cache_dir, sdk_version: sdk_ver)
+        entries = store.all_entries
+        if entries.empty?
+          puts "No Tier 1 glues stored yet."
+        else
+          entries.each { |e| puts "#{e[:framework]}/#{e[:symbol_name]}" }
+          puts "Total: #{entries.size}"
+        end
+      rescue AppleSDKMac::ProjectRootError => e
+        puts "#{e.message}"
+      end
+    end
+
+    desc "Clear Tier 1 glue store for the given SDK version (default: env SDK_VERSION or 26.5)"
+    task :clear do
+      require "fileutils"
+      require_relative "lib/apple_sdk_mac/cache_dir"
+      sdk_ver = ENV["SDK_VERSION"] || "26.5"
+      target = File.join(AppleSDKMac.cache_dir, "glue", sdk_ver)
+      if Dir.exist?(target)
+        FileUtils.rm_rf(target)
+        puts "Cleared Tier 1 store: #{target}"
+      else
+        puts "Nothing to clear: #{target}"
+      end
+    end
+  end
+
   namespace :runtime do
     desc "swift build the runtime dylib (release config) and copy generated -Swift.h into ext/"
     task :sync_header do
