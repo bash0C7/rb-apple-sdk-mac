@@ -38,7 +38,6 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
   spec.extensions = ["ext/apple_sdk_mac_runtime/extconf.rb"]
 
-  spec.add_dependency "swift_gem"
   spec.add_dependency "rb-apple-sdk-knowledge"
   spec.add_dependency "sqlite3", "~> 2.0"
   spec.add_development_dependency "test-unit", "~> 3.6"
