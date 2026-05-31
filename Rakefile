@@ -140,6 +140,42 @@ namespace :apple do
     end
   end
 
+  namespace :tier3 do
+    desc "Export inference bundle to JSON (output: tmp/tier3_export.json)"
+    task :export do
+      require "fileutils"
+      require_relative "lib/apple_sdk_mac/cache_dir"
+      require_relative "lib/apple_sdk_mac/compiled_glue_cache"
+      require_relative "lib/apple_sdk_mac/export_bundle"
+      begin
+        require "rb_apple_sdk_knowledge"
+        sdk_ver = AppleSDKKnowledge::SDK.version
+      rescue LoadError
+        sdk_ver = ENV["SDK_VERSION"] || "26.5"
+      end
+      cache_path = AppleSDKMac.cache_dir
+      db_path = File.join(cache_path, sdk_ver)
+      unless Dir.exist?(db_path)
+        puts "No glue cache at #{db_path}; nothing to export."
+        next
+      end
+      cache = AppleSDKMac::CompiledGlueCache.open(cache_path, sdk_version: sdk_ver)
+      records = AppleSDKMac::ExportBundle.from_cache(cache)
+      cache.close
+      if records.empty?
+        puts "No inference-generated glues in cache; nothing to export."
+        next
+      end
+      summary = AppleSDKMac::ExportBundle.cluster_summary(records)
+      puts "Failure reason clusters:"
+      summary.each { |k, v| puts "  #{k}: #{v}" }
+      FileUtils.mkdir_p("tmp")
+      out = "tmp/tier3_export.json"
+      File.write(out, AppleSDKMac::ExportBundle.to_json(records))
+      puts "Exported #{records.size} inference records -> #{out}"
+    end
+  end
+
   namespace :runtime do
     desc "swift build the runtime dylib (release config) and copy generated -Swift.h into ext/"
     task :sync_header do
