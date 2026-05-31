@@ -200,4 +200,72 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
       compiler.compile(framework: "F", symbol: sym)
     end
   end
+
+  def test_inference_closed_loop_passes_failure_detail_to_second_attempt
+    # backend が 1 回目に nil を返し, 2 回目に valid swift を返す。
+    # 2 回目の呼び出しに seed[:failure_detail] が渡っていることを確認。
+    seeds_received = []
+    backend = Object.new
+    backend.define_singleton_method(:name) { "claude_p" }
+    call_count = 0
+    backend.define_singleton_method(:generate_glue) do |**kw|
+      seeds_received << kw[:seed]
+      call_count += 1
+      call_count == 1 ? nil : "@c public func glue_x_Sym() {}"
+    end
+
+    fake_template = Object.new
+    fake_template.define_singleton_method(:generate) { |**| nil }
+
+    cache = Object.new
+    cache.define_singleton_method(:base_dir) { Dir.mktmpdir }
+    cache.define_singleton_method(:sdk_version) { "26.5" }
+    cache.define_singleton_method(:record_attempt) { |**| }
+    cache.define_singleton_method(:insert) { |**| }
+
+    gates = Object.new
+    gates.define_singleton_method(:validate) { |*, **| Struct.new(:pass?, :errors).new(true, []) }
+
+    swiftc = Object.new
+    swiftc.define_singleton_method(:compile) { |**| [true, nil] }
+
+    compiler = AppleSDKMac::GlueCompiler.new(
+      cache: cache, runtime_dylib_path: "/dev/null",
+      template_generator: fake_template, gates: gates,
+      swiftc_invoker: swiftc, inference_backend: backend,
+      inference_budget: 3
+    )
+    sym = { name: "Sym", kind: "swift_macro", abi: "swift", signature: "()", parameters_json: "[]" }
+    result = compiler.compile(framework: "F", symbol: sym)
+    assert_true result.success?
+    assert_equal 2, call_count, "should call backend twice (first nil, second valid)"
+    # 2 回目の seed に 1 回目の failure detail が入っていること
+    assert_not_nil seeds_received[1], "second call should receive a seed hash"
+    assert_not_nil seeds_received[1][:failure_detail], "second seed should carry failure_detail from first attempt"
+  end
+
+  def test_inference_loud_fail_on_budget_exhaustion
+    backend = Object.new
+    backend.define_singleton_method(:name) { "claude_p" }
+    backend.define_singleton_method(:generate_glue) { |**| nil } # 常に nil
+
+    fake_template = Object.new
+    fake_template.define_singleton_method(:generate) { |**| nil }
+
+    cache = Object.new
+    cache.define_singleton_method(:base_dir) { Dir.mktmpdir }
+    cache.define_singleton_method(:sdk_version) { "26.5" }
+    cache.define_singleton_method(:record_attempt) { |**| }
+
+    compiler = AppleSDKMac::GlueCompiler.new(
+      cache: cache, runtime_dylib_path: "/dev/null",
+      template_generator: fake_template, inference_backend: backend,
+      inference_budget: 2
+    )
+    sym = { name: "Sym", kind: "swift_macro", abi: "swift", signature: "()", parameters_json: "[]" }
+    err = assert_raise(AppleSDKMac::OutOfCoverageError) do
+      compiler.compile(framework: "F", symbol: sym)
+    end
+    assert_match(/exhausted budget=2/, err.reason)
+  end
 end
