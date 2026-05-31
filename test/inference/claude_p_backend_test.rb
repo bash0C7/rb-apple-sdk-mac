@@ -41,4 +41,48 @@ class ClaudePBackendTest < Test::Unit::TestCase
     src = build(runner).generate_glue(framework: "F", symbol: SYM, glue_id: "x", exported: "glue_x")
     assert_nil src
   end
+
+  def test_seed_scaffold_appears_in_prompt
+    captured = nil
+    runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }
+    build(runner).generate_glue(
+      framework: "CoreAudio", symbol: SYM, glue_id: "abc", exported: "glue_abc_Sym",
+      seed: { rule_scaffold: "// SCAFFOLD CONTENT", failure_detail: nil }
+    )
+    assert_match(/REFERENCE SCAFFOLD/, captured)
+    assert_match(/SCAFFOLD CONTENT/, captured)
+  end
+
+  def test_seed_failure_detail_appears_in_prompt
+    captured = nil
+    runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }
+    build(runner).generate_glue(
+      framework: "CoreAudio", symbol: SYM, glue_id: "abc", exported: "glue_abc_Sym",
+      seed: { failure_detail: "swiftc: error: cannot convert Int to String" }
+    )
+    assert_match(/PREVIOUS ATTEMPT FAILED/, captured)
+    assert_match(/swiftc: error: cannot convert Int to String/, captured)
+  end
+
+  def test_seed_context_appears_in_prompt
+    captured = nil
+    runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }
+    build(runner).generate_glue(
+      framework: "CoreAudio", symbol: SYM, glue_id: "abc", exported: "glue_abc_Sym",
+      seed: { context: "Return type is UInt32, use out-param pattern" }
+    )
+    assert_match(/USER CONTEXT/, captured)
+    assert_match(/Return type is UInt32/, captured)
+  end
+
+  def test_nil_seed_omits_seed_section
+    captured = nil
+    runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }
+    build(runner).generate_glue(
+      framework: "CoreAudio", symbol: SYM, glue_id: "abc", exported: "glue_abc_Sym",
+      seed: nil
+    )
+    refute_match(/REFERENCE SCAFFOLD/, captured)
+    refute_match(/PREVIOUS ATTEMPT FAILED/, captured)
+  end
 end
