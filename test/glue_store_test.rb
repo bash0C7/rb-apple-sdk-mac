@@ -75,4 +75,31 @@ class GlueStoreTest < Test::Unit::TestCase
     assert File.exist?(test_path), "round_trip_test file should be created"
     assert_equal "# ruby test content", File.read(test_path)
   end
+
+  def test_store_writes_provenance_sidecar_when_provenance_given
+    swift = "@c public func glue_x_Sym() {}"
+    @store.store(framework: "CoreAudio", symbol_name: "AudioObjectGetPropertyDataSize",
+                 swift_source: swift,
+                 kind: "function",
+                 rule_failure_reason: "uncovered shape: out-param struct",
+                 rule_scaffold: "// template output",
+                 context_used: "Use UInt32 size param")
+    entries = @store.provenance_entries
+    assert_equal 1, entries.size, "one provenance sidecar should be present"
+    e = entries.first
+    assert_equal "CoreAudio", e["framework"]
+    assert_equal "AudioObjectGetPropertyDataSize", e["symbol"]
+    assert_equal "26.5", e["sdk_version"]
+    assert_equal "function", e["kind"]
+    assert_equal "uncovered shape: out-param struct", e["rule_failure_reason"]
+    assert_equal "// template output", e["rule_scaffold"]
+    assert_equal "Use UInt32 size param", e["context_used"]
+    assert_equal swift, e["inferred_glue"], "inferred_glue must match sibling .swift content"
+  end
+
+  def test_provenance_entries_empty_when_no_provenance
+    @store.store(framework: "CoreAudio", symbol_name: "AudioSym", swift_source: "// glue only")
+    assert_equal [], @store.provenance_entries,
+                 "no sidecar should be emitted when no provenance fields are given"
+  end
 end

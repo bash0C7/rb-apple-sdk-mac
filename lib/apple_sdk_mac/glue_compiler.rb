@@ -115,7 +115,9 @@ module AppleSDKMac
                       swift_source: swift_source, dylib_path: dylib,
                       exported_symbol: exported, generator: gen)
         @glue_store&.store(framework: framework.to_s, symbol_name: symbol[:name].to_s,
-                           swift_source: swift_source)
+                           swift_source: swift_source,
+                           kind: symbol[:kind], rule_failure_reason: reason,
+                           rule_scaffold: rule_scaffold, context_used: context)
         return Result.new(success?: true, glue_id: glue_id, generator: gen,
                           dylib_path: dylib, exported_symbol: exported)
       end

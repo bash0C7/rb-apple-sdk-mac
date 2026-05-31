@@ -5,6 +5,9 @@ module AppleSDKMac
   # Tier 3 還流: 推論成功 symbol の export bundle 形式。
   # bundle は upstream の rb-apple-sdk-mac-improve-emitter HITL workflow に
   # 手動 PR で提出する。自動 PR 投稿は行わない (1-way door)。
+  #
+  # round-trip green 証跡は production inference path が gates+swiftc 検証のため
+  # 当面 bundle に含めない (InferenceRecord 構造はそのまま、当該フィールドは absent)。
   module ExportBundle
     InferenceRecord = Struct.new(
       :framework, :symbol, :sdk_version, :kind,
@@ -32,23 +35,18 @@ module AppleSDKMac
       })
     end
 
-    # CompiledGlueCache の compile_history から InferenceRecord を復元。
-    # generator が 'inference:' で始まる successful row を対象とする。
-    def from_cache(cache)
-      rows = cache.db.execute(<<~SQL)
-        SELECT cg.framework_name, cg.symbol_name, cg.swift_source,
-               ch.error_detail, ch.llm_response
-        FROM compiled_glue cg
-        JOIN compile_history ch
-          ON ch.framework = cg.framework_name AND ch.symbol = cg.symbol_name
-        WHERE cg.generator LIKE 'inference:%'
-        ORDER BY cg.generated_at
-      SQL
-      rows.map do |row|
+    # GlueStore の provenance sidecar から InferenceRecord を復元。
+    # 成功 inference は store 時に金脈フィールド (kind / rule_failure_reason /
+    # rule_scaffold / context_used) を sidecar 永続化しており、ここから組み立てる。
+    def from_glue_store(store)
+      store.provenance_entries.map do |h|
         InferenceRecord.new(
-          framework: row[0], symbol: row[1], sdk_version: cache.sdk_version,
-          kind: nil, rule_failure_reason: row[3], rule_scaffold: nil,
-          inferred_glue: row[2], context_used: nil
+          framework: h["framework"], symbol: h["symbol"],
+          sdk_version: h["sdk_version"], kind: h["kind"],
+          rule_failure_reason: h["rule_failure_reason"],
+          rule_scaffold: h["rule_scaffold"],
+          inferred_glue: h["inferred_glue"],
+          context_used: h["context_used"]
         )
       end
     end

@@ -1,7 +1,10 @@
 # frozen_string_literal: true
 require "test/unit"
 require "json"
+require "tmpdir"
+require "fileutils"
 require_relative "../lib/apple_sdk_mac/export_bundle"
+require_relative "../lib/apple_sdk_mac/glue_store"
 
 class ExportBundleTest < Test::Unit::TestCase
   SAMPLE_RECORDS = [
@@ -69,5 +72,46 @@ class ExportBundleTest < Test::Unit::TestCase
     summary = AppleSDKMac::ExportBundle.cluster_summary(SAMPLE_RECORDS)
     assert summary.is_a?(Hash)
     assert summary.values.all? { |v| v.is_a?(Integer) }
+  end
+
+  def test_from_glue_store_builds_records
+    Dir.mktmpdir do |tmpdir|
+      store = AppleSDKMac::GlueStore.new(project_dir: tmpdir, sdk_version: "26.5")
+      store.store(framework: "CoreAudio", symbol_name: "AudioObjectGetPropertyDataSize",
+                  swift_source: "@c public func glue_a() {}",
+                  kind: "function",
+                  rule_failure_reason: "uncovered shape: out-param struct",
+                  rule_scaffold: "// scaffold a",
+                  context_used: nil)
+      store.store(framework: "Foundation", symbol_name: "NSString.init",
+                  swift_source: "@c public func glue_b() {}",
+                  kind: "swift_initializer",
+                  rule_failure_reason: "uncovered shape: swift initializer",
+                  rule_scaffold: "// scaffold b",
+                  context_used: "hint")
+
+      records = AppleSDKMac::ExportBundle.from_glue_store(store)
+      assert_equal 2, records.size
+      assert records.all? { |r| r.is_a?(AppleSDKMac::ExportBundle::InferenceRecord) }
+
+      by_symbol = records.group_by(&:symbol)
+      audio = by_symbol["AudioObjectGetPropertyDataSize"].first
+      assert_equal "CoreAudio", audio.framework
+      assert_equal "26.5", audio.sdk_version
+      assert_equal "function", audio.kind
+      assert_equal "uncovered shape: out-param struct", audio.rule_failure_reason
+      assert_equal "// scaffold a", audio.rule_scaffold
+      assert_equal "@c public func glue_a() {}", audio.inferred_glue
+      assert_nil audio.context_used
+
+      ns = by_symbol["NSString.init"].first
+      assert_equal "hint", ns.context_used
+
+      # records flow through cluster/to_json correctly
+      summary = AppleSDKMac::ExportBundle.cluster_summary(records)
+      assert_equal 2, summary["uncovered shape"]
+      parsed = JSON.parse(AppleSDKMac::ExportBundle.to_json(records))
+      assert_equal 2, parsed.size
+    end
   end
 end

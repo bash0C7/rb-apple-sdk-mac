@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 require "fileutils"
+require "json"
 
 module AppleSDKMac
   # Tier 1 committable glue store: .rb-apple-sdk-mac/glue/<sdk-version>/<framework>/<symbol>.swift
@@ -8,16 +9,33 @@ module AppleSDKMac
   # round-trip 再検証して使う（claude -p 不要）。
   class GlueStore
     def initialize(project_dir:, sdk_version:)
+      @sdk_version = sdk_version
       @base = File.join(project_dir, "glue", sdk_version)
     end
 
-    def store(framework:, symbol_name:, swift_source:, round_trip_test: nil)
+    def store(framework:, symbol_name:, swift_source:, round_trip_test: nil,
+              kind: nil, rule_failure_reason: nil, rule_scaffold: nil, context_used: nil)
       dir = framework_dir(framework.to_s)
       FileUtils.mkdir_p(dir)
       safe = safe_name(symbol_name)
       File.write(File.join(dir, "#{safe}.swift"), swift_source)
       if round_trip_test
         File.write(File.join(dir, "#{safe}_round_trip_test.rb"), round_trip_test)
+      end
+      # provenance sidecar: store the (pre-escape) framework/symbol/sdk_version
+      # plus the金脈 fields spec §5 needs for Tier 3 export, so ExportBundle can
+      # reconstruct InferenceRecord without depending on the filename escape.
+      if [kind, rule_failure_reason, rule_scaffold, context_used].any? { |v| !v.nil? }
+        provenance = {
+          "framework" => framework.to_s,
+          "symbol" => symbol_name.to_s,
+          "sdk_version" => @sdk_version,
+          "kind" => kind,
+          "rule_failure_reason" => rule_failure_reason,
+          "rule_scaffold" => rule_scaffold,
+          "context_used" => context_used
+        }
+        File.write(File.join(dir, "#{safe}.provenance.json"), JSON.generate(provenance))
       end
     end
 
@@ -44,6 +62,19 @@ module AppleSDKMac
         }
       end
       entries
+    end
+
+    # All provenance sidecars under base, each merged with its sibling .swift
+    # content under "inferred_glue". String-keyed Hashes; ExportBundle maps them
+    # into InferenceRecord. Glues stored without provenance fields contribute no
+    # sidecar and are omitted.
+    def provenance_entries
+      Dir.glob(File.join(@base, "*", "*.provenance.json")).map do |pj|
+        data = JSON.parse(File.read(pj))
+        swift = pj.sub(/\.provenance\.json\z/, ".swift")
+        data["inferred_glue"] = File.exist?(swift) ? File.read(swift) : nil
+        data
+      end
     end
 
     private

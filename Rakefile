@@ -145,7 +145,7 @@ namespace :apple do
     task :export do
       require "fileutils"
       require_relative "lib/apple_sdk_mac/cache_dir"
-      require_relative "lib/apple_sdk_mac/compiled_glue_cache"
+      require_relative "lib/apple_sdk_mac/glue_store"
       require_relative "lib/apple_sdk_mac/export_bundle"
       begin
         require "rb_apple_sdk_knowledge"
@@ -153,17 +153,10 @@ namespace :apple do
       rescue LoadError
         sdk_ver = ENV["SDK_VERSION"] || "26.5"
       end
-      cache_path = AppleSDKMac.cache_dir
-      db_path = File.join(cache_path, sdk_ver)
-      unless Dir.exist?(db_path)
-        puts "No glue cache at #{db_path}; nothing to export."
-        next
-      end
-      cache = AppleSDKMac::CompiledGlueCache.open(cache_path, sdk_version: sdk_ver)
-      records = AppleSDKMac::ExportBundle.from_cache(cache)
-      cache.close
+      store = AppleSDKMac::GlueStore.new(project_dir: AppleSDKMac.cache_dir, sdk_version: sdk_ver)
+      records = AppleSDKMac::ExportBundle.from_glue_store(store)
       if records.empty?
-        puts "No inference-generated glues in cache; nothing to export."
+        puts "No inference-provenance glues stored; nothing to export."
         next
       end
       summary = AppleSDKMac::ExportBundle.cluster_summary(records)
