@@ -38,3 +38,19 @@ class TestErrors < Test::Unit::TestCase
       "AppleSDKMac::CallError は Phase 3 で retire"
   end
 end
+
+class OutOfCoverageErrorTest < Test::Unit::TestCase
+  def test_carries_structured_metadata
+    err = AppleSDKMac::OutOfCoverageError.new(
+      framework: "CoreAudio", symbol: "SomeWeirdSym",
+      pattern: "swift_macro", reason: "macro expansion not bridgeable"
+    )
+    assert_equal "CoreAudio", err.framework
+    assert_equal "SomeWeirdSym", err.symbol
+    assert_equal "swift_macro", err.pattern
+    assert_equal "macro expansion not bridgeable", err.reason
+    assert_kind_of AppleSDKMac::Error, err
+    assert_match(/outside rule-based coverage/, err.message)
+    assert_match(/swift_macro/, err.message)
+  end
+end

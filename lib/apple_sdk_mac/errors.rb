@@ -91,4 +91,21 @@ module AppleSDKMac
   # Raised when a Swift-side error crosses the bridge
   # (thrown Swift Error values, URLError, etc.).
   class SwiftError < Error; end
+
+  # Raised when a symbol falls outside the rule-based CoverageContract and no
+  # inference backend resolved it. Distinct from UnsupportedPatternError
+  # (which marks Knowledge-Base-flagged unbridgeable shapes): OutOfCoverageError
+  # is the loud-fail boundary of the *currently guaranteed* rule coverage.
+  class OutOfCoverageError < Error
+    attr_reader :framework, :symbol, :pattern, :reason
+
+    def initialize(framework:, symbol:, pattern:, reason:)
+      @framework = framework
+      @symbol = symbol
+      @pattern = pattern
+      @reason = reason
+      super("#{framework}::#{symbol} is outside rule-based coverage " \
+            "(pattern=#{pattern}): #{reason}")
+    end
+  end
 end
