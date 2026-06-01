@@ -142,6 +142,46 @@ class ClaudePBackendTest < Test::Unit::TestCase
     assert_match(/NOT the (returned )?OSStatus|not the status|status code is NOT/i, captured)
   end
 
+  # 精度の天井 (glue ABI 非決定性) 固定: prompt が runtime ABI 契約を明示し、
+  # glue 署名が native Apple 署名ではなく (argv, argc) -> UInt であること、
+  # 引数は argv[] から Ruby VALUE として decode し、戻り値は Ruby VALUE に
+  # encode することを要求する。これが無いと LLM は native 署名 pass-through を
+  # 出して invoke 時に ABI 不一致 garbage を返す attempt が混ざる。
+  def test_prompt_pins_runtime_abi_signature
+    captured = nil
+    runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }
+    build(runner).generate_glue(framework: "CoreAudio", symbol: SYM,
+                                glue_id: "abc", exported: "glue_abc_Sym")
+    # 署名は (argv: UnsafePointer<UInt>, argc: Int32) -> UInt に固定。
+    assert_match(/UnsafePointer<UInt>/, captured)
+    assert_match(/argc:\s*Int32/, captured)
+    assert_match(/->\s*UInt\b/, captured)
+    # argv からの decode を示す。
+    assert_match(/argv\[/, captured)
+  end
+
+  def test_prompt_teaches_value_marshalling_helpers
+    captured = nil
+    runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }
+    build(runner).generate_glue(framework: "CoreAudio", symbol: SYM,
+                                glue_id: "abc", exported: "glue_abc_Sym")
+    # 引数 decode helper (Ruby VALUE -> native)。
+    assert_match(/rb_num2ull|rb_num2ll|rb_num2dbl/, captured)
+    # 戻り値 encode helper (native -> Ruby VALUE)。
+    assert_match(/rb_ull2inum|rb_ll2inum|rb_float_new/, captured)
+    # CRuby symbol を自前で解決する @_silgen_name shadow を要求/提示する。
+    assert_match(/@_silgen_name/, captured)
+  end
+
+  def test_prompt_warns_against_native_signature_passthrough
+    captured = nil
+    runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }
+    build(runner).generate_glue(framework: "CoreAudio", symbol: SYM,
+                                glue_id: "abc", exported: "glue_abc_Sym")
+    # native Apple 署名をそのまま re-export してはならない旨を明示する。
+    assert_match(/native|do NOT re-?export|must NOT|never.*native|raw native/i, captured)
+  end
+
   def test_seed_scaffold_appears_in_prompt
     captured = nil
     runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }

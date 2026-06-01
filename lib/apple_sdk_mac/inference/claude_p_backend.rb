@@ -49,8 +49,19 @@ module AppleSDKMac
           Parameters (JSON): #{symbol[:parameters_json]}
 
           HARD CONSTRAINTS (the output is statically validated; violations are rejected):
-          - Emit exactly ONE `@c public func #{exported}(...)`.
-          - Import ONLY: `import #{framework}`, `import Foundation`, `import AppleSDKMacRuntime`.
+          - Emit exactly ONE function with this EXACT runtime-ABI signature
+            (the C caller invokes it as `VALUE (*)(const VALUE *argv, int argc)`):
+              @c
+              public func #{exported}(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt
+          - Do NOT re-export the native Apple signature. A glue like
+            `@c public func #{exported}(_ x: UInt32, ...) -> Int32 { return AppleAPI(x, ...) }`
+            is WRONG: the runtime passes (argv, argc), so native params receive a
+            truncated pointer/argc as garbage and the native return is misread as
+            a Ruby VALUE. The ONLY allowed signature is `(argv, argc) -> UInt`.
+          - Import ONLY: `import #{framework}`, `import Foundation`. You MAY also
+            `import AppleSDKMacRuntime` for ARC/callback helpers, but the CRuby
+            marshalling functions below are NOT exported by it — declare the ones
+            you use yourself via `@_silgen_name` (resolved at dlopen).
           - Do NOT use any of the following APIs:
             URLSession, NSURLConnection, URLRequest(, NWConnection,
             FileManager, FileHandle, Data(contentsOf:, String(contentsOf:,
@@ -59,8 +70,40 @@ module AppleSDKMac
             UserDefaults, Keychain, ProcessInfo.processInfo.environment[,
             objc_msgSend.
           - For CFType returns use Unmanaged.takeRetainedValue(); never manual CFRelease.
-          - Return a value the C caller can consume (Int/Double/pointer/OpaqueRef).
           - If the function is async, wrap with DispatchSemaphore and Task { }.
+
+          RUNTIME-ABI MARSHALLING — every Apple-API argument is read from `argv[i]`
+          as a Ruby VALUE and decoded; the function's return MUST be a Ruby VALUE:
+          - decode in:  rb_num2ll (signed Int), rb_num2ull (unsigned/handle),
+                        rb_num2dbl (Double). A struct arg arrives as a Ruby Hash —
+                        read fields via rb_hash_aref(argv[i], rb_str_new_cstr("k")).
+          - encode out: rb_ll2inum (Int64), rb_ull2inum (UInt64), rb_float_new
+                        (Double); Qnil / Qtrue / Qfalse for nil/bool. NEVER return a
+                        raw Int32/UInt32 — encode it first.
+          - For an OSStatus out-param function, the value is the OUT-PARAM (NOT the
+            OSStatus). Declare a local out var, call the API, check status, then
+            encode and return the OUT-PARAM.
+
+          COMPLETE WORKED EXAMPLE — an OSStatus out-param C function
+          `OSStatus TGetSize(UInt32 id, UInt32 *outSize)`:
+          ```swift
+          import #{framework}
+          import Foundation
+
+          @_silgen_name("rb_num2ull") func rb_num2ull(_ v: UInt) -> UInt64
+          @_silgen_name("rb_ull2inum") func rb_ull2inum(_ v: UInt64) -> UInt
+          @_silgen_name("rb_raise") func rb_raise(_ klass: UInt, _ fmt: UnsafePointer<CChar>) -> Never
+          @_silgen_name("rb_eRuntimeError") var rb_eRuntimeError: UInt
+
+          @c
+          public func #{exported}(_ argv: UnsafePointer<UInt>, _ argc: Int32) -> UInt {
+              let id = UInt32(rb_num2ull(argv[0]))   // decode arg from argv as Ruby VALUE
+              var outSize: UInt32 = 0
+              let status = TGetSize(id, &outSize)    // OSStatus is the error code, NOT the value
+              if status != 0 { rb_raise(rb_eRuntimeError, "OSStatus") }
+              return rb_ull2inum(UInt64(outSize))    // encode the OUT-PARAM as a Ruby VALUE
+          }
+          ```
           #{seed_section}
           Emit the function in a single ```swift fenced code block.
 
