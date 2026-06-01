@@ -114,4 +114,19 @@ class ExportBundleTest < Test::Unit::TestCase
       assert_equal 2, parsed.size
     end
   end
+
+  # round-trip green 証跡が GlueStore → InferenceRecord → Tier 3 export まで流れる。
+  def test_from_glue_store_maps_round_trip_outcome
+    Dir.mktmpdir do |tmpdir|
+      store = AppleSDKMac::GlueStore.new(project_dir: tmpdir, sdk_version: "26.5")
+      store.store(framework: "CoreAudio", symbol_name: "AudioObjectGetPropertyDataSize",
+                  swift_source: "@c public func glue_a() {}",
+                  kind: "function", rule_failure_reason: "uncovered shape",
+                  round_trip_outcome: "green: equivalent")
+      rec = AppleSDKMac::ExportBundle.from_glue_store(store).first
+      assert_equal "green: equivalent", rec.round_trip_outcome
+      parsed = JSON.parse(AppleSDKMac::ExportBundle.to_json([rec])).first
+      assert_equal "green: equivalent", parsed["round_trip_outcome"]
+    end
+  end
 end

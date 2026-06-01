@@ -115,4 +115,29 @@ class GlueStoreTest < Test::Unit::TestCase
     assert_equal [], @store.provenance_entries,
                  "no sidecar should be emitted when no provenance fields are given"
   end
+
+  # round-trip green 証跡を provenance に永続化し、Tier 3 export まで流せる。
+  def test_store_records_round_trip_outcome_in_provenance
+    @store.store(framework: "CoreAudio", symbol_name: "AudioObjectGetPropertyDataSize",
+                 swift_source: "@c public func glue_x_Sym() {}",
+                 kind: "function", rule_failure_reason: "uncovered shape",
+                 round_trip_outcome: "green: equivalent")
+    e = @store.provenance_entries.first
+    assert_equal "green: equivalent", e["round_trip_outcome"]
+  end
+
+  # round_trip_outcome だけでも sidecar を生成する (他金脈フィールドが nil でも)。
+  def test_round_trip_outcome_alone_triggers_provenance_sidecar
+    @store.store(framework: "CoreAudio", symbol_name: "AudioSym",
+                 swift_source: "// glue", round_trip_outcome: "green: equivalent")
+    assert_equal 1, @store.provenance_entries.size
+    assert_equal "green: equivalent", @store.provenance_entries.first["round_trip_outcome"]
+  end
+
+  # 未検証 (round_trip_outcome 渡さない) ときは provenance に nil で乗る。
+  def test_round_trip_outcome_nil_when_not_verified
+    @store.store(framework: "CoreAudio", symbol_name: "AudioSym2",
+                 swift_source: "// glue", kind: "function")
+    assert_nil @store.provenance_entries.first["round_trip_outcome"]
+  end
 end

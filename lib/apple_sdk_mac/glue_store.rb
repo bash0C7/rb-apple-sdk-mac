@@ -14,7 +14,8 @@ module AppleSDKMac
     end
 
     def store(framework:, symbol_name:, swift_source:, round_trip_test: nil,
-              kind: nil, rule_failure_reason: nil, rule_scaffold: nil, context_used: nil)
+              kind: nil, rule_failure_reason: nil, rule_scaffold: nil, context_used: nil,
+              round_trip_outcome: nil)
       dir = framework_dir(framework.to_s)
       FileUtils.mkdir_p(dir)
       safe = safe_name(symbol_name)
@@ -25,7 +26,8 @@ module AppleSDKMac
       # provenance sidecar: store the (pre-escape) framework/symbol/sdk_version
       # plus the金脈 fields spec §5 needs for Tier 3 export, so ExportBundle can
       # reconstruct InferenceRecord without depending on the filename escape.
-      if [kind, rule_failure_reason, rule_scaffold, context_used].any? { |v| !v.nil? }
+      # round_trip_outcome は round-trip green 証跡 ("green: ...") or nil (未検証)。
+      if [kind, rule_failure_reason, rule_scaffold, context_used, round_trip_outcome].any? { |v| !v.nil? }
         provenance = {
           "framework" => framework.to_s,
           "symbol" => symbol_name.to_s,
@@ -33,7 +35,8 @@ module AppleSDKMac
           "kind" => kind,
           "rule_failure_reason" => rule_failure_reason,
           "rule_scaffold" => rule_scaffold,
-          "context_used" => context_used
+          "context_used" => context_used,
+          "round_trip_outcome" => round_trip_outcome
         }
         File.write(File.join(dir, "#{safe}.provenance.json"), JSON.generate(provenance))
       end

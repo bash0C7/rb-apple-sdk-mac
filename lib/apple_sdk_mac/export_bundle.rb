@@ -6,12 +6,13 @@ module AppleSDKMac
   # bundle は upstream の rb-apple-sdk-mac-improve-emitter HITL workflow に
   # 手動 PR で提出する。自動 PR 投稿は行わない (1-way door)。
   #
-  # round-trip green 証跡は production inference path が gates+swiftc 検証のため
-  # 当面 bundle に含めない (InferenceRecord 構造はそのまま、当該フィールドは absent)。
+  # round-trip green 証跡は production inference path の round-trip 検証で得られ、
+  # round_trip_outcome フィールド ("green: ..." or nil=未検証) として bundle に含む。
   module ExportBundle
     InferenceRecord = Struct.new(
       :framework, :symbol, :sdk_version, :kind,
       :rule_failure_reason, :rule_scaffold, :inferred_glue, :context_used,
+      :round_trip_outcome,
       keyword_init: true
     )
 
@@ -46,7 +47,8 @@ module AppleSDKMac
           rule_failure_reason: h["rule_failure_reason"],
           rule_scaffold: h["rule_scaffold"],
           inferred_glue: h["inferred_glue"],
-          context_used: h["context_used"]
+          context_used: h["context_used"],
+          round_trip_outcome: h["round_trip_outcome"]
         )
       end
     end
