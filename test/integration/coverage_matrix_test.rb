@@ -16,7 +16,8 @@ require "test_helper"
 #   swift_property_setter→ AVSpeechUtterance.rate= (instance setter, getter で read-back)
 #   swift_func           → NSHomeDirectory() (Foundation free function → String)
 #   global_constant      → CoreFoundation.kCFCoreFoundationVersionNumber
-#                          (Apple.discover(constant:) public 経路で round-trip)
+#                          (KNOWN HOLE — template_generator に emitter arm 無し。
+#                           Track-1 Task 5 で閉じる。ここでは RED が期待値)
 class CoverageMatrixTest < Test::Unit::TestCase
   def setup
     omit "set APPLE_SDK_MAC_RUN_E2E=1 to run" unless ENV["APPLE_SDK_MAC_RUN_E2E"] == "1"
@@ -89,23 +90,26 @@ class CoverageMatrixTest < Test::Unit::TestCase
   # swift_property_setter: AVSpeechUtterance.rate= (instance setter) -> Void。
   # rate を set した後、 getter で read-back して set 値が反映されることを確認。
   #
-  # public 到達経路 (Track B で穴埋め): Apple.discover(swift_property:, setter: true)
-  # が kind="swift_property_setter" を synthesize し (discovery_shape.rb)、
-  # NamespaceBuilder が proxy instance method `rate=` を define する。 return_kind
-  # は property の value 型 (= setter が受け取る値の型)。
+  # ADDITIONAL HOLE (Task 5 候補) — 現状この kind は public path から到達不能:
+  #   1. Apple.discover には kind="swift_property_setter" を生む shape が無い
+  #      (discovery_shape.rb の :swift_property は常に kind="swift_property")。
+  #   2. 再 build 済 Knowledge Base には swift_property_setter symbol も
+  #      is_settable=1 の swift_property も 0 件 (`SELECT COUNT(*) ... = 0`)。
+  #      → bootstrap! も setter method (`rate=`) を eager-define できない。
+  # template_generator の emit_swift_property_setter arm 自体は存在し unit test
+  # (FakeKnowledgeCache 経由) で緑だが、 実 symbol が 1 件も routing されへんため
+  # round-trip は data 層で塞がれている。ここでは public setter form を呼んで
+  # NoMethodError で RED になる (緑化のための weaken / skip 禁止)。
   def test_swift_property_setter_kind_round_trips
     Apple.discover(framework: :AVFoundation, klass: :AVSpeechUtterance,
                    swift_initializer: "init(string:)",
                    params: [:string], return_kind: :opaque_ref)
-    # getter (read-back 用)
     Apple.discover(framework: :AVFoundation, klass: :AVSpeechUtterance,
                    swift_property: :rate, instance: true, return_kind: :float)
-    # setter (public path): setter: true で kind="swift_property_setter"。
-    Apple.discover(framework: :AVFoundation, klass: :AVSpeechUtterance,
-                   swift_property: :rate, instance: true, return_kind: :float,
-                   setter: true)
     utterance = Apple::AVFoundation::AVSpeechUtterance.init_string("rate probe")
     refute_nil utterance
+    # public setter form。 swift_property_setter kind を eager-define する経路が
+    # 存在せえへんため `rate=` は未定義で、 round-trip は成立しない。
     utterance.rate = 0.75
     read_back = utterance.rate
     assert_kind_of Float, read_back
@@ -125,13 +129,15 @@ class CoverageMatrixTest < Test::Unit::TestCase
   end
 
   # global_constant: CoreFoundation.kCFCoreFoundationVersionNumber (Double 定数)。
-  # public 到達経路 (Track B で穴埋め): Apple.discover(constant:, return_kind:)
-  # が kind="global_constant"/abi="c" を numeric signature 付きで synthesize し
-  # (discovery_shape.rb)、 NamespaceBuilder が framework module の singleton
-  # method として define、 emit_global_constant の Swift glue を round-trip する。
+  # KNOWN HOLE — template_generator の `case symbol[:kind]` に global_constant
+  # arm が無く emitter が nil を返して loud-fail する。Track-1 Task 5 で閉じる
+  # 設計欠陥なので、 ここでは RED が期待される (この test を緑にするための
+  # weaken / skip は禁止)。
   def test_global_constant_kind_round_trips
-    Apple.discover(framework: :CoreFoundation,
-                   constant: :kCFCoreFoundationVersionNumber, return_kind: :float)
+    # NOTE: Apple.discover(symbol:) は kind を "function"/abi "c" に synthesize
+    # するため global_constant emitter arm を踏まない。bootstrap! が KB から
+    # eager-define した本来の kind="global_constant" method を直接呼ぶことで
+    # template_generator の global_constant 経路 (= 欠落 arm) を踏ませる。
     v = Apple::CoreFoundation.kCFCoreFoundationVersionNumber
     assert_kind_of Numeric, v
     assert_operator v, :>, 0
