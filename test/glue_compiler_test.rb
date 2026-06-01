@@ -159,7 +159,11 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     gates = Object.new
     def gates.validate(*, **) = Struct.new(:pass?, :errors).new(true, [])
     swiftc = Object.new
-    def swiftc.compile(**) = [true, nil]
+    # compile 成功は dylib 生成を意味する契約 (try_inference は accept 時に dylib を mv する)。
+    def swiftc.compile(dylib_path:, **)
+      File.write(dylib_path, "")
+      [true, nil]
+    end
 
     backend = Object.new
     def backend.name = "claude_p"
@@ -227,7 +231,7 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     gates.define_singleton_method(:validate) { |*, **| Struct.new(:pass?, :errors).new(true, []) }
 
     swiftc = Object.new
-    swiftc.define_singleton_method(:compile) { |**| [true, nil] }
+    swiftc.define_singleton_method(:compile) { |dylib_path:, **| File.write(dylib_path, ""); [true, nil] }
 
     compiler = AppleSDKMac::GlueCompiler.new(
       cache: cache, runtime_dylib_path: "/dev/null",
@@ -296,7 +300,7 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     gates.define_singleton_method(:validate) { |*, **| Struct.new(:pass?, :errors).new(true, []) }
 
     swiftc = Object.new
-    swiftc.define_singleton_method(:compile) { |**| [true, nil] }
+    swiftc.define_singleton_method(:compile) { |dylib_path:, **| File.write(dylib_path, ""); [true, nil] }
 
     compiler = AppleSDKMac::GlueCompiler.new(
       cache: cache, runtime_dylib_path: "/dev/null",
@@ -355,7 +359,7 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     gates = Object.new
     gates.define_singleton_method(:validate) { |*, **| Struct.new(:pass?, :errors).new(true, []) }
     swiftc = Object.new
-    swiftc.define_singleton_method(:compile) { |**| [true, nil] }
+    swiftc.define_singleton_method(:compile) { |dylib_path:, **| File.write(dylib_path, ""); [true, nil] }
 
     compiler = AppleSDKMac::GlueCompiler.new(
       cache: cache, runtime_dylib_path: "/dev/null",
@@ -407,7 +411,7 @@ class GlueCompilerRoundTripIntegrationTest < Test::Unit::TestCase
 
   def ok_swiftc
     s = Object.new
-    s.define_singleton_method(:compile) { |**| [true, nil] }
+    s.define_singleton_method(:compile) { |dylib_path:, **| File.write(dylib_path, ""); [true, nil] }
     s
   end
 

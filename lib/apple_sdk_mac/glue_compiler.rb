@@ -84,7 +84,12 @@ module AppleSDKMac
       last_failure = nil
       last_glue = nil
 
-      @inference_budget.times do
+      @inference_budget.times do |attempt_i|
+        # attempt ごとに別 dylib パスへコンパイルする。dlopen は同一パスの再コンパイル済み
+        # イメージをプロセス内で再ロードしないため、同一パスを使い回すと round-trip 検証が
+        # 最初の attempt の glue で固定され、後続 attempt の修正が反映されない。受理時に
+        # canonical パスへ mv し、cache / production が安定パスで参照できるようにする。
+        attempt_dylib = File.join(base, "lib", "#{glue_id}.attempt#{attempt_i}.dylib")
         seed = {
           rule_scaffold: rule_scaffold,
           failure_detail: last_failure,
@@ -108,12 +113,13 @@ module AppleSDKMac
           next
         end
         File.write(src, swift_source)
-        ok, err = @swiftc.compile(source_path: src, dylib_path: dylib,
+        ok, err = @swiftc.compile(source_path: src, dylib_path: attempt_dylib,
                                   runtime_dylib_path: @runtime_dylib_path,
                                   module_search_paths: @runtime_modules_paths)
         unless ok
           last_failure = "swiftc: #{err}"
           last_glue = swift_source
+          FileUtils.rm_f(attempt_dylib)
           next
         end
 
@@ -127,11 +133,12 @@ module AppleSDKMac
         if driver_inputs && @round_trip_runner
           rt_symbol = symbol.merge(driver_inputs)
           outcome = @round_trip_runner.run(
-            framework: framework, symbol: rt_symbol, dylib: dylib, exported: exported
+            framework: framework, symbol: rt_symbol, dylib: attempt_dylib, exported: exported
           )
           unless outcome.green?
             last_failure = "round-trip RED: #{outcome.detail}"
             last_glue = swift_source
+            FileUtils.rm_f(attempt_dylib)
             next
           end
           round_trip_outcome = "green: #{outcome.detail}"
@@ -140,6 +147,9 @@ module AppleSDKMac
           )
         end
 
+        # 受理: attempt 専用 dylib を canonical パスへ昇格させ、cache / production が
+        # 安定した #{glue_id}.dylib を参照できるようにする。
+        FileUtils.mv(attempt_dylib, dylib)
         @cache.insert(glue_id: glue_id, framework: framework, symbol: symbol[:name],
                       swift_source: swift_source, dylib_path: dylib,
                       exported_symbol: exported, generator: gen)
