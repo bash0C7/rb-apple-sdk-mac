@@ -1,16 +1,21 @@
 # rb-apple-sdk-mac
 
 > **This gem is experimental.** Ruby 4 Box namespace isolation
-> (`RUBY_BOX=1`) は実験 flag、 macOS 26 Foundation Model on-device LLM 由来の
-> Swift glue 生成は確率的 (毎回 deterministic ではない場面あり)、 public API
-> shape は v1.x の間に変わりうる。 production 投入は自己責任で。
+> (`RUBY_BOX=1`) は実験 flag、 production runtime は決定論 template で動く。
+> Knowledge Base 未知 / coverage 外 symbol の Swift glue は生成保守時に
+> `claude -p` ヘッドレス推論で合成され (この合成は確率的)、 round-trip 等価
+> 検証を通った GREEN なものだけ採用・永続化される (production default には
+> 未配線、 end user は検証済みの決定論 glue を replay)。 public API shape は
+> v1.x の間に変わりうる。 production 投入は自己責任で。
 
 Runtime dynamic Ruby ↔ Apple SDK bridge for macOS. Call any public Apple framework API from Ruby with no pre-declarations.
 
 > Swift overlay framework (AVFoundation / AppKit / Vision / SwiftUI 系) の API も
 > `bootstrap!` だけで動く。 ObjC selector → Swift imported name は Knowledge
 > Base に `swift_imported_name` column として取り込まれ、 ObjC↔Swift bridge
-> 名前解決は Knowledge Base lookup → 内蔵 heuristic → LLM 安全網 の順で解決。
+> 名前解決は Knowledge Base lookup → 内蔵 heuristic の順 (runtime は決定論)。
+> Knowledge Base 未知 symbol の glue は生成保守時の `claude -p` 推論 +
+> round-trip 等価検証で起こす (runtime safety net ではない)。
 > `examples/avspeech_synth.rb` / `examples/vision_ocr.rb` が end-to-end の
 > release-quality 検収例。 `Apple.discover` は escape hatch 専用 (private
 > framework / 第三者 framework / 自前 ObjC selector / Knowledge Base 分類の
@@ -21,7 +26,8 @@ Runtime dynamic Ruby ↔ Apple SDK bridge for macOS. Call any public Apple frame
 - macOS 26+
 - Ruby 4.x master with `RUBY_BOX=1` (required for namespace isolation)
 - Xcode + Swift 6.3+
-- External sibling gems: `rb-foundation-model-mac`, `swift_gem`
+- Runtime gem dependencies: `rb-apple-sdk-knowledge` (Knowledge Base) + `sqlite3`。 主 gem はこれ以外に依存しない (IRB / Reline / foundation_model_mac 系依存は `irb/` sub-gem 側にのみ存在)
+- Generation/maintenance-time のみ: `claude` CLI を PATH に (coverage 外 symbol の `claude -p` glue 推論 + round-trip rebuild 用)。 end-user runtime には不要
 - Internal sub-gems (same repo, separate gemspecs): `knowledge/` (Apple SDK Knowledge Base ingester), `irb/` (IRB autocomplete + doc preview), `mcp/` (MCP server)
 
 ## Installation
@@ -186,7 +192,8 @@ The bridge is composed of:
 - **Glue Runtime** (`ext/apple_sdk_mac_runtime/`): static Swift dylib with 9 pillars (Ref Table, Marshal, Callback, ARC, Error, Async, Threading, RunLoop, Conformance) bridged to CRuby via SE-0495 `@c`.
 - **Ruby cache layer**: Config (XDG/ENV/YAML), CompiledGlueCache (SQLite + dylib FS), KnowledgeCache (reads the `knowledge/` sub-gem's SQLite output).
 - **Discovery / shape resolution**: SelectorBridge (canonical method-name + acronym normalization, single source for `public_api` and `template_generator`), DiscoveryShape (`synthesize_symbol_record` + `KIND_SYM_TO_TYPE` + C-symbol param overrides).
-- **Glue Compiler pipeline**: TemplateGenerator (deterministic shape catalog) → ObjcMarshalling (ObjC `in_load` + `return_lines` emit) → SwiftBridgeName (Knowledge Base lookup; falls through to in-template heuristic) → LLMGenerator + LLMExamples (worked-example catalogue, rb-foundation-model-mac via Ollama as safety net) → ValidationGates (allowed imports / banned APIs / glue shape) → SwiftcInvoker.
+- **Glue Compiler pipeline** (production runtime, deterministic): TemplateGenerator (deterministic shape catalog) → ObjcMarshalling (ObjC `in_load` + `return_lines` emit) → SwiftBridgeName (Knowledge Base lookup; falls through to in-template heuristic) → ValidationGates (allowed imports / banned APIs / glue shape) → SwiftcInvoker. Symbols outside the template coverage are handled at generation/maintenance time (below), not at runtime.
+- **Inference + round-trip** (`inference/`, `round_trip/` — generation/maintenance-time, **not wired into the production default**): ClaudePBackend (`claude -p` headless synthesizes Swift glue from Knowledge Base symbol metadata) → ProductionRunner round-trip equivalence (generated glue vs native call must behave identically) → only GREEN glue is adopted and persisted. End users replay the persisted, round-trip-verified deterministic glue; the cloud inference path is never on the gem's public runtime path.
 - **Ruby runtime**: GlueLoader (dlopen + pointer cache), Dispatcher (cache miss → inline compile + invoke; transparent for Knowledge-Base-known symbols), SecurityCop (in-Box monkey patches with allow-list bypass), NamespaceBuilder (eager `Apple::<Framework>` shell definition at bootstrap), `Apple` Ruby::Box bootstrap.
 - **Knowledge Base** (`knowledge/` sub-gem): `*.swiftinterface` ingester for both ObjC frameworks and Swift overlay frameworks; ObjC selector → Swift imported name correspondence is stored in `symbols.swift_imported_name`.
 

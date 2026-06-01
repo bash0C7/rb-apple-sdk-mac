@@ -14,10 +14,13 @@ Gem::Specification.new do |spec|
     Apple.discover lazily compiles a Swift glue dylib per symbol via the
     9-pillar runtime (Ref Table, Marshal, Callback, ARC, Error, Async,
     Threading, RunLoop, Conformance), backed by an SQLite knowledge cache
-    and an LLM-fallback compiler that synthesizes glue for ObjC / Swift
-    shapes the deterministic template catalog cannot cover. Returns
-    Ruby-native types; out-pointer parameters are auto-allocated; OSStatus
-    / NSError surface as Apple::CallError. macOS 26+ / Ruby 4.x master.
+    and a deterministic template catalog. Glue for shapes outside that
+    coverage is synthesized at generation/maintenance time via headless
+    claude -p inference, round-trip verified for behavioral equivalence,
+    and persisted; end users replay the verified deterministic glue (the
+    inference path is not on the runtime default). Returns Ruby-native
+    types; out-pointer parameters are auto-allocated; OSStatus / NSError
+    surface as Apple::CallError. macOS 26+ / Ruby 4.x master.
   DESC
   spec.homepage = "https://github.com/bash0C7/rb-apple-sdk-mac"
   spec.license = "MIT"
