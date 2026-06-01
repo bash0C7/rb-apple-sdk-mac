@@ -2,10 +2,15 @@
 
 module AppleSDKMac
   module Inference
+    # backend 生成結果。swift_source は glue 本体、driver_inputs は round-trip 検証
+    # 駆動入力 (call_expr / invoke_args / value_kind / setter 系)。driver_inputs が
+    # nil のときは C fallback (RoundTrip::GlueAnalyzer) に委ねる。
+    BackendResult = Struct.new(:swift_source, :driver_inputs, keyword_init: true)
+
     # 推論 backend の抽象 interface。実装は Knowledge Base の symbol メタから Swift glue
-    # source 文字列を返す。生成できなければ nil を返し、compile 側は
+    # source を生成し BackendResult で返す。生成できなければ nil を返し、compile 側は
     # OutOfCoverageError に確定する。生成物は backend 信用ではなく、呼び出し側で
-    # ValidationGates + swiftc + cache に通して初めて採用される。
+    # ValidationGates + swiftc + round-trip + cache に通して初めて採用される。
     class Backend
       # @param seed [Hash, nil] optional seed context (各 key とも nil 可):
       #   :rule_scaffold   — template が生成した足場 Swift source

@@ -30,16 +30,93 @@ class ClaudePBackendTest < Test::Unit::TestCase
     assert_match(/@c public func/, captured) # export shape を明記
   end
 
-  def test_extracts_swift_from_fenced_block
+  # 主経路 A: round-trip 駆動入力 (call_expr / invoke_args / value_kind) を返す
+  # json ブロックをプロンプトで要求する。
+  def test_prompt_requests_driver_inputs_json_block
+    captured = nil
+    runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }
+    build(runner).generate_glue(framework: "CoreAudio", symbol: SYM,
+                                glue_id: "abc123", exported: "glue_abc123_x")
+    assert_match(/```json/, captured)
+    assert_match(/call_expr/, captured)
+    assert_match(/invoke_args/, captured)
+    assert_match(/value_kind/, captured)
+  end
+
+  def test_extracts_swift_into_backend_result
     runner = ->(_p) { "blah\n```swift\n@c public func glue_x() {}\n```\ntrailing" }
-    src = build(runner).generate_glue(framework: "F", symbol: SYM, glue_id: "x", exported: "glue_x")
-    assert_equal "@c public func glue_x() {}", src.strip
+    result = build(runner).generate_glue(framework: "F", symbol: SYM, glue_id: "x", exported: "glue_x")
+    assert_equal "@c public func glue_x() {}", result.swift_source.strip
   end
 
   def test_returns_nil_when_no_swift_block
     runner = ->(_p) { "I cannot help with that." }
-    src = build(runner).generate_glue(framework: "F", symbol: SYM, glue_id: "x", exported: "glue_x")
-    assert_nil src
+    result = build(runner).generate_glue(framework: "F", symbol: SYM, glue_id: "x", exported: "glue_x")
+    assert_nil result
+  end
+
+  # A path: swift + json の両ブロックが返れば driver_inputs を組み立てる。
+  def test_parses_driver_inputs_from_json_block
+    response = <<~RESP
+      ```swift
+      @c public func glue_x() -> UInt32 { 0 }
+      ```
+      ```json
+      {"call_expr": "answer()", "invoke_args": [1, null, {"k": 2}], "value_kind": "value"}
+      ```
+    RESP
+    result = build(->(_p) { response }).generate_glue(
+      framework: "F", symbol: SYM, glue_id: "x", exported: "glue_x"
+    )
+    assert_equal "answer()", result.driver_inputs[:call_expr]
+    assert_equal [1, nil, { "k" => 2 }], result.driver_inputs[:invoke_args]
+    assert_equal :value, result.driver_inputs[:value_kind]
+  end
+
+  # setter は read_expr / set_expr / set_value も拾う。
+  def test_parses_setter_driver_inputs
+    response = <<~RESP
+      ```swift
+      @c public func glue_x() {}
+      ```
+      ```json
+      {"call_expr": "x", "value_kind": "setter", "read_expr": "r()", "set_expr": "s()", "set_value": "42"}
+      ```
+    RESP
+    di = build(->(_p) { response }).generate_glue(
+      framework: "F", symbol: SYM, glue_id: "x", exported: "glue_x"
+    ).driver_inputs
+    assert_equal :setter, di[:value_kind]
+    assert_equal "r()", di[:read_expr]
+    assert_equal "s()", di[:set_expr]
+    assert_equal "42", di[:set_value]
+  end
+
+  # C fallback に委ねるため、json 欠損は driver_inputs nil。
+  def test_driver_inputs_nil_when_no_json_block
+    runner = ->(_p) { "```swift\n@c public func glue_x() {}\n```" }
+    result = build(runner).generate_glue(framework: "F", symbol: SYM, glue_id: "x", exported: "glue_x")
+    assert_not_nil result.swift_source
+    assert_nil result.driver_inputs
+  end
+
+  # 壊れた json は loud に握り潰さず nil 縮退 (C fallback へ)。
+  def test_driver_inputs_nil_on_malformed_json
+    response = "```swift\n@c public func glue_x() {}\n```\n```json\n{not valid json\n```"
+    result = build(->(_p) { response }).generate_glue(
+      framework: "F", symbol: SYM, glue_id: "x", exported: "glue_x"
+    )
+    assert_not_nil result.swift_source
+    assert_nil result.driver_inputs
+  end
+
+  # 必須 key (call_expr / value_kind) 欠損も nil 縮退。
+  def test_driver_inputs_nil_when_required_keys_missing
+    response = "```swift\n@c public func glue_x() {}\n```\n```json\n{\"invoke_args\": []}\n```"
+    result = build(->(_p) { response }).generate_glue(
+      framework: "F", symbol: SYM, glue_id: "x", exported: "glue_x"
+    )
+    assert_nil result.driver_inputs
   end
 
   def test_seed_scaffold_appears_in_prompt

@@ -219,10 +219,13 @@ class InferenceRoundTripPocTest < Test::Unit::TestCase
     Object.new.tap do |adapter|
       adapter.define_singleton_method(:generate_glue) do |framework:, symbol:, seed:|
         enriched = test.send(:enrich_symbol_with_seed, symbol, seed, context)
-        backend.generate_glue(
+        # ClaudePBackend は BackendResult を返す。PocLoop は glue 文字列を期待する
+        # ので swift_source を取り出す (round-trip 駆動入力は PoC では未使用)。
+        result = backend.generate_glue(
           framework: framework, symbol: enriched,
           glue_id: glue_id, exported: exported
         )
+        result&.swift_source
       end
     end
   end

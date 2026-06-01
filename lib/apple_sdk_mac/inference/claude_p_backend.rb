@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "open3"
+require "json"
 require_relative "backend"
 
 module AppleSDKMac
@@ -27,7 +28,10 @@ module AppleSDKMac
                               glue_id: glue_id, exported: exported, seed: seed)
         response = @runner.call(prompt)
         return nil if response.nil? || response.empty?
-        extract_swift(response)
+        swift = extract_swift(response)
+        return nil if swift.nil?
+        BackendResult.new(swift_source: swift,
+                          driver_inputs: extract_driver_inputs_json(response))
       end
 
       private
@@ -58,8 +62,23 @@ module AppleSDKMac
           - Return a value the C caller can consume (Int/Double/pointer/OpaqueRef).
           - If the function is async, wrap with DispatchSemaphore and Task { }.
           #{seed_section}
-          Respond with ONLY a single ```swift fenced code block containing the
-          function. No prose.
+          Emit the function in a single ```swift fenced code block.
+
+          After the ```swift block, emit a ```json block describing how to
+          round-trip verify the glue. Both expressions MUST observe the SAME
+          live system value, so bake in identical constants on each side:
+            {
+              "call_expr": "<a single self-contained Swift expression yielding
+                            the value the glue returns>",
+              "invoke_args": [<JSON args passed to the compiled glue from Ruby;
+                              same constants as call_expr; null for nil, an
+                              object for a struct arg>],
+              "value_kind": "value" | "opaque"
+            }
+          For a setter symbol use instead:
+            {"call_expr":"<expr>","value_kind":"setter","read_expr":"...",
+             "set_expr":"...","set_value":"<numeric literal>"}
+          No prose. Emit exactly the two fenced blocks (```swift then ```json).
         PROMPT
       end
 
@@ -92,6 +111,25 @@ module AppleSDKMac
         return nil unless m
         body = m[1].to_s.strip
         body.empty? ? nil : body
+      end
+
+      # ```json ... ``` を round-trip 駆動入力にパース。json 欠損・parse 失敗・
+      # 必須 key (call_expr / value_kind) 欠損は nil 縮退し、C fallback に委ねる。
+      def extract_driver_inputs_json(response)
+        m = response.match(/```json\s*\n(.*?)```/m)
+        return nil unless m
+        h = JSON.parse(m[1])
+        return nil unless h.is_a?(Hash) && h["call_expr"] && h["value_kind"]
+        {
+          call_expr:   h["call_expr"],
+          invoke_args: h["invoke_args"],
+          value_kind:  h["value_kind"].to_sym,
+          read_expr:   h["read_expr"],
+          set_expr:    h["set_expr"],
+          set_value:   h["set_value"]
+        }.compact
+      rescue JSON::ParserError
+        nil
       end
     end
   end
