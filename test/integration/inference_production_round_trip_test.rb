@@ -20,12 +20,18 @@ require_relative "../../lib/apple_sdk_mac/compiled_glue_cache"
 #
 # Gate OFF (default) => omit。Gate ON (RB_APPLE_SDK_MAC_POC=1) => 実走。
 class InferenceProductionRoundTripTest < Test::Unit::TestCase
-  # 常に uncovered を返す契約。symbol のメタは実物のまま保ち (real signature が
-  # prompt と rule scaffold seed に流れる)、経路だけ inference に固定する =
-  # 「rule base がこの symbol を覆っていない」状況の忠実な再現。
+  # 常に uncovered を返す契約 + 常に nil を返す template。compile は「template 成功
+  # なら即 return」なので、inference 経路を exercise するには template が覆えない
+  # (nil) かつ契約が uncovered を返す状況が要る = 「rule base がこの symbol を
+  # 覆っていない」の忠実な再現。symbol のメタ (real signature / params_json) は実物の
+  # まま LLM prompt に流れ、glue は live system に対して round-trip 検証される。
   class AlwaysUncovered
     def covered?(_symbol) = false
     def uncovered_reason(_symbol) = "uncovered shape: e2e forced inference boundary"
+  end
+
+  class NilTemplate
+    def generate(framework:, symbol:, glue_id:) = nil
   end
 
   GEM_ROOT = File.expand_path("../..", __dir__)
@@ -58,6 +64,7 @@ class InferenceProductionRoundTripTest < Test::Unit::TestCase
       runtime_dylib_path: runtime_dylib_path,
       runtime_modules_paths: runtime_modules_paths,
       knowledge_cache: kc,
+      template_generator: NilTemplate.new,
       inference_backend: AppleSDKMac::Inference::ClaudePBackend.new,
       coverage_contract: AlwaysUncovered.new,
       round_trip_runner: AppleSDKMac::RoundTrip::ProductionRunner.new(sdk_path: AppleSDKKnowledge::SDK.path),
