@@ -119,6 +119,29 @@ class ClaudePBackendTest < Test::Unit::TestCase
     assert_nil result.driver_inputs
   end
 
+  # 失敗モード #2 固定: out-param OSStatus API で「glue が返す値」が戻り OSStatus か
+  # out-param か曖昧で LLM が attempt 間で揺れる。prompt に対比的 worked example を
+  # 焼き込み、(A) 直接値 / (B) OSStatus+out-param を並置して判別を pin する。
+  def test_prompt_includes_worked_examples_for_call_expr
+    captured = nil
+    runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }
+    build(runner).generate_glue(framework: "CoreAudio", symbol: SYM,
+                                glue_id: "abc", exported: "glue_abc_Sym")
+    assert_match(/WORKED EXAMPLE/, captured)
+  end
+
+  # out-param 例が「OSStatus 戻り値は値ではなく out-param が観測値」を明示すること。
+  def test_worked_example_pins_outparam_over_osstatus
+    captured = nil
+    runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }
+    build(runner).generate_glue(framework: "CoreAudio", symbol: SYM,
+                                glue_id: "abc", exported: "glue_abc_Sym")
+    assert_match(/out-param/i, captured)
+    assert_match(/OSStatus/, captured)
+    # call_expr が out-param 値を yield する形 (関数戻り値=status を返さない) を示すこと。
+    assert_match(/NOT the (returned )?OSStatus|not the status|status code is NOT/i, captured)
+  end
+
   def test_seed_scaffold_appears_in_prompt
     captured = nil
     runner = ->(prompt) { captured = prompt; "```swift\n// x\n```" }

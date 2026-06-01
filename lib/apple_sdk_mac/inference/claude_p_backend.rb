@@ -78,6 +78,28 @@ module AppleSDKMac
           For a setter symbol use instead:
             {"call_expr":"<expr>","value_kind":"setter","read_expr":"...",
              "set_expr":"...","set_value":"<numeric literal>"}
+
+          WORKED EXAMPLES — call_expr must yield the OBSERVABLE RESULT VALUE,
+          never a status/error code:
+
+          (A) Direct-return function `func TGetCount(_ id: UInt32) -> Int32`
+              The return value IS the observable value, so:
+                "call_expr": "Int(TGetCount(7))",
+                "invoke_args": [7]
+
+          (B) OSStatus out-param function
+              `func TGetSize(_ id: UInt32, _ out: UnsafeMutablePointer<UInt32>) -> OSStatus`
+              The Int32 OSStatus return is only an error code — it is NOT the
+              value. The observable value is the OUT-PARAM the function writes.
+              call_expr must declare the out var, call the function, then yield
+              the OUT-PARAM (NOT the returned OSStatus):
+                "call_expr": "{ var sz: UInt32 = 0; _ = TGetSize(7, &sz); return Int(sz) }()",
+                "invoke_args": [7]
+              WRONG (returns the status code, always 0 on success — do NOT do this):
+                "call_expr": "Int(TGetSize(7, &sz))"
+              Bake the SAME constants (here `7`) into both call_expr and
+              invoke_args so the glue and the driver observe one identical value.
+
           No prose. Emit exactly the two fenced blocks (```swift then ```json).
         PROMPT
       end
