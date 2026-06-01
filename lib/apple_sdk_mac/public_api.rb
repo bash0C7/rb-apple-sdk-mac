@@ -71,13 +71,16 @@ module AppleSDKMac
       )
     end
 
-    # Polymorphic single entry. Seven keyword shapes:
+    # Polymorphic single entry. Keyword shapes:
     #   symbol:           — C function (the README canonical form)
     #   selector:         — ObjC instance method (requires klass:)
     #   class_method:     — ObjC class method (requires klass:)
     #   swift_func:       — Swift function (top-level or static)
     #   swift_initializer:— Swift initializer (requires klass:)
-    #   swift_property:   — Swift property (requires klass:)
+    #   swift_property:   — Swift property getter (requires klass:); add
+    #                       setter: true for the `<prop>=` setter (requires
+    #                       klass:, return_kind: is the property's value type)
+    #   constant:         — global numeric constant (return_kind: :float/:int/:uint)
     #   type_args:        — Swift generic resolution (combined with swift_func:)
     #
     # Synthesizes a symbol record with the proper kind, registers it into

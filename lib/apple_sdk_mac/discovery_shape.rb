@@ -65,13 +65,39 @@ module AppleSDKMac
           params: opts[:params], return_kind: opts[:return_kind]
         )
       when opts.key?(:swift_property)
+        if opts[:setter] == true
+          # setter: true は is_settable プロパティの setter glue を起こす唯一の
+          # public 経路。 emit_swift_property_setter は value 型を params[0] に
+          # 必須とするため return_kind を value 型として params に積む。 name の
+          # "=" suffix が NamespaceBuilder#ruby_method_name_for を通って Ruby の
+          # `<prop>=` setter method を define させる。
+          base.merge(
+            name: "#{opts[:klass]}.#{opts[:swift_property]}=",
+            kind: "swift_property_setter",
+            swift_class: opts[:klass].to_s,
+            swift_property: opts[:swift_property].to_s,
+            params: [opts[:return_kind]],
+            return_kind: :void,
+            instance: opts[:instance] == true
+          )
+        else
+          base.merge(
+            name: "#{opts[:klass]}.#{opts[:swift_property]}",
+            kind: "swift_property",
+            swift_class: opts[:klass].to_s,
+            swift_property: opts[:swift_property].to_s,
+            return_kind: opts[:return_kind],
+            instance: opts[:instance] == true
+          )
+        end
+      when opts.key?(:constant)
+        # global_constant の public 経路。 emit_global_constant は signature を
+        # global_constant_value_kind で numeric token 判定するため、 user の
+        # return_kind から numeric な signature を合成する (numeric のみ被覆、
+        # CF/NS opaque 定数は emitter が nil で out-of-coverage に留める)。
         base.merge(
-          name: "#{opts[:klass]}.#{opts[:swift_property]}",
-          kind: "swift_property",
-          swift_class: opts[:klass].to_s,
-          swift_property: opts[:swift_property].to_s,
-          return_kind: opts[:return_kind],
-          instance: opts[:instance] == true
+          name: opts[:constant].to_s, kind: "global_constant", abi: "c",
+          signature: "extern #{global_constant_signature_type(opts[:return_kind])} #{opts[:constant]}"
         )
       when opts.key?(:swift_func)
         # swift_func は klass: で `Klass.func` static method 化、 または
@@ -88,7 +114,19 @@ module AppleSDKMac
         rec
       else
         raise AppleSDKMac::DiscoveryError,
-          "Apple.discover requires one of: symbol, selector, class_method, swift_func, swift_initializer, swift_property"
+          "Apple.discover requires one of: symbol, selector, class_method, swift_func, swift_initializer, swift_property (+ optional setter: true), constant"
+      end
+    end
+
+    # global_constant の合成 signature 用 C type token。 emit_global_constant の
+    # global_constant_value_kind が拾える numeric token に return_kind を写す。
+    # numeric 以外は raw 文字列を返し、 emitter 側で nil (out-of-coverage) に倒す。
+    def global_constant_signature_type(return_kind)
+      case return_kind
+      when :float then "double"
+      when :int   then "NSInteger"
+      when :uint  then "NSUInteger"
+      else return_kind.to_s
       end
     end
 

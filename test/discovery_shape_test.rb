@@ -68,6 +68,59 @@ class TestDiscoveryShape < Test::Unit::TestCase
     assert_equal "ProcessInfo.processIdentifier", rec[:name]
   end
 
+  # swift_property + setter: true → kind="swift_property_setter"。 public
+  # Apple.discover から setter kind を踏める唯一の経路。 emit_swift_property_setter
+  # は params (>=1, value 型) を必須にするため synthesize が return_kind を
+  # value 型として params に積み、 name に "=" suffix を付ける (Ruby setter 命名)。
+  def test_synthesize_swift_property_setter_record_when_setter_true
+    rec = AppleSDKMac::DiscoveryShape.synthesize_symbol_record(
+      framework: :AVFoundation, klass: :AVSpeechUtterance,
+      swift_property: :rate, instance: true, return_kind: :float, setter: true
+    )
+    assert_equal "swift_property_setter", rec[:kind]
+    assert_equal "AVSpeechUtterance.rate=", rec[:name]
+    assert_equal "AVSpeechUtterance", rec[:swift_class]
+    assert_equal "rate", rec[:swift_property]
+    assert_equal [:float], rec[:params],
+      "setter は value 型を params[0] に持つ (emit_swift_property_setter の必須前提)"
+    assert_equal true, rec[:instance]
+  end
+
+  # setter: なしは従来どおり getter kind="swift_property"。 setter flag が
+  # getter path を汚染しないことの回帰確認。
+  def test_synthesize_swift_property_without_setter_stays_getter
+    rec = AppleSDKMac::DiscoveryShape.synthesize_symbol_record(
+      framework: :AVFoundation, klass: :AVSpeechUtterance,
+      swift_property: :speechString, instance: true, return_kind: :string
+    )
+    assert_equal "swift_property", rec[:kind]
+    assert_equal "AVSpeechUtterance.speechString", rec[:name]
+  end
+
+  # constant: → kind="global_constant" / abi="c"。 emit_global_constant の
+  # global_constant_value_kind が numeric token を拾えるよう、 return_kind から
+  # numeric な signature を合成する (:float → double)。
+  def test_synthesize_global_constant_float_record
+    rec = AppleSDKMac::DiscoveryShape.synthesize_symbol_record(
+      framework: :CoreFoundation, constant: :kCFCoreFoundationVersionNumber,
+      return_kind: :float
+    )
+    assert_equal "global_constant", rec[:kind]
+    assert_equal "c", rec[:abi]
+    assert_equal "kCFCoreFoundationVersionNumber", rec[:name]
+    assert_match(/\bdouble\b/, rec[:signature].to_s,
+      "global_constant_value_kind が :float を拾える numeric signature を合成する")
+  end
+
+  # constant: + return_kind :int → integer 系の signature token。
+  def test_synthesize_global_constant_integer_record
+    rec = AppleSDKMac::DiscoveryShape.synthesize_symbol_record(
+      framework: :Foundation, constant: :NSIntegerMaxConst, return_kind: :int
+    )
+    assert_equal "global_constant", rec[:kind]
+    assert_match(/\bNSInteger\b/, rec[:signature].to_s)
+  end
+
   def test_synthesize_swift_func_record
     rec = AppleSDKMac::DiscoveryShape.synthesize_symbol_record(
       framework: :Foundation, swift_func: :decode,
