@@ -6,6 +6,8 @@ require_relative "glue_compiler/validation_gates"
 require_relative "glue_compiler/swiftc_invoker"
 require_relative "coverage_contract"
 require_relative "irb_elicitation"
+require_relative "round_trip/glue_analyzer"
+require_relative "round_trip/round_trip_test_generator"
 
 module AppleSDKMac
   class GlueCompiler
@@ -21,7 +23,8 @@ module AppleSDKMac
                     inference_backend: nil,
                     coverage_contract: nil,
                     inference_budget: 3,
-                    glue_store: nil)
+                    glue_store: nil,
+                    round_trip_runner: nil)
       @cache = cache
       @runtime_dylib_path = runtime_dylib_path
       @runtime_modules_paths = runtime_modules_paths
@@ -32,6 +35,7 @@ module AppleSDKMac
       @contract = coverage_contract || CoverageContract.new
       @inference_budget = inference_budget
       @glue_store = glue_store
+      @round_trip_runner = round_trip_runner
     end
 
     def compile(framework:, symbol:)
@@ -87,10 +91,11 @@ module AppleSDKMac
           last_glue: last_glue,
           context: context
         }
-        swift_source = @inference_backend.generate_glue(
+        backend_result = @inference_backend.generate_glue(
           framework: framework, symbol: symbol,
           glue_id: glue_id, exported: exported, seed: seed
         )
+        swift_source = backend_result&.swift_source
         if swift_source.nil? || swift_source.empty?
           last_failure = "backend returned nil or empty glue"
           next
@@ -111,13 +116,39 @@ module AppleSDKMac
           last_glue = swift_source
           next
         end
+
+        # round-trip 検証: A path の driver_inputs、無ければ C fallback で合成。
+        # runner と driver_inputs が揃ったときだけ走る。RED は閉ループに合流 (next)
+        # して握り潰さない。GREEN は round_trip_test と outcome を永続化する。
+        driver_inputs = backend_result.driver_inputs
+        driver_inputs ||= RoundTrip::GlueAnalyzer.extract_driver_inputs(swift_source)
+        round_trip_outcome = nil
+        round_trip_test = nil
+        if driver_inputs && @round_trip_runner
+          rt_symbol = symbol.merge(driver_inputs)
+          outcome = @round_trip_runner.run(
+            framework: framework, symbol: rt_symbol, dylib: dylib, exported: exported
+          )
+          unless outcome.green?
+            last_failure = "round-trip RED: #{outcome.detail}"
+            last_glue = swift_source
+            next
+          end
+          round_trip_outcome = "green: #{outcome.detail}"
+          round_trip_test = RoundTrip::RoundTripTestGenerator.generate(
+            framework: framework, symbol: symbol, driver_inputs: driver_inputs
+          )
+        end
+
         @cache.insert(glue_id: glue_id, framework: framework, symbol: symbol[:name],
                       swift_source: swift_source, dylib_path: dylib,
                       exported_symbol: exported, generator: gen)
         @glue_store&.store(framework: framework.to_s, symbol_name: symbol[:name].to_s,
                            swift_source: swift_source,
                            kind: symbol[:kind], rule_failure_reason: reason,
-                           rule_scaffold: rule_scaffold, context_used: context)
+                           rule_scaffold: rule_scaffold, context_used: context,
+                           round_trip_test: round_trip_test,
+                           round_trip_outcome: round_trip_outcome)
         return Result.new(success?: true, glue_id: glue_id, generator: gen,
                           dylib_path: dylib, exported_symbol: exported)
       end

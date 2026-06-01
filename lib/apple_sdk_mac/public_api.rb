@@ -7,6 +7,7 @@ require_relative "compiled_glue_cache"
 require_relative "glue_loader"
 require_relative "glue_compiler"
 require_relative "glue_store"
+require_relative "round_trip/production_runner"
 require_relative "dispatcher"
 require_relative "namespace_builder"
 require_relative "opaque_ref"
@@ -52,6 +53,11 @@ module AppleSDKMac
         glue_store: GlueStore.new(
           project_dir: AppleSDKMac.cache_dir,
           sdk_version: AppleSDKKnowledge::SDK.version
+        ),
+        # 推論経路は生成 glue が native call と振る舞い等価かを round-trip で検証し、
+        # GREEN な glue だけを採用・永続化する (compile 通過は等価の proxy にすぎない)。
+        round_trip_runner: RoundTrip::ProductionRunner.new(
+          sdk_path: AppleSDKKnowledge::SDK.path
         )
       )
     end

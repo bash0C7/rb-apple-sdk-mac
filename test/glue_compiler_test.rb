@@ -163,7 +163,7 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
 
     backend = Object.new
     def backend.name = "claude_p"
-    def backend.generate_glue(**) = "@c public func glue_x_Sym() {}"
+    def backend.generate_glue(**) = AppleSDKMac::Inference::BackendResult.new(swift_source: "@c public func glue_x_Sym() {}")
 
     compiler = AppleSDKMac::GlueCompiler.new(
       cache: cache, runtime_dylib_path: "/tmp/none.dylib",
@@ -211,7 +211,7 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     backend.define_singleton_method(:generate_glue) do |**kw|
       seeds_received << kw[:seed]
       call_count += 1
-      call_count == 1 ? nil : "@c public func glue_x_Sym() {}"
+      call_count == 1 ? nil : AppleSDKMac::Inference::BackendResult.new(swift_source: "@c public func glue_x_Sym() {}")
     end
 
     fake_template = Object.new
@@ -280,7 +280,7 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     backend.define_singleton_method(:generate_glue) do |**kw|
       ctx = kw[:seed][:context]
       seen_contexts << ctx
-      ctx ? "@c public func glue_x_Sym() {}" : nil
+      ctx ? AppleSDKMac::Inference::BackendResult.new(swift_source: "@c public func glue_x_Sym() {}") : nil
     end
 
     fake_template = Object.new
@@ -340,7 +340,7 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     contexts_received = []
     backend.define_singleton_method(:generate_glue) do |**kw|
       contexts_received << kw.dig(:seed, :context)
-      kw.dig(:seed, :context) ? "@c public func glue_x_Sym() {}" : nil
+      kw.dig(:seed, :context) ? AppleSDKMac::Inference::BackendResult.new(swift_source: "@c public func glue_x_Sym() {}") : nil
     end
 
     fake_template = Object.new
@@ -372,5 +372,148 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
         assert_includes contexts_received, "Use UInt32 return"
       end
     end
+  end
+end
+
+# Step 7: swiftc 成功後の round-trip 検証統合。round_trip_runner を inject して
+# GREEN/RED 分岐・永続化証跡を実 swiftc/claude -p なしで検証する。
+class GlueCompilerRoundTripIntegrationTest < Test::Unit::TestCase
+  BR = AppleSDKMac::Inference::BackendResult
+  RTOutcome = Struct.new(:green?, :detail, keyword_init: true)
+
+  def setup
+    @project_dir = Dir.mktmpdir
+    @glue_store = AppleSDKMac::GlueStore.new(project_dir: @project_dir, sdk_version: "26.5")
+  end
+
+  def teardown
+    FileUtils.remove_entry(@project_dir) if @project_dir && File.exist?(@project_dir)
+  end
+
+  def make_cache
+    cache = Object.new
+    cache.define_singleton_method(:base_dir) { Dir.mktmpdir }
+    cache.define_singleton_method(:sdk_version) { "26.5" }
+    cache.define_singleton_method(:record_attempt) { |**| }
+    cache.define_singleton_method(:insert) { |**| }
+    cache
+  end
+
+  def passthrough_gates
+    g = Object.new
+    g.define_singleton_method(:validate) { |*, **| Struct.new(:pass?, :errors).new(true, []) }
+    g
+  end
+
+  def ok_swiftc
+    s = Object.new
+    s.define_singleton_method(:compile) { |**| [true, nil] }
+    s
+  end
+
+  def nil_template
+    t = Object.new
+    t.define_singleton_method(:generate) { |**| nil }
+    t
+  end
+
+  def backend_returning(result)
+    b = Object.new
+    b.define_singleton_method(:name) { "claude_p" }
+    b.define_singleton_method(:generate_glue) { |**| result }
+    b
+  end
+
+  UNCOVERED_SYM = { name: "Sym", kind: "swift_macro", abi: "swift",
+                    signature: "()", parameters_json: "[]" }.freeze
+
+  # driver_inputs あり + runner GREEN → success、round_trip_test と
+  # round_trip_outcome ("green:") が Tier 1 に永続化される。
+  def test_round_trip_green_persists_test_and_outcome
+    backend = backend_returning(BR.new(
+      swift_source: "@c public func glue_x_Sym() -> UInt32 { 0 }",
+      driver_inputs: { call_expr: "Foo()", invoke_args: [], value_kind: :value }
+    ))
+    runner = Object.new
+    runner.define_singleton_method(:run) { |**| RTOutcome.new(green?: true, detail: "equivalent") }
+
+    compiler = AppleSDKMac::GlueCompiler.new(
+      cache: make_cache, runtime_dylib_path: "/dev/null",
+      template_generator: nil_template, gates: passthrough_gates,
+      swiftc_invoker: ok_swiftc, inference_backend: backend,
+      glue_store: @glue_store, round_trip_runner: runner
+    )
+    result = compiler.compile(framework: "F", symbol: UNCOVERED_SYM)
+    assert_true result.success?, result.error_detail
+
+    prov = @glue_store.provenance_entries.first
+    assert_not_nil prov, "provenance sidecar must be written"
+    assert_match(/\Agreen:/, prov["round_trip_outcome"])
+    rtt_path = @glue_store.round_trip_test_path(framework: "F", symbol_name: "Sym")
+    assert File.exist?(rtt_path), "round_trip_test must be persisted"
+    assert_false File.read(rtt_path).empty?
+  end
+
+  # driver_inputs あり + runner RED → その attempt は失敗扱いで閉ループ next、
+  # budget 枯渇で OutOfCoverageError。round-trip RED を握り潰して success にしない。
+  def test_round_trip_red_fails_attempt_and_loud_fails_on_budget
+    backend = backend_returning(BR.new(
+      swift_source: "@c public func glue_x_Sym() -> UInt32 { 0 }",
+      driver_inputs: { call_expr: "Foo()", invoke_args: [], value_kind: :value }
+    ))
+    runner = Object.new
+    runner.define_singleton_method(:run) { |**| RTOutcome.new(green?: false, detail: "mismatch: swift=1 ruby=2") }
+
+    err = nil
+    compiler = AppleSDKMac::GlueCompiler.new(
+      cache: make_cache, runtime_dylib_path: "/dev/null",
+      template_generator: nil_template, gates: passthrough_gates,
+      swiftc_invoker: ok_swiftc, inference_backend: backend,
+      glue_store: @glue_store, round_trip_runner: runner, inference_budget: 2
+    )
+    err = assert_raise(AppleSDKMac::OutOfCoverageError) do
+      compiler.compile(framework: "F", symbol: UNCOVERED_SYM)
+    end
+    assert_match(/round-trip RED/, err.last_failure_detail)
+    assert_equal [], @glue_store.provenance_entries, "RED glue must not be persisted as success"
+  end
+
+  # driver_inputs 無し + runner 未注入 → round-trip skip、success、outcome nil (現状維持)。
+  def test_no_driver_inputs_skips_round_trip_and_succeeds
+    backend = backend_returning(BR.new(
+      swift_source: "@c public func glue_x_Sym() {}", driver_inputs: nil
+    ))
+    compiler = AppleSDKMac::GlueCompiler.new(
+      cache: make_cache, runtime_dylib_path: "/dev/null",
+      template_generator: nil_template, gates: passthrough_gates,
+      swiftc_invoker: ok_swiftc, inference_backend: backend,
+      glue_store: @glue_store   # round_trip_runner 未注入
+    )
+    result = compiler.compile(framework: "F", symbol: UNCOVERED_SYM)
+    assert_true result.success?
+    # glue は store されるが round_trip_outcome は nil、round_trip_test も無し
+    rtt_path = @glue_store.round_trip_test_path(framework: "F", symbol_name: "Sym")
+    assert_false File.exist?(rtt_path), "no round_trip_test when round-trip skipped"
+  end
+
+  # GlueAnalyzer C fallback: backend が driver_inputs nil でも、glue source から
+  # 合成できれば round-trip にかかる (runner GREEN なら永続化)。
+  def test_c_fallback_synthesizes_driver_inputs_when_backend_omits
+    backend = backend_returning(BR.new(
+      swift_source: "@c public func glue_x_Sym() -> Int32 {\n  return NativeCall(1)\n}",
+      driver_inputs: nil
+    ))
+    seen = nil
+    runner = Object.new
+    runner.define_singleton_method(:run) { |**kw| seen = kw[:symbol]; RTOutcome.new(green?: true, detail: "equivalent") }
+    compiler = AppleSDKMac::GlueCompiler.new(
+      cache: make_cache, runtime_dylib_path: "/dev/null",
+      template_generator: nil_template, gates: passthrough_gates,
+      swiftc_invoker: ok_swiftc, inference_backend: backend,
+      glue_store: @glue_store, round_trip_runner: runner
+    )
+    result = compiler.compile(framework: "F", symbol: UNCOVERED_SYM)
+    assert_true result.success?
+    assert_equal "NativeCall(1)", seen[:call_expr], "C fallback call_expr must reach the runner"
   end
 end
