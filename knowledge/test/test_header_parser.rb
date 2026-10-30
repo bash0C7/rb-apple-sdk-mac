@@ -37,8 +37,6 @@ class TestHeaderParser < Test::Unit::TestCase
       assert_not_equal "struct", cb[:kind],
         "function-pointer typedef should not be classified as struct"
     end
-    # Either it's not emitted at all, or it's emitted with a non-struct kind.
-    # The current acceptable shapes are: omitted, or kind=function_pointer (future).
   end
 
   def test_emits_structured_parameters_for_function
@@ -52,15 +50,11 @@ class TestHeaderParser < Test::Unit::TestCase
   end
 
   def test_does_not_leak_symbols_from_transitively_included_headers
-    # MiniHeader.h #includes <stdint.h>, which transitively pulls in
-    # pthread/NSConstantString/__builtin_va_list etc. The parser must filter
-    # by source location and only emit symbols declared in the parsed file.
     leaked = @symbols.map { |s| s[:name] }.select do |n|
-      n.start_with?("__", "_opaque_") || n == "MiniStatus" && false # keep MiniStatus
+      n.start_with?("__", "_opaque_") || n == "MiniStatus" && false
     end
     assert_empty leaked,
       "expected no system-header symbols, got: #{leaked.inspect}"
-    # Sanity: only Mini-prefixed names plus enum constants should remain.
     own_names = @symbols.map { |s| s[:name] }.uniq
     foreign = own_names.reject { |n| n.match?(/\A(Mini|kMini)/) }
     assert_empty foreign,
@@ -76,8 +70,6 @@ class TestHeaderParser < Test::Unit::TestCase
   def test_classifies_int_param
     fn = @symbols.find { |s| s[:name] == "MiniDispose" && s[:kind] == "function" }
     client_param = fn[:parameters].find { |p| p[:name] == "client" }
-    # MiniClientRef = struct *, name ends in Ref, becomes opaque_ref later;
-    # for THIS step we only assert kind is set (not nil).
     assert_not_nil client_param[:kind]
   end
 
@@ -88,9 +80,6 @@ class TestHeaderParser < Test::Unit::TestCase
   end
 
   def test_classifies_float_return_function
-    # Float kind shows up on the parameters; here MiniIsActive's BOOL-like return
-    # is not exposed via :parameters. Use MiniGetRatio, whose only param is
-    # MiniClientRef (opaque_ref).
     fn = @symbols.find { |s| s[:name] == "MiniGetRatio" && s[:kind] == "function" }
     client = fn[:parameters].find { |p| p[:name] == "client" }
     assert_equal "opaque_ref", client[:kind]
@@ -103,7 +92,6 @@ class TestHeaderParser < Test::Unit::TestCase
   end
 
   def test_classifies_void_pointer_unspecified_as_void_ptr_nilable
-    # Policy: unspecified nullability is treated as nilable (safe default).
     fn = @symbols.find { |s| s[:name] == "MiniWithCallback" && s[:kind] == "function" }
     user_data = fn[:parameters].find { |p| p[:name] == "userData" }
     assert_equal "void_ptr_nilable", user_data[:kind]
@@ -131,7 +119,6 @@ class TestHeaderParser < Test::Unit::TestCase
     assert_equal false, client[:is_out_param]
   end
 
-  # Task 4: RecordDecl walks FieldDecl inner; emits :fields with name/type/kind.
   def test_recorddecl_emits_fields_with_kinds
     require "tempfile"
     Tempfile.create(["mini_struct", ".h"]) do |f|
@@ -153,7 +140,6 @@ class TestHeaderParser < Test::Unit::TestCase
     end
   end
 
-  # Task 4: function_parameters forwards nullability annotation to classify_kind.
   def test_nonnull_callback_annotation_yields_callback_non_nil
     require "tempfile"
     Tempfile.create(["mini_nonnull", ".h"]) do |f|
@@ -169,12 +155,6 @@ class TestHeaderParser < Test::Unit::TestCase
     end
   end
 
-  # Doc-comment capture (Step 2.2 RED). clang's AST already attaches a
-  # FullComment subtree to declarations whose preceding /** ... */ or ///
-  # block survives the lexer; the parser should flatten its TextComments
-  # into the symbol's :documentation field so KnowledgeCache.list_*
-  # downstream consumers (irb sub-gem doc preview, LLMGenerator prompt
-  # context) see Apple's official doc text instead of an empty string.
   def test_extracts_doxygen_block_comment
     fn = @symbols.find { |s| s[:name] == "MiniCreate" && s[:kind] == "function" }
     assert_not_nil fn
@@ -198,12 +178,6 @@ class TestHeaderParser < Test::Unit::TestCase
       "MiniGetRatio has no doc-comment in fixture, :documentation should be nil/empty")
   end
 
-  # Apple framework headers use Objective-C syntax (`@class`, `@interface`,
-  # `@property`, `<NSCopying>`). The parser MUST drive clang in
-  # objective-c mode with -isysroot / -F so framework includes resolve.
-  # Driving it as plain C makes `@class NSString;` fail with
-  # "expected identifier or '('" and silently skips every framework header,
-  # which is exactly what blocked the v1.2 rebuild before this fix.
   def test_parses_objective_c_header_without_raising
     require "tempfile"
     Tempfile.create(["mini_objc", ".h"]) do |f|

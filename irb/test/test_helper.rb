@@ -2,4 +2,4 @@
 require "test-unit"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-$LOAD_PATH.unshift File.expand_path("../../lib", __dir__) # parent gem
+$LOAD_PATH.unshift File.expand_path("../../lib", __dir__)

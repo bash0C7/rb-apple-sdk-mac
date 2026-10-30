@@ -34,10 +34,6 @@ class TestStore < Test::Unit::TestCase
     store.close
   end
 
-  # Embedder is gone; the symbols_vec virtual table and Store#vec_insert
-  # were placeholder scaffolding for a Foundation Models embedder that
-  # only ever wrote zero-vectors. They're removed so the schema reflects
-  # the current state.
   def test_symbols_vec_table_absent_after_migrate
     store = AppleSDKKnowledge::Store.open(@db_path)
     tables = store.db.execute(
@@ -74,10 +70,6 @@ class TestStore < Test::Unit::TestCase
     store.close
   end
 
-  # The schema is created entirely by SCHEMA_SQL's CREATE TABLE statement;
-  # there is no ALTER TABLE / ensure_column! migration step. Verifying via
-  # the absence of Store#ensure_column! ensures no hidden migration path
-  # creeps back in.
   def test_schema_columns_created_inline_no_ensure_column_helper
     refute AppleSDKKnowledge::Store.instance_methods(false).include?(:ensure_column!),
       "Store#ensure_column! must be removed — schema is created inline by SCHEMA_SQL"
@@ -99,7 +91,6 @@ class TestStore < Test::Unit::TestCase
 
   def test_reopen_does_not_raise
     AppleSDKKnowledge::Store.open(@db_path).close
-    # Second open is a no-op migration; should not raise even when columns exist.
     AppleSDKKnowledge::Store.open(@db_path).close
   end
 
@@ -114,20 +105,12 @@ class TestStore < Test::Unit::TestCase
     store.close
   end
 
-  # An existing row written under an older importer (fields_json = NULL) must
-  # be UPDATED when the same content_hash is re-inserted with a populated
-  # fields_json. Without this, `apple:knowledge:rebuild` is a no-op for any
-  # symbol that already exists — the case actually observed in the wild
-  # where 4931 struct rows have fields_json IS NULL after a full rebuild.
   def test_insert_symbol_upserts_on_content_hash_conflict
     store = AppleSDKKnowledge::Store.open(@db_path)
     fw_id = store.insert_framework(name: "Acme", swift_module: "Acme")
-    # First insert — pre-fix style, no fields.
     store.insert_symbol(framework_id: fw_id, name: "Foo", kind: "struct", abi: "c",
                         content_hash: "h_upsert", fields_json: nil,
                         signature: "struct Foo")
-    # Second insert with same content_hash but updated fields. Expect the
-    # row to be updated, not a ConstraintException.
     new_fields = JSON.dump([{ name: "x", type: "int", kind: "int" }])
     store.insert_symbol(framework_id: fw_id, name: "Foo", kind: "struct", abi: "c",
                         content_hash: "h_upsert", fields_json: new_fields,
@@ -138,11 +121,6 @@ class TestStore < Test::Unit::TestCase
     store.close
   end
 
-  # insert_symbol must accept and atomically persist swift_imported_name as
-  # part of the INSERT ... ON CONFLICT DO UPDATE statement. Previously the
-  # Swift overlay importer wrote this column via a separate UPDATE following
-  # the insert — observable partial state, and the UPDATE was skipped on the
-  # ON CONFLICT path, leaving stale swift_imported_name on re-import.
   def test_insert_symbol_persists_swift_imported_name
     store = AppleSDKKnowledge::Store.open(@db_path)
     fw_id = store.insert_framework(name: "AVFoundation", swift_module: "AVFoundation")
@@ -160,10 +138,6 @@ class TestStore < Test::Unit::TestCase
     store.close
   end
 
-  # Re-inserting under the same content_hash with a NEW swift_imported_name
-  # must atomically update the column. The pre-fix two-statement pattern
-  # left a window where the row had stale swift_imported_name and required
-  # a separate UPDATE that the importer could (and did) skip on conflict.
   def test_insert_symbol_updates_swift_imported_name_on_conflict
     store = AppleSDKKnowledge::Store.open(@db_path)
     fw_id = store.insert_framework(name: "AVFoundation", swift_module: "AVFoundation")
@@ -173,8 +147,6 @@ class TestStore < Test::Unit::TestCase
       signature: "class func devices(for: AVMediaType)",
       swift_imported_name: "devices(for:)"
     )
-    # Second insert under the same content_hash with a DIFFERENT
-    # swift_imported_name. The row must reflect the new value.
     store.insert_symbol(
       framework_id: fw_id, name: "devicesWithMediaType:", kind: "class_method",
       abi: "swift", content_hash: "h_swift_conflict",

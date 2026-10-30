@@ -1,26 +1,17 @@
 # frozen_string_literal: true
 require "test_helper"
 
-# RSS growth budget for example dispatch loops.
-# Acceptance: after warmup + N iterations of the example dispatch, RSS
-# growth ≤ 5MB. Ensures BoxedBlockHandle / BoxedCFType / opaque ref
-# autorelease paths actually release.
-#
-# Iteration count is small by default so the test runs in CI; bump
-# MEMORY_LEAK_ITERS=1000 to exercise the full budget.
 class TestMemoryLeak < Test::Unit::TestCase
   ITERS  = Integer(ENV["MEMORY_LEAK_ITERS"] || 200)
   BUDGET_MB = Float(ENV["MEMORY_LEAK_BUDGET_MB"] || 5.0)
 
   def rss_mb
-    # macOS-only — ps -o rss reports KB.
     rss_kb = `ps -o rss= -p #{Process.pid}`.to_i
     rss_kb / 1024.0
   end
 
   def test_canonical_midi_dispatch_loop_does_not_leak
     Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientCreate)
-    # Warmup primes Dispatcher cache + JIT + RSS levels.
     50.times { Apple::CoreMIDI.MIDIClientCreate("warmup", nil, nil) }
 
     GC.start

@@ -3,9 +3,6 @@ require_relative "../test_helper"
 require "json"
 
 class DryRunTemplateTest < Test::Unit::TestCase
-  # spec §4.5 — TemplateGenerator#generate だけ呼んで Swift glue source 文字列を
-  # 返す (swiftc は走らせない)。 trust-but-verify ループ用。
-
   FakeKB = Struct.new(:fixture) do
     def lookup_symbol(framework:, symbol:)
       fixture[[framework, symbol]]

@@ -1,9 +1,4 @@
 # frozen_string_literal: true
-# Phase 7 / spec §9 — cached-call dispatch latency benchmark.
-# Acceptance: p99 ≤ 200µs after cache hit, measured on macOS 26 hardware.
-#
-# Run: RUBY_BOX=1 bundle exec ruby benchmark/dispatch_overhead.rb
-# Exit status 0 on PASS (p99 ≤ 200µs), 1 on FAIL.
 require "apple_sdk_mac"
 
 ITERS = Integer(ENV["BENCH_ITERS"] || 5_000)
@@ -12,8 +7,6 @@ BUDGET_US = Float(ENV["BENCH_BUDGET_US"] || 200.0)
 
 Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientCreate)
 
-# Warmup — discover/compile happens above; warmup primes
-# Dispatcher#dispatch path cache + branch predictors.
 WARMUP.times { Apple::CoreMIDI.MIDIClientCreate("warmup", nil, nil) }
 
 samples = Array.new(ITERS)

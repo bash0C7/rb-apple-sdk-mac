@@ -5,11 +5,6 @@ require "time"
 require_relative "errors"
 
 module AppleSDKMac
-  # Section 6.3 internal telemetry: append failure events to a daily jsonl
-  # for gem self-improvement. Default-on; disable via env
-  # APPLE_SDK_MAC_NO_DIAGNOSTICS=1. Write failures are named-rescued
-  # (SystemCallError, IOError) and logged only when APPLE_DEBUG is set,
-  # so the gem's primary error-reporting path is never disturbed.
   module Telemetry
     DEFAULT_DIR = File.expand_path("~/.cache/rb-apple-sdk-mac/diagnostics")
 

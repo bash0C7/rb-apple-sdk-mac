@@ -2,12 +2,6 @@
 require "test_helper"
 require "apple_sdk_mac/security_cop/policy"
 
-# Tests cover the SecurityCop policy module (allow/allowed?/deny!) in isolation.
-# The global Object/Kernel/File patches in security_cop.rb cannot be exercised
-# inside this test process: applying them would also break the test runner.
-# Box-scoped behaviour is verified manually or via a CoreMIDI integration smoke
-# test that loads security_cop into a Ruby::Box.
-
 class TestSecurityCopPolicy < Test::Unit::TestCase
   EVAL_LABEL = "the eval-family"
 

@@ -4,11 +4,6 @@ require "test/unit"
 require "emitter_dev/candidate_ranker"
 
 class CandidateRankerTest < Test::Unit::TestCase
-  # Synthetic compile_history aggregate rows.
-  # Shape matches the conceptual SELECT in spec section 5.1:
-  #   framework, symbol, llm_count, tpl_count, avg_retry, error_stages
-  # Task 1.6's rake task is responsible for producing these rows from SQLite;
-  # this test exercises the ranker as a stateless function over pre-aggregated input.
   def aggregate_rows
     [
       {

@@ -1,16 +1,6 @@
 # frozen_string_literal: true
-require "parser/current"
+require "prism"
 
-# Scans a Ruby source file (typically marshallers.rb) for redundancy candidates
-# the HITL trim-mode workflow can act on. Two heuristics:
-#
-#   :twin_private_helper       — two classes hold methods whose bodies are
-#                                near-identical (Levenshtein similarity > 0.7,
-#                                both bodies length >= 10 to filter trivials).
-#   :class_pair_method_overlap — two classes share >= 2 method names.
-#
-# Returns Array<Hash> findings with :heuristic, :score, plus heuristic-specific
-# fields. Caller (CandidateRanker.rank_trim) wraps each into a candidate.
 module EmitterDev
   class RedundancyScanner
     BODY_MIN_LEN          = 10
@@ -24,9 +14,7 @@ module EmitterDev
     end
 
     def scan
-      source  = File.read(@file_path)
-      ast     = Parser::CurrentRuby.parse(source)
-      classes = collect_classes(ast)
+      classes = collect_classes(Prism.parse_file(@file_path).value)
 
       findings = []
       findings.concat(scan_twin_private_helpers(classes))
@@ -37,31 +25,25 @@ module EmitterDev
     private
 
     def collect_classes(node, acc = [])
-      return acc unless node.is_a?(Parser::AST::Node)
-      if node.type == :class
-        name_node = node.children[0]
-        cls_name  = name_node.children.last.to_s
-        acc << { name: cls_name, methods: collect_methods(node) }
+      if node.is_a?(Prism::ClassNode)
+        acc << { name: node.constant_path.slice.split("::").last, methods: collect_methods(node) }
       end
-      node.children.each { |c| collect_classes(c, acc) }
+      node.compact_child_nodes.each { |c| collect_classes(c, acc) }
       acc
     end
 
     def collect_methods(class_node)
       methods = {}
       walk(class_node) do |n|
-        next unless n.type == :def
-        mname     = n.children[0].to_s
-        body_node = n.children[2]
-        methods[mname] = body_node ? body_node.loc.expression.source : ""
+        next unless n.is_a?(Prism::DefNode)
+        methods[n.name.to_s] = n.body ? n.body.slice : ""
       end
       methods
     end
 
     def walk(node, &block)
-      return unless node.is_a?(Parser::AST::Node)
       block.call(node)
-      node.children.each { |c| walk(c, &block) }
+      node.compact_child_nodes.each { |c| walk(c, &block) }
     end
 
     def scan_twin_private_helpers(classes)

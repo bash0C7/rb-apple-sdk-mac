@@ -1,4 +1,3 @@
-# lib/apple_sdk_mac/round_trip/harness.rb
 # frozen_string_literal: true
 require "json"
 require_relative "equivalence"
@@ -6,9 +5,6 @@ require_relative "driver_generator"
 
 module AppleSDKMac
   module RoundTrip
-    # 直走値(Swift driver) と wrapper 値(Ruby-via-glue) を突き合わせ green/red を返す。
-    # swift_runner: lambda(swift_source) -> stdout 文字列 (compile+実走の実体は注入)
-    # ruby_runner:  lambda() -> Ruby wrapper の戻り値
     class Harness
       Outcome = Struct.new(:green?, :detail, :swift, :ruby, keyword_init: true)
 
@@ -39,15 +35,14 @@ module AppleSDKMac
         return nil unless line
         JSON.parse(line.sub("RTRESULT:", "").strip)
       rescue JSON::ParserError
-        nil # parse 不能は RTRESULT 無し扱い (caller が raw stdout 付き "no RTRESULT" detail で表面化)
+        nil
       end
 
-      # value_kind ごとに driver JSON から比較対象を取り出す。
       def unwrap(value_kind, obj)
         case value_kind
         when :value  then obj["v"]
-        when :opaque then obj            # {"type","null"} を Equivalence にそのまま渡す
-        when :setter then obj            # {"set","readback"}
+        when :opaque then obj
+        when :setter then obj
         else raise ArgumentError, "unknown value_kind: #{value_kind.inspect}"
         end
       end

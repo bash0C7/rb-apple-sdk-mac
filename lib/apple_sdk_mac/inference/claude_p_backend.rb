@@ -6,9 +6,6 @@ require_relative "backend"
 
 module AppleSDKMac
   module Inference
-    # `claude -p` ヘッドレスを subprocess で呼び、Knowledge Base symbol メタから
-    # Swift glue source を生成する第一級 backend (PoC)。runner を inject 可能にして
-    # subprocess を unit から切り離す。secret は一切扱わない (CLI 認証済み前提)。
     class ClaudePBackend < Backend
       DEFAULT_RUNNER = lambda do |prompt|
         out, _err, status = Open3.capture3("claude", "-p", prompt)
@@ -147,9 +144,6 @@ module AppleSDKMac
         PROMPT
       end
 
-      # seed (rule_scaffold / context / failure_detail / last_glue) を prompt の
-      # 追加セクションに展開。seed が nil または全 key 空なら空文字を返し、prompt は
-      # 元の形を保つ。
       def build_seed_section(seed)
         return "" if seed.nil?
         parts = []
@@ -170,7 +164,6 @@ module AppleSDKMac
         parts.empty? ? "" : "\n#{parts.join("\n\n")}\n"
       end
 
-      # ```swift ... ``` を抽出。無ければ nil。
       def extract_swift(response)
         m = response.match(/```swift\s*\n(.*?)```/m)
         return nil unless m
@@ -178,8 +171,6 @@ module AppleSDKMac
         body.empty? ? nil : body
       end
 
-      # ```json ... ``` を round-trip 駆動入力にパース。json 欠損・parse 失敗・
-      # 必須 key (call_expr / value_kind) 欠損は nil 縮退し、C fallback に委ねる。
       def extract_driver_inputs_json(response)
         m = response.match(/```json\s*\n(.*?)```/m)
         return nil unless m

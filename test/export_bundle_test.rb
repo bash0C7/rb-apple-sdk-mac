@@ -43,10 +43,6 @@ class ExportBundleTest < Test::Unit::TestCase
   def test_cluster_groups_by_failure_reason_prefix
     clusters = AppleSDKMac::ExportBundle.cluster_by_failure_reason(SAMPLE_RECORDS)
     assert clusters.key?("uncovered shape"), "should have cluster for 'uncovered shape'"
-    # spec §5: cluster key は失敗理由の先頭 word (":" の前)。
-    # "uncovered shape: out-param struct" → "uncovered shape"
-    # "uncovered shape: swift initializer" → "uncovered shape"
-    # よって 3 record すべてが同一 cluster "uncovered shape" に入る。
     assert_equal 3, clusters["uncovered shape"].size,
                  "all three records share the 'uncovered shape' prefix cluster"
   end
@@ -107,7 +103,6 @@ class ExportBundleTest < Test::Unit::TestCase
       ns = by_symbol["NSString.init"].first
       assert_equal "hint", ns.context_used
 
-      # records flow through cluster/to_json correctly
       summary = AppleSDKMac::ExportBundle.cluster_summary(records)
       assert_equal 2, summary["uncovered shape"]
       parsed = JSON.parse(AppleSDKMac::ExportBundle.to_json(records))
@@ -115,7 +110,6 @@ class ExportBundleTest < Test::Unit::TestCase
     end
   end
 
-  # round-trip green 証跡が GlueStore → InferenceRecord → Tier 3 export まで流れる。
   def test_from_glue_store_maps_round_trip_outcome
     Dir.mktmpdir do |tmpdir|
       store = AppleSDKMac::GlueStore.new(project_dir: tmpdir, sdk_version: "26.5")

@@ -1,31 +1,11 @@
 # frozen_string_literal: true
-# T50 — CFStringCreateWithCString → CFStringGetLength → CFStringGetCString の
-# 完全 round-trip。spec §3.9。
-#
-# 1. CFStringCreateWithCString が CF Create-rule で +1 retained。
-#    runtime ARC pillar が BoxedCFType に wrap し、Ruby は box pointer
-#    Integer を持つ。手動 CFRelease は呼ばない (Ruby GC で box deinit が
-#    CFRelease をする)。
-# 2. CFStringGetLength(box) は cftype_ref Marshaller の
-#    runtime_arc_unbox_cftype unwrap で内部 CFString pointer に戻して call。
-#    "hello" の長さ 5 を取得。
-# 3. CFStringGetCString(box, buffer, size, encoding) で Ruby 側で確保した
-#    char buffer に書き込んで Ruby String "hello" に戻す。
-#
-# Usage:
-#   RUBY_BOX=1 bundle exec ruby examples/cf_string_create.rb
 require "apple_sdk_mac"
 require "fiddle"
 
-ENCODING_UTF8 = 0x08000100  # kCFStringEncodingUTF8
+ENCODING_UTF8 = 0x08000100
 
-# CFStringCreateWithCString は KB の分類だけで OK (CF Create-rule 検出)。
 Apple.discover(framework: :CoreFoundation, symbol: :CFStringCreateWithCString)
 
-# T50 — KB は CFStringRef を `string` に、CFStringGetCString の buffer を
-# `is_out_param=true` の string out に分類する。round-trip では params /
-# return_kind を override して正しい kind 配列を渡す。
-# cftype_ref param は :type ヒントで Swift bridged 型 (CFString) を指定。
 Apple.discover(
   framework: :CoreFoundation, symbol: :CFStringGetLength,
   params: [{ kind: :cftype_ref, type: "CFString" }],

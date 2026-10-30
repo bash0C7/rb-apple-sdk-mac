@@ -1,19 +1,5 @@
 # frozen_string_literal: true
 
-# IRB autocomplete + doc preview + auto-discover prefetch for rb-apple-sdk-mac.
-#
-# Activated by:
-#   require "apple_sdk_mac"      # main gem
-#   require "apple_sdk_mac/irb"  # this sub-gem
-#   AppleSDKMac::IRB.install!
-#
-# Logical sub-gem inside the rb-apple-sdk-mac repo, path-loaded via Gemfile.
-# Never auto-required by lib/apple_sdk_mac.rb so non-IRB users do not pull
-# in irb / reline / repl_type_completor / foundation_model_mac.
-#
-# NOTE: stdlib IRB is referenced as `::IRB::...` because bare `IRB` inside
-# `module AppleSDKMac::IRB` resolves to self (this module), not the stdlib.
-
 require "apple_sdk_mac"
 require "apple_sdk_mac/irb/doc_resolver"
 require "apple_sdk_mac/irb/doc_dialog"
@@ -23,8 +9,6 @@ require "apple_sdk_mac/irb/llm_resolver"
 module AppleSDKMac
   module IRB
     Context = Struct.new(:framework, :klass, :receiver_kind, :prefix) do
-      # Parse Reline input line into framework/klass/prefix.
-      # Returns nil for non-Apple paths.
       def self.parse(input)
         return nil unless input.is_a?(String)
         return nil unless input.start_with?("Apple::")
@@ -99,9 +83,6 @@ module AppleSDKMac
       end
     end
 
-    # 補完で確定した method 名を Apple.discover の正しい keyword shape に
-    # マッピングして同期実行する。 parameters / return_kind は明示せず、
-    # compiler pipeline に shape 推論を任せる。
     class AutoDiscoverer
       def initialize(knowledge_cache:, discover_proc: nil)
         @cache = knowledge_cache
@@ -151,15 +132,6 @@ module AppleSDKMac
       end
     end
 
-    # IRB::Context#build_completor が返す completor を差し替える形で
-    # IRB の completion 経路に乗る。 Reline.completion_proc 直 wrap は
-    # IRB::RelineInputMethod#initialize で必ず上書きされるので機能しない。
-    #
-    # Apple:: 始まりは Apple Provider 、 それ以外は base (TypeCompletor) に
-    # delegate して **標準補完と両立**。 標準の RegexpCompletor は Ruby 4 +
-    # RUBY_BOX=1 で `bind.eval_class_constants` が Apple Box フレームと衝突
-    # して SEGV するため使えないが、 TypeCompletor (repl_type_completor 経由
-    # の AST/RBS ベース推論) は constant enumerate しないので安全。
     class Completor
       def initialize(provider:, base: nil)
         @provider = provider
@@ -176,10 +148,6 @@ module AppleSDKMac
         @base ? @base.completion_candidates(preposing, target, postposing, bind: bind) : []
       end
 
-      # Reline matches `target` against candidate prefix. IRB's
-      # BASIC_WORD_BREAK_CHARACTERS excludes `:` and `.`, so target is the
-      # whole `Apple::Foundation::U` chain. Candidates must therefore carry
-      # the full receiver prefix or Reline silently rejects them.
       private def prefix_candidates(context, raw)
         case context.receiver_kind
         when :apple_root
@@ -216,10 +184,6 @@ module AppleSDKMac
           discover_proc: discover_proc
         )
 
-        # 標準補完経路を TypeCompletor (AST/RBS, constant enumerate 無し) に切替。
-        # repl_type_completor が無ければ IRB は warn して RegexpCompletor に
-        # fallback するが、 RegexpCompletor は SEGV するので Completor base には
-        # 渡さず @base = nil にする。
         ::IRB.conf[:COMPLETOR] = :type
 
         @apple_provider = provider
@@ -232,15 +196,10 @@ module AppleSDKMac
           llm_resolver: @apple_llm_resolver
         )
 
-        # IRB::Context.build_completor を prepend で wrap。 super で base を取って
-        # Completor で wrap (Apple:: は provider、 他は base にデリゲート)。
         unless ::IRB::Context.include?(ContextOverride)
           ::IRB::Context.prepend(ContextOverride)
         end
 
-        # IRB::RelineInputMethod#initialize の super 後に :show_doc dialog を
-        # chain する prepend。 hover prefetch は DocDialog#render の中で
-        # Prefetcher が走るので、 Tab 確定時の同期 discovery は不要。
         unless ::IRB::RelineInputMethod.include?(RelineInputMethodOverride)
           ::IRB::RelineInputMethod.prepend(RelineInputMethodOverride)
         end
@@ -260,15 +219,11 @@ module AppleSDKMac
         @installed
       end
 
-      # Internal — accessed by ContextOverride / RelineInputMethodOverride.
       attr_reader :apple_provider, :apple_doc_dialog,
                   :apple_prefetcher, :apple_llm_resolver
 
       private
 
-      # Soft-load foundation_model_mac and wrap AppleFoundationModel.generate
-      # in an LLMResolver. Returns nil when APPLE_IRB_NO_LLM=1 (user opt-out)
-      # or the LLM gem is unavailable.
       def build_llm_resolver(knowledge_cache:)
         return nil if ENV["APPLE_IRB_NO_LLM"] == "1"
         begin
@@ -289,8 +244,6 @@ module AppleSDKMac
       def build_completor
         if AppleSDKMac::IRB.installed? && AppleSDKMac::IRB.apple_provider
           base = super
-          # super may return RegexpCompletor (TypeCompletor unavailable, fallback);
-          # do not wrap it — Apple-only mode (RegexpCompletor would SEGV under Box).
           if base.is_a?(::IRB::RegexpCompletor)
             Completor.new(provider: AppleSDKMac::IRB.apple_provider, base: nil)
           else
@@ -307,13 +260,6 @@ module AppleSDKMac
         super
         if AppleSDKMac::IRB.installed?
           require "reline"
-          # Chain :show_doc — Apple SDK doc first, IRB RDoc fallback.
-          # Apple's DocDialog renders KB-sourced text + fires prefetch.
-          # When that returns nil (non-Apple input), we restore the
-          # popped Reline context and re-run IRB's original show_doc
-          # under a StandardError rescue so RDoc 7.2 Marshal mismatches
-          # are swallowed (the popup stays empty rather than leaking
-          # RDoc::Store#load_class_data into the prompt).
           if AppleSDKMac::IRB.apple_doc_dialog
             irb_proc   = show_doc_dialog_proc
             apple_proc = AppleSDKMac::IRB.apple_doc_dialog.to_proc

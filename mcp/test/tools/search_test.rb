@@ -3,10 +3,6 @@ require_relative "../test_helper"
 require "json"
 
 class SearchTest < Test::Unit::TestCase
-  # spec §4.1 — KB の semantic + lexical 検索。
-  # input: query (required), framework? / kinds? / limit? (optional, default 10)
-  # output: JSON text response
-
   FIXTURE = [
     { framework: "Foundation", name: "URL",         kind: "struct",          signature: "struct URL" },
     { framework: "Foundation", name: "URLSession",  kind: "class",           signature: "class URLSession" },
@@ -88,9 +84,6 @@ class SearchTest < Test::Unit::TestCase
     assert_equal [], JSON.parse(result)
   end
 
-  # 自然言語 phrase の token 化 + OR 結合 — 親 gem の FTS5 が multi-token
-  # AND default で 0 件返す問題への前処理 (debug 2026-05-08)。
-
   RecordingKB = Struct.new(:fixture, :calls) do
     def search(framework:, query:, limit: 5)
       calls << { framework: framework, query: query, limit: limit }
@@ -129,7 +122,6 @@ class SearchTest < Test::Unit::TestCase
   end
 
   def test_short_tokens_filtered
-    # 1-char tokens (a, of) はノイズが大きいので除外、 2 文字以上のみ OR-join
     calls = []
     kb = RecordingKB.new([], calls)
     tool = AppleSDKMac::MCP::Tools::Search.new(kb: kb)
@@ -139,9 +131,6 @@ class SearchTest < Test::Unit::TestCase
     assert_match(/session/, received)
     refute_match(/\b(of|a)\b/, received)
   end
-
-  # Phase D — tool_class 経由で .call すると wrap_with_log が動き、 stderr に
-  # JSON ログが 1 行出る。 全 tool に同じ wiring を適用する代表 test。
 
   def test_tool_call_emits_log_line_to_stderr
     tool_class = AppleSDKMac::MCP::Tools::Search.tool_class(kb: @kb)

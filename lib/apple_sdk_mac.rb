@@ -20,10 +20,6 @@ else
 end
 
 module Apple
-  # Alias the canonical exception hierarchy from AppleSDKMac into the Apple
-  # Box. errors.rb defines them under AppleSDKMac so the class objects
-  # survive the Box bootstrap above; here we re-expose them under Apple::*
-  # so user code can `rescue Apple::Error => e` as documented.
   Error          = ::AppleSDKMac::Error          unless const_defined?(:Error, false)
   DiscoveryError = ::AppleSDKMac::DiscoveryError unless const_defined?(:DiscoveryError, false)
   CompileError   = ::AppleSDKMac::CompileError   unless const_defined?(:CompileError, false)
@@ -33,21 +29,7 @@ module Apple
   def self.configure(&block); ::AppleSDKMac.configure(&block); end
   def self.diagnostics; ::AppleSDKMac::Diagnostics.dump; end
 
-  # Eagerly populate Apple::<Framework> modules and their constants from the
-  # knowledge base without compiling any glue. Method calls on the populated
-  # modules still trigger lazy discover/compile per symbol on first invocation.
-  # Useful for examples that introspect the namespace before calling anything.
   def self.bootstrap!
     ::AppleSDKMac.bootstrap!
   end
 end
-
-# IRB autocomplete / doc preview / auto-discover prefetch は同 repo の
-# logical sub-gem `apple_sdk_mac-irb` に分離 (irb/ ディレクトリ)。
-# 主 gem は IRB / Reline / repl_type_completor / foundation_model_mac の
-# IRB 関連依存を一切持たない。
-#
-# IRB セッションで利用したい場合は明示的に:
-#   require "apple_sdk_mac"
-#   require "apple_sdk_mac/irb"
-#   AppleSDKMac::IRB.install!

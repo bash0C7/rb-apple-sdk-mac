@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require "open3"
 require "rb_apple_sdk_knowledge"
 
@@ -6,7 +7,7 @@ module AppleSDKMac
   class GlueCompiler
     class SwiftcInvoker
       def initialize(swiftc: nil, sdk_path: nil)
-        @swiftc = swiftc || ENV["RB_APPLE_SDK_MAC_SWIFTC"] || "swiftc"
+        @swiftc = swiftc ? [swiftc] : %w[xcrun swiftc]
         @sdk_path = sdk_path
       end
 
@@ -14,7 +15,7 @@ module AppleSDKMac
         sdk = @sdk_path || AppleSDKKnowledge::SDK.path
         args = [
           "-emit-library",
-          "-target", "arm64-apple-macos26.0",
+          "-target", "arm64-apple-macos27.0",
           "-sdk", sdk,
           "-O",
           "-parse-as-library",
@@ -32,12 +33,10 @@ module AppleSDKMac
           args << "-Xlinker"
           args << runtime_dylib_path
         end
-        # Defer CRuby symbol resolution to dlopen-time; the host process
-        # supplies rb_string_value_cstr / rb_num2ll / rb_raise / Q* etc.
         args << "-Xlinker" << "-undefined" << "-Xlinker" << "dynamic_lookup"
         args << source_path
 
-        out, err, status = Open3.capture3(@swiftc, *args)
+        out, err, status = Open3.capture3(*@swiftc, *args)
         if status.success?
           [true, out]
         else

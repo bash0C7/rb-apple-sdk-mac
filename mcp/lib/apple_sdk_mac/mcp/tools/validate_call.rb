@@ -1,33 +1,17 @@
 # frozen_string_literal: true
 require "json"
 
-# Ruby コード片の Apple.discover / Apple::FW.method 呼び出しを Knowledge Base
-# に対して検証する。 swiftc は走らせない (重い)。 regex で抽出 →
-# lookup_symbol で存在確認、 不存在シンボルを issues として返す。
-
 module AppleSDKMac
   module MCP
     module Tools
       class ValidateCall
-        # `Apple.discover(framework: :Foo, symbol: :Bar)` 形を抽出。 ネスト無し前提
-        # (引数に :"foo(bar)" のような quote 内 paren が来る稀ケースは後続改修で対応)。
         DISCOVER_BLOCK_RE = /Apple\.discover\(([^)]*?)\)/.freeze
         FRAMEWORK_RE = /framework:\s*[:"']?([A-Z][A-Za-z0-9_]*)["']?/.freeze
         SYMBOL_KEYWORDS = %w[symbol selector class_method swift_func swift_initializer swift_property].freeze
-        # symbol value forms: :"..." | :'...' | "..." | '...' | :bare
         def self.symbol_value_re(kw)
           /#{kw}:\s*(?::"([^"]+)"|:'([^']+)'|"([^"]+)"|'([^']+)'|:([A-Za-z_][A-Za-z0-9_]*))/
         end
 
-        # Apple.discover 後の動的メソッドの直接呼び出し:
-        #   Apple::Foundation::URL.appendingPathComponent("...")  # FW::Klass.method
-        #   Apple::CoreMIDI.MIDIClientCreate(...)                 # FW.func
-        # group1 = framework, group2 = klass (optional, nil は FW.func 形),
-        # group3 = method。 Klass の有無で symbol を "Klass.method" or "method"
-        # に組み立てて KB lookup。
-        # lookbehind: 文字列頭 / literal "\n" 2 chars / non-word のいずれか。
-        # `\b` だと literal `\n` (backslash + n) の n→A 間で boundary が立たず
-        # 抽出に失敗するため、 zero-width lookbehind で 3 case を網羅する。
         DIRECT_CALL_RE = /(?<=\A|\\n|[^A-Za-z0-9_])Apple::([A-Z][A-Za-z0-9_]*)(?:::([A-Z][A-Za-z0-9_]*))?\.([A-Za-z_][A-Za-z0-9_?!]*)/.freeze
 
         def self.tool_class(kb:)
@@ -64,9 +48,6 @@ module AppleSDKMac
             issues << build_issue(framework, symbol) if record.nil?
           end
 
-          # klass あり時は parent_id JOIN で検証する KnowledgeCache#lookup_klass_method
-          # 経由。 Knowledge Base の symbols table は klass を parent_id で持つので
-          # flat name lookup_symbol("Klass.method") では hit しない。
           extract_direct_calls(ruby_code).each do |framework, klass, method|
             total += 1
             record = if klass

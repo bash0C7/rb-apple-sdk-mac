@@ -35,7 +35,7 @@ module AppleSDKKnowledge
         threads = @parallelism.times.map do
           Thread.new do
             loop do
-              pair = (queue.pop(true) rescue nil)
+              pair = queue.pop(timeout: 0)
               break if pair.nil?
               fw, idx = pair
               process_one(fw, idx)
@@ -68,7 +68,6 @@ module AppleSDKKnowledge
         c_syms = []
         swift_syms = []
 
-        # Swift interfaces are pure-Ruby parsing — no fork overhead needed.
         swift_worker = SwiftInterfaceWorker.new
         swift_paths.each do |path|
           t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -86,8 +85,6 @@ module AppleSDKKnowledge
           end
         end
 
-        # ObjC headers run clang in a subprocess — use WorkerPool for parallelism
-        # and process isolation (clang can crash without taking down the Ruby process).
         unless headers.empty?
           size = pool_size_for_framework(headers.size)
           channel = ResultChannel.new(buffer_size: headers.size + size + 4)
@@ -125,8 +122,6 @@ module AppleSDKKnowledge
         merged = @consolidator.merge(swift_syms, c_syms)
         two_pass_insert(merged, fw_id)
 
-        # SwiftOverlay (separate path from SwiftInterfaceParser) — still serial
-        # because SwiftOverlay#import! mutates @store directly (Phase 1 behavior).
         import_swift_overlay(fw)
 
         fw_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - fw_start) * 1000).to_i

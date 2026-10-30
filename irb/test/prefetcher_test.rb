@@ -3,9 +3,6 @@ require "test_helper"
 require "apple_sdk_mac/irb"
 require "apple_sdk_mac/irb/prefetcher"
 
-# Prefetcher fires Apple.discover in a background Thread on popup
-# hover so glue compilation is finished by the time the user actually
-# invokes the method. Idempotent per (framework, klass, name).
 class TestPrefetcher < Test::Unit::TestCase
   Prefetcher = AppleSDKMac::IRB::Prefetcher
 

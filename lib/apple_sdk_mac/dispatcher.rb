@@ -19,7 +19,6 @@ module AppleSDKMac
           symbol: symbol.to_s,
           detail: "no entry in Knowledge Base"
         )
-        # "knowledge_lookup" tags the pre-compile Knowledge Base lookup phase (no generator yet).
         safe_record_attempt(
           framework: framework.to_s,
           symbol: symbol.to_s,
@@ -30,14 +29,9 @@ module AppleSDKMac
         raise SymbolMissingError, "unknown symbol #{framework}::#{symbol}"
       end
 
-      # cache.lookup keys rows by canonical_name (sym_meta[:name]), not the
-      # user-facing symbol arg which may arrive as an alias or single-segment shorthand.
       canonical = sym_meta[:name]
       cache_hit = @cache.lookup(framework: framework, symbol: canonical)
       if cache_hit.nil?
-        # Transparent auto-compile: trigger compile inline so callers don't need
-        # an upfront `Apple.discover` for symbols the Knowledge Base already knows.
-        # Apple.discover stays available for shapes that need explicit kwargs.
         begin
           @compiler.compile(framework: framework, symbol: sym_meta)
         rescue UnsupportedPatternError => e
@@ -100,11 +94,6 @@ module AppleSDKMac
 
     private
 
-    # Non-fatal wrapper around @cache.record_attempt. If the underlying SQLite
-    # write raises (locked DB / disk full / schema mismatch), we log the
-    # secondary failure to Telemetry under stage="record_attempt_failed" and
-    # swallow it, so the caller's intended typed error (SymbolMissingError /
-    # UnsupportedPatternError / GlueCompileError) survives unchanged.
     def safe_record_attempt(**kwargs)
       @cache.record_attempt(**kwargs)
     rescue StandardError => record_err

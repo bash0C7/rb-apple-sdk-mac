@@ -1,10 +1,12 @@
 # frozen_string_literal: true
+
 source "https://rubygems.org"
 
 gemspec
 
-# Path overrides for sibling repos in the user's local development setup.
-# Same path: pattern as the parent rb-apple-sdk-mac Gemfile.
-gem "rb-apple-sdk-mac", path: ".."
 gem "rb-apple-sdk-knowledge", path: "../knowledge"
-gem "swift_gem", git: "https://github.com/bash0C7/swift_gem"
+gem "rb-apple-sdk-mac", path: ".."
+
+gem "rake", "~> 13.0"
+gem "rbs", "~> 4.0"
+gem "test-unit", "~> 3.0"

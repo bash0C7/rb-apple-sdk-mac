@@ -6,12 +6,6 @@ require "fileutils"
 require "apple_sdk_mac/compiled_glue_cache"
 require "apple_sdk_mac/diagnostics"
 
-# Apple.diagnostics JSON dump. Spec §9 acceptance:
-# "JSON: cache stats / recent LLM attempts (last 16) / last 16 validation
-# failures / pillar runtime stats. Sufficient for issue reproduction."
-#
-# Tests build a cache from scratch with synthetic rows so we don't
-# depend on the live KB/cache state.
 class TestDiagnostics < Test::Unit::TestCase
   def setup
     @tmpdir = Dir.mktmpdir
@@ -70,8 +64,6 @@ class TestDiagnostics < Test::Unit::TestCase
     assert h.key?(:llm_attempts_recent)
     assert_operator h[:llm_attempts_recent].size, :<=, 16,
       "must cap at 16; got #{h[:llm_attempts_recent].size}"
-    # Most recent first ordering — record_attempt seeds 20 in ascending
-    # order so the highest-numbered attempt should be at the head.
     head_symbol = h[:llm_attempts_recent].first[:symbol]
     assert_match(/^Try1\d$/, head_symbol,
       "expected Try1x at head (most recent), got #{head_symbol}")
@@ -92,8 +84,6 @@ class TestDiagnostics < Test::Unit::TestCase
     assert pr.key?(:threading_queue_depth),"pillar_runtime needs :threading_queue_depth"
   end
 
-  # Public surface — Apple.diagnostics module method routes to the
-  # collector. Argument-less form must work (uses live caches).
   def test_apple_module_method_exists
     assert ::Apple.respond_to?(:diagnostics),
       "Apple.diagnostics must be public"

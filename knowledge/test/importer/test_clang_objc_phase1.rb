@@ -5,20 +5,10 @@ require "json"
 require "rb_apple_sdk_knowledge/store"
 require "rb_apple_sdk_knowledge/importer/clang_objc"
 
-# Phase 1 Task 3: ObjC `_Nullable` / `_Nonnull` per-parameter capture.
-# The HeaderParser walks clang's JSON AST and now emits ObjCMethodDecl
-# symbols; per-parameter `nullable:` boolean lifts the attribute into
-# `parameters_json` so emitters can pick Qnil-tolerant marshallers
-# without re-parsing qual_type strings at codegen time.
 class TestClangObjcImporterPhase1 < Test::Unit::TestCase
   def test_nullable_attribute_captured_per_parameter
     Dir.mktmpdir do |dir|
       header = File.join(dir, "TestFW.h")
-      # Foundation import is required: without it, clang collapses unknown
-      # ObjC class types to `id` and strips the `_Nullable` / `_Nonnull`
-      # annotations from qual_type, so the importer would have no fixture
-      # to capture from. Real Apple SDK headers always #import the parent
-      # framework before declaring annotated APIs.
       File.write(header, <<~HEADER)
         #import <Foundation/Foundation.h>
         @interface TestObj : NSObject
@@ -42,10 +32,6 @@ class TestClangObjcImporterPhase1 < Test::Unit::TestCase
     end
   end
 
-  # Phase 1 T3 follow-up: clang AST exposes `instance: true|false` on
-  # ObjCMethodDecl. The importer must lift `+` form class methods to
-  # kind="class_method" so Phase 2 dispatch can route to the metaclass
-  # call site instead of the instance one.
   def test_objc_class_method_distinguished_from_instance_method
     Dir.mktmpdir do |dir|
       header = File.join(dir, "TestFW.h")
@@ -71,15 +57,6 @@ class TestClangObjcImporterPhase1 < Test::Unit::TestCase
     end
   end
 
-  # Phase 1 T3 follow-up: content_hash salt must include parameter types
-  # so overloaded selectors with identical (framework, parent_name, name,
-  # abi, signature) but divergent parameter types do not collide.
-  # We construct two parse-time-independent headers that each declare
-  # `@interface TestObj : NSObject` with the same selector `apply:` but
-  # different parameter types. Each `import_file` runs clang as its own
-  # translation unit, so duplicate-class redeclaration does not error.
-  # Before the salt fix, both rows share content_hash and ON CONFLICT
-  # collapses them to a single symbol row.
   def test_overloaded_selectors_get_distinct_content_hash
     Dir.mktmpdir do |dir|
       header1 = File.join(dir, "Overload1.h")
@@ -109,20 +86,9 @@ class TestClangObjcImporterPhase1 < Test::Unit::TestCase
     end
   end
 
-  # Phase 1 T4: clang exposes `cf_returns_retained` / `NS_RETURNS_RETAINED`
-  # as a `CFReturnsRetainedAttr` / `NSReturnsRetainedAttr` child of the
-  # function or method decl. The importer lifts that into the
-  # `return_ownership = "retained"` schema column so emitters stop
-  # depending on the `Copy` / `Create` naming heuristic. Annotation-less
-  # function rows stay NULL — the heuristic remains as the last-resort
-  # fallback until phase 2 retires it.
   def test_cf_returns_retained_captured_to_return_ownership
     Dir.mktmpdir do |dir|
       header = File.join(dir, "TestFW.h")
-      # Foundation #import transitively provides `CFStringRef`; redefining
-      # the typedef locally collides with CoreFoundation's `__CFString`
-      # forward decl. Rely on the SDK header for the type and only
-      # declare the two function prototypes the test cares about.
       File.write(header, <<~HEADER)
         #import <Foundation/Foundation.h>
         CFStringRef MyCopyName(void) __attribute__((cf_returns_retained));
@@ -143,12 +109,6 @@ class TestClangObjcImporterPhase1 < Test::Unit::TestCase
     end
   end
 
-  # Phase 1 T5: ObjC method の block parameter (typed callback) を
-  # `callback_signature_json` column に構造化 JSON で persist。 Phase 2
-  # emitter は runtime_callback_pillar_register_* の auto-route 判定に
-  # この列を使う (現状は header_parser が string-only な qualType を吐く
-  # だけで、 block の return type / 引数 type / nullable 情報を runtime
-  # 経路に渡せていない)。 block parameter が無い method は NULL のまま。
   def test_typed_block_parameter_lifts_callback_signature_json
     Dir.mktmpdir do |dir|
       header = File.join(dir, "TestFW.h")
@@ -178,11 +138,6 @@ class TestClangObjcImporterPhase1 < Test::Unit::TestCase
     end
   end
 
-  # Phase 1 T6: clang `static inline` 関数は header に body を持つだけで
-  # dylib に export された symbol を持たへん。 import 自体は許可するが、
-  # `unsupported_pattern = "inline_only"` を立てて Phase 2 emitter /
-  # dispatcher に「 call 時 raise / fallback」 の判定材料を渡す。 通常の
-  # `extern` 関数は今まで通り marker 無し (NULL) を維持。
   def test_static_inline_function_is_marked_unsupported_inline_only
     Dir.mktmpdir do |dir|
       header = File.join(dir, "TestFW.h")
@@ -208,13 +163,6 @@ class TestClangObjcImporterPhase1 < Test::Unit::TestCase
     end
   end
 
-  # Phase 1 T7: clang preprocessor の function-like macro
-  # (`#define MakeWidget(name) ((Widget *)widgetCreate(name))`) は
-  # preprocessor 展開のみで dylib symbol を持たへんため、 import 時に
-  # `unsupported_pattern = "function_macro"` marker を付与し Phase 2
-  # dispatcher が call 時に rich diagnostic raise の判定材料とする。
-  # value-style macro (`#define MY_CONSTANT 42`) は対象外、 既存挙動
-  # (現状は AST に出ぇへんため一切 import されへん) を維持する。
   def test_function_like_macro_marked_unsupported_function_macro
     Dir.mktmpdir do |dir|
       header = File.join(dir, "TestFW.h")
@@ -234,7 +182,6 @@ class TestClangObjcImporterPhase1 < Test::Unit::TestCase
         "MakeWidget は function-like macro、 marker 必須"
       assert_equal "function", row1[1],
         "function-like macro は function kind で並びを揃える"
-      # value macro は clang AST に出ぇへん + text scan も対象外、 既存挙動どおり import されへん
       assert_nil row2, "MY_CONSTANT は value macro、 既存挙動どおり import されへん"
       store.close
     end

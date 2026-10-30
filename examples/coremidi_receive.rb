@@ -1,15 +1,5 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
-# Phase 7 example: CoreMIDI client + input port creation, optional
-# source-connect, and a short event loop drain. Demonstrates the
-# canonical README path (MIDIClientCreate) plus callback (MIDIReadProc)
-# routing through the CallbackPillar persistent slot table.
-#
-# Usage:
-#   RUBY_BOX=1 bundle exec ruby examples/coremidi_receive.rb
-#
-# Set EVENT_LOOP_SECONDS=N to keep the loop alive longer; default is 2s
-# so the example exits 0 in CI when no MIDI source is connected.
 require "apple_sdk_mac"
 
 [:MIDIClientCreate, :MIDIInputPortCreate, :MIDIGetSource,

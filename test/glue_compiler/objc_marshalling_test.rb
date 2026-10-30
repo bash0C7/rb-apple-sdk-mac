@@ -1,15 +1,8 @@
 # frozen_string_literal: true
 require "test_helper"
 
-# ObjcMarshalling — pure marshalling-by-kind logic for ObjC method param
-# load + return marshaling. Stateless module-level methods. Extracted from
-# TemplateGenerator (objc_in_load + objc_return_lines) to slim the
-# generator's surface area; the actual emit_* methods now compose this
-# module with the swift-call construction logic.
 class TestObjcMarshalling < Test::Unit::TestCase
   M = AppleSDKMac::GlueCompiler::ObjcMarshalling
-
-  # ----- in_load -----
 
   def test_in_load_string_emits_swift_string_via_cstr_binding
     swift = M.in_load(:string, 0)
@@ -24,7 +17,6 @@ class TestObjcMarshalling < Test::Unit::TestCase
   end
 
   def test_in_load_opaque_ref_no_type_hint_emits_raw_opaque_pointer
-    # No type_hint → bare OpaquePointer for general C ABI consumers.
     swift = M.in_load(:opaque_ref, 0)
     assert_match(/let arg0 = OpaquePointer\(bitPattern: UInt\(rb_num2ull\(argv\[0\]\)\)\)/, swift)
   end
@@ -35,8 +27,6 @@ class TestObjcMarshalling < Test::Unit::TestCase
   end
 
   def test_in_load_opaque_ref_value_type_bridges_via_ns_class
-    # URL is a Swift value-type → struct unsafeBitCast SIGTRAPs; bridge
-    # through NSURL then `as URL`.
     swift = M.in_load({ kind: :opaque_ref, type: "URL" }, 0)
     assert_match(/unsafeBitCast\(arg0_ptr_v, to: NSURL\.self\) as URL/, swift)
   end
@@ -48,7 +38,6 @@ class TestObjcMarshalling < Test::Unit::TestCase
   end
 
   def test_in_load_argv_offset_shifts_argv_index
-    # Receiver-bearing instance methods reserve argv[0]; offsets 0→1 etc.
     swift = M.in_load(:int, 0, argv_offset: 1)
     assert_match(/Int\(rb_num2ll\(argv\[1\]\)\)/, swift)
   end
@@ -62,8 +51,6 @@ class TestObjcMarshalling < Test::Unit::TestCase
     assert_match(/@convention\(block\) \(NSData\?, NSURLResponse\?, NSError\?\) -> Void/, swift)
     assert_match(/runtime_threading_enqueue_3/, swift)
   end
-
-  # ----- return_lines -----
 
   def test_return_lines_opaque_ref_uses_passretained
     lines = M.return_lines(:opaque_ref, "result")

@@ -1,22 +1,11 @@
 # frozen_string_literal: true
 require "test_helper"
 
-# thread-safety acceptance. 16 threads × 100
-# discover/dispatch calls against the shared cache, registry, and
-# dispatcher must complete with:
-# - no race / no exception
-# - no double-compile (same glue_id appears once in compiled_glue table)
-# - no Hash corruption (transient lookup tier remains consistent)
-#
-# Iteration count is configurable; spec target is 16×100 = 1600 calls.
 class TestConcurrentDiscover < Test::Unit::TestCase
   THREADS = Integer(ENV["CONCURRENT_DISCOVER_THREADS"] || 16)
   PER_THREAD = Integer(ENV["CONCURRENT_DISCOVER_ITERS"] || 100)
 
   def test_parallel_discover_and_dispatch_is_race_free
-    # Pre-discover so the first concurrent call doesn't trigger 16
-    # parallel compiles for the same symbol — that would be a separate
-    # double-compile race we test below.
     Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientCreate)
 
     errors = Queue.new
@@ -43,8 +32,6 @@ class TestConcurrentDiscover < Test::Unit::TestCase
   end
 
   def test_concurrent_discover_does_not_double_compile
-    # A symbol not yet discovered in this process — first thread to win
-    # the lock compiles, the others should reuse the compiled glue.
     sym = :MIDIClientDispose
     cache = AppleSDKMac.glue_cache
     db = cache.db

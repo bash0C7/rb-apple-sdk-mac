@@ -1,26 +1,6 @@
 # frozen_string_literal: true
 require "time"
 
-# Stateless candidate ranker for the HITL emitter-improvement workflow.
-#
-# Two modes share a single envelope:
-#
-#   add  — given pre-aggregated compile_history rows, produce candidates
-#          for adding new static emitters. See spec section 5.1 / 5.6.
-#   trim — given RedundancyScanner findings, produce candidates for
-#          consolidating redundant marshallers. See spec section 5.4.
-#   all  — emit add and trim merged, sorted by score together.
-#
-# `rank_add` row shape (Hash with string keys):
-#   framework, symbol, llm_count, tpl_count, avg_retry (nil-safe), error_stages
-#
-# `rank_trim` finding shape (Hash with symbol keys, produced by
-# `EmitterDev::RedundancyScanner#scan`):
-#   :heuristic, :classes, :methods | :common_methods, :score
-#
-# Source aggregation (SQLite read for add, AST scan for trim) lives in the
-# rake task layer; this module stays stateless so it unit-tests against
-# synthetic input arrays.
 module EmitterDev
   module CandidateRanker
     TEMPLATE_NIL_BONUS = 5
@@ -48,7 +28,7 @@ module EmitterDev
     def rank_add(rows)
       rows.each_with_object([]) do |row, acc|
         llm_count = row.fetch("llm_count").to_i
-        next if llm_count <= 0   # mirror SQL `HAVING llm_count > 0`
+        next if llm_count <= 0
 
         tpl_count    = row.fetch("tpl_count").to_i
         avg_retry    = (row["avg_retry"] || 0).to_f
@@ -105,9 +85,6 @@ module EmitterDev
       end
     end
 
-    # JSON encoders fail on Symbol-keyed hashes downstream (FactBundler reads
-    # candidates back out as JSON), so flatten finding keys to strings before
-    # emitting the candidate envelope.
     def stringify_finding(f)
       f.each_with_object({}) { |(k, v), acc| acc[k.to_s] = v.is_a?(Symbol) ? v.to_s : v }
     end

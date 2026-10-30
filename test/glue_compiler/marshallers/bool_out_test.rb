@@ -17,7 +17,6 @@ class BoolOutMarshallerTest < Test::Unit::TestCase
   end
 
   def test_objc_bool_pointer_out_handling
-    # CoreFoundation Boolean is typedef'd to unsigned char; treat as ObjCBool
     h = make(type: "Boolean *").out_handling
     assert h[:init].start_with?("var outFlag: ")
     assert_equal "&outFlag", h[:addr]

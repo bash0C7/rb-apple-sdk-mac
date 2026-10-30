@@ -2,12 +2,6 @@
 require "json"
 
 module AppleSDKMac
-  # Apple.diagnostics JSON dump for issue reproduction.
-  # Returns a Hash that's safe to JSON.dump and contains:
-  # - :cache              — CompiledGlueCache row count + schema/sdk version
-  # - :llm_attempts_recent — last 16 compile_history rows
-  # - :validation_failures_recent — last 16 history rows with error_stage='validation'
-  # - :pillar_runtime     — runtime pillar stats (best-effort)
   module Diagnostics
     HISTORY_CAP = 16
 
@@ -56,9 +50,6 @@ module AppleSDKMac
         error_stage: r[4], error_detail: r[5], glue_id: r[6] }
     end
 
-    # Best-effort pillar runtime stats. Depends on RuntimeBridge exposing
-    # the queries; falls back to 0 / nil when unavailable so diagnostics
-    # always returns a stable shape for issue templates.
     def self.pillar_runtime_stats
       refs = safe_call { ::AppleSDKMacRuntime.respond_to?(:ref_table_count) && ::AppleSDKMacRuntime.ref_table_count } || 0
       qd   = safe_call { ::AppleSDKMacRuntime.respond_to?(:threading_queue_depth) && ::AppleSDKMacRuntime.threading_queue_depth } || 0

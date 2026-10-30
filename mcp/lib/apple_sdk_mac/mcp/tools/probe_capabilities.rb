@@ -1,15 +1,6 @@
 # frozen_string_literal: true
 require "json"
 
-# MCP host が elicitation / sampling capability を実装しとるかを実地で確認する
-# ツール。 server_context.create_form_elicitation / create_sampling_message を
-# 実際に呼んで例外で判定する。 mcp gem の client_capabilities hash は host 側
-# transport の実装で必ずしも populate されないため、 hash 覗きより実呼びの方が
-# 信頼できる。
-#
-# 出力は JSON。 elicitation/sampling 各々 status (supported/unsupported) と
-# 補助情報 (action / model) もしくは error message を含む。
-
 module AppleSDKMac
   module MCP
     module Tools

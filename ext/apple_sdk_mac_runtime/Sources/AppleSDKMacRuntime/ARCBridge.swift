@@ -1,5 +1,6 @@
 import Foundation
 
+/// Release counters that observe object lifetimes from Ruby.
 public enum ARCBridge {
     public final class ReleaseCounter {
         nonisolated(unsafe) private var count: Int64 = 0
@@ -12,71 +13,59 @@ public enum ARCBridge {
     nonisolated(unsafe) private static var counters: [UInt32: ReleaseCounter] = [:]
     nonisolated(unsafe) private static var next: UInt32 = 1
 
+    /// Creates a counter and returns its handle.
     public static func makeCounter() -> UInt32 {
         queue.sync {
-            let h = next; next += 1
+            let h = next
+            next += 1
             counters[h] = ReleaseCounter()
             return h
         }
     }
 
+    /// Increments the counter `handle`.
     public static func bump(_ handle: UInt32) {
         queue.sync { counters[handle] }?.bump()
     }
 
+    /// Returns the value of the counter `handle`, or `0` for an unknown handle.
     public static func value(_ handle: UInt32) -> Int64 {
         queue.sync { counters[handle]?.value() ?? 0 }
     }
 }
 
-// === CF Create-rule auto-ARC ===
-//
-// CF types returned by Create-rule APIs (CFStringCreateWithCString,
-// CGImageCreateWithJPEGDataProvider, etc.) come +1-retained. Wrapping the
-// raw pointer in a BoxedCFType class brings them under Swift ARC: the Box's
-// deinit releases the CF reference, so user code never calls CFRelease.
+/// Holds a Core Foundation object returned under the Create rule and releases it on deinitialization.
 public final class BoxedCFType {
     public let retained: AnyObject
     public init(retained: AnyObject) { self.retained = retained }
 }
 
-// Autoarc box pointer の registry。 runtime_arc_box_cftype が登録、
-// runtime_arc_unbox_cftype が照合に使う。 box でない raw CF pointer が
-// unbox に来たケース (round-trip 経路で raw を直接渡された場合) を 0 で
-// 戻して fall-back させる contract に必要。
 nonisolated(unsafe) fileprivate var _boxedCFTypeRegistry: Set<UInt> = []
 fileprivate let _boxedCFTypeRegistryLock = NSLock()
 
-// Glue Swift can't import AppleSDKMacRuntime (LLM rule 3) and so can't
-// instantiate BoxedCFType directly. This @c entry point performs the
-// Unmanaged.takeRetainedValue + BoxedCFType wrap inside the runtime dylib
-// and returns the raw bit-pattern of a passRetained Box pointer that the
-// glue marshals into a Ruby Integer.
-@c
+/// Wraps a +1 Core Foundation object in a ``BoxedCFType``.
+///
+/// - Parameter raw: The bit pattern of a Core Foundation object returned under the Create rule.
+/// - Returns: The bit pattern of a retained ``BoxedCFType`` that owns the object.
+@c(runtime_arc_box_cftype)
 public func runtime_arc_box_cftype(_ raw: UInt) -> UInt {
-    let opaq = OpaquePointer(bitPattern: raw)!
-    let unmanaged = Unmanaged<AnyObject>.fromOpaque(UnsafeRawPointer(opaq))
+    let unmanaged = Unmanaged<AnyObject>.fromOpaque(UnsafeRawPointer(bitPattern: raw)!)
     let boxed = BoxedCFType(retained: unmanaged.takeRetainedValue())
     let pointer = UInt(bitPattern: Unmanaged.passRetained(boxed).toOpaque())
-    _boxedCFTypeRegistryLock.lock()
-    _boxedCFTypeRegistry.insert(pointer)
-    _boxedCFTypeRegistryLock.unlock()
+    _boxedCFTypeRegistryLock.withLock {
+        _ = _boxedCFTypeRegistry.insert(pointer)
+    }
     return pointer
 }
 
-// Autoarc box pointer から内部の CF object pointer を取り出す。
-// Apple.discover で `cftype_ref` param に autoarc box を渡された CF API が
-// 元 CF pointer を必要とする (CFStringGetLength, CFStringGetCString, ...)
-// ためのアンマーシャラ。 input が registry に無い (raw CF pointer 直渡し
-// など) は 0 を返して、 glue 側で raw input を fall-back で使えるようにする。
-@c
+/// Returns the Core Foundation object held by a box from ``runtime_arc_box_cftype(_:)``.
+///
+/// - Parameter raw: A bit pattern that may or may not be a ``BoxedCFType``.
+/// - Returns: The bit pattern of the boxed object, or `0` when `raw` is not a box.
+@c(runtime_arc_unbox_cftype)
 public func runtime_arc_unbox_cftype(_ raw: UInt) -> UInt {
-    _boxedCFTypeRegistryLock.lock()
-    let isBoxed = _boxedCFTypeRegistry.contains(raw)
-    _boxedCFTypeRegistryLock.unlock()
+    let isBoxed = _boxedCFTypeRegistryLock.withLock { _boxedCFTypeRegistry.contains(raw) }
     guard isBoxed else { return 0 }
-    let opaq = OpaquePointer(bitPattern: raw)!
-    let box = Unmanaged<BoxedCFType>.fromOpaque(UnsafeRawPointer(opaq)).takeUnretainedValue()
-    let inner = Unmanaged.passUnretained(box.retained).toOpaque()
-    return UInt(bitPattern: inner)
+    let box = Unmanaged<BoxedCFType>.fromOpaque(UnsafeRawPointer(bitPattern: raw)!).takeUnretainedValue()
+    return UInt(bitPattern: Unmanaged.passUnretained(box.retained).toOpaque())
 }

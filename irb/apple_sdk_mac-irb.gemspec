@@ -19,7 +19,7 @@ Gem::Specification.new do |spec|
   DESC
   spec.homepage = "https://github.com/bash0C7/rb-apple-sdk-mac"
   spec.license = "MIT"
-  spec.required_ruby_version = ">= 4.0.0"
+  spec.required_ruby_version = ">= 4.0"
 
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = "https://github.com/bash0C7/rb-apple-sdk-mac/tree/main/irb"
@@ -34,7 +34,4 @@ Gem::Specification.new do |spec|
   spec.add_dependency "reline", "~> 0.6"
   spec.add_dependency "repl_type_completor"
   spec.add_dependency "sqlite3", "~> 2.0"
-
-  spec.add_development_dependency "test-unit", "~> 3.6"
-  spec.add_development_dependency "rake", "~> 13.0"
 end

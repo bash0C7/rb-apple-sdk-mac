@@ -3,10 +3,6 @@ require "fileutils"
 require "json"
 
 module AppleSDKMac
-  # Tier 1 committable glue store: .rb-apple-sdk-mac/glue/<sdk-version>/<framework>/<symbol>.swift
-  # + <symbol>_round_trip_test.rb (生成時)。
-  # content-addressed: symbol ごと独立。commit すれば team/CI が git で受け取り
-  # round-trip 再検証して使う（claude -p 不要）。
   class GlueStore
     def initialize(project_dir:, sdk_version:)
       @sdk_version = sdk_version
@@ -23,10 +19,6 @@ module AppleSDKMac
       if round_trip_test
         File.write(File.join(dir, "#{safe}_round_trip_test.rb"), round_trip_test)
       end
-      # provenance sidecar: store the (pre-escape) framework/symbol/sdk_version
-      # plus the金脈 fields spec §5 needs for Tier 3 export, so ExportBundle can
-      # reconstruct InferenceRecord without depending on the filename escape.
-      # round_trip_outcome は round-trip green 証跡 ("green: ...") or nil (未検証)。
       if [kind, rule_failure_reason, rule_scaffold, context_used, round_trip_outcome].any? { |v| !v.nil? }
         provenance = {
           "framework" => framework.to_s,
@@ -67,10 +59,6 @@ module AppleSDKMac
       entries
     end
 
-    # All provenance sidecars under base, each merged with its sibling .swift
-    # content under "inferred_glue". String-keyed Hashes; ExportBundle maps them
-    # into InferenceRecord. Glues stored without provenance fields contribute no
-    # sidecar and are omitted.
     def provenance_entries
       Dir.glob(File.join(@base, "*", "*.provenance.json")).sort.map do |pj|
         data = JSON.parse(File.read(pj))
@@ -84,22 +72,8 @@ module AppleSDKMac
 
     def framework_dir(framework) = File.join(@base, framework)
 
-    # Injective (collision-free) filename encoding. Every non-alphanumeric
-    # byte — including `_` itself — is escaped to `_XX` (XX = 2-digit uppercase
-    # hex of the byte's ordinal). Because `_` is always an escape marker in the
-    # output, distinct symbols never collapse to the same path
-    # (e.g. "NSString.foo" → "NSString_2Efoo" vs literal "NSString_foo" →
-    # "NSString_5Ffoo"). Alphanumerics pass through unchanged, preserving
-    # readability of plain identifiers. ASCII symbol names assumed (Apple SDK
-    # symbols are ASCII); the `_%02X` format would widen for >255 ordinals but
-    # those do not occur here.
     def safe_name(name) = name.to_s.gsub(/[^A-Za-z0-9]/) { |c| format("_%02X", c.ord) }
 
-    # Inverse of safe_name: decode each `_XX` (XX = 2-digit uppercase hex) back
-    # to its byte. Alphanumerics never produce `_XX`, and `_` itself is always
-    # encoded as `_5F`, so this decode is unambiguous — it reconstructs the
-    # original symbol name exactly. Used by all_entries to surface the original
-    # (un-mangled) symbol for user-facing display (e.g. apple:tier1:list).
     def unsafe_name(name) = name.gsub(/_([0-9A-F]{2})/) { $1.to_i(16).chr }
 
     def swift_path(fw, name) = File.join(framework_dir(fw), "#{safe_name(name)}.swift")

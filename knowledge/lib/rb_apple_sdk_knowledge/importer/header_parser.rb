@@ -13,16 +13,7 @@ module AppleSDKKnowledge
       def parse_file(path)
         json = run_clang_ast_dump(path)
         symbols = []
-        # Top-level siblings before any explicit `loc.file` are compiler-builtin
-        # types (__builtin_va_list etc.) — initialize inherited file as nil so
-        # they are skipped, and let the first explicit marker set the context.
         walk(json["inner"], nil, path, symbols, nil)
-        # Phase 1 T7: clang AST JSON は preprocessor macro を出さへんため
-        # 同じ header file を text scan して function-like macro
-        # (`#define NAME(args) ...`) を抽出、 `unsupported_pattern =
-        # "function_macro"` marker 付きの function symbol として
-        # emit する。 value-style macro (`#define NAME value`) は
-        # dispatch 不能な spec gap が無いため対象外。
         scan_function_like_macros(path, symbols)
         symbols
       end
@@ -35,7 +26,7 @@ module AppleSDKKnowledge
 
       def run_clang_ast_dump(path)
         out, err, status = Open3.capture3(
-          "clang", "-Xclang", "-ast-dump=json", "-fsyntax-only",
+          "xcrun", "clang", "-Xclang", "-ast-dump=json", "-fsyntax-only",
           "-x", "objective-c",
           "-isysroot", sdk_path,
           "-F", File.join(sdk_path, "System", "Library", "Frameworks"),
@@ -48,12 +39,6 @@ module AppleSDKKnowledge
         raise "clang produced invalid JSON for #{path}: #{e.message}"
       end
 
-      # Walks AST sibling lists and only emits symbols whose source location
-      # matches `target`. clang's JSON loc inherits across siblings: a node
-      # without an explicit `file` keeps the file of the previous sibling.
-      # `parent_objc` carries the enclosing ObjCInterfaceDecl / ObjCProtocolDecl
-      # / ObjCCategoryDecl name down into ObjCMethodDecl / ObjCPropertyDecl
-      # so method rows know their owning class.
       def walk(siblings, parent_file, target, symbols, parent_objc)
         current_file = parent_file
         (siblings || []).each do |node|
@@ -84,12 +69,6 @@ module AppleSDKKnowledge
         case node["kind"]
         when "ObjCMethodDecl"
           if node["name"]
-            # clang AST exposes `instance: true|false` on ObjCMethodDecl.
-            # `-` form methods carry instance=true; `+` form class methods
-            # carry instance=false. Phase 2 dispatch routes class methods
-            # to the metaclass call site, so the kind column must reflect
-            # this distinction at import time instead of forcing every
-            # method to instance_method.
             is_instance = node["instance"] != false
             cb_sig = extract_first_block_signature(node)
             symbols << {
@@ -102,24 +81,10 @@ module AppleSDKKnowledge
               parameters: function_parameters(node),
               documentation: extract_documentation(node),
               return_ownership: returns_retained?(node) ? "retained" : nil,
-              # Phase 1 T5: lift the first typed block parameter
-              # (`void (^)(NSError * _Nullable)` etc.) into a structured
-              # JSON signature so Phase 2 emitter can route the call
-              # site through runtime_callback_pillar_register_* without
-              # re-parsing the qual_type string at codegen time. When
-              # no block parameter is present this stays nil so the
-              # callback_signature_json column remains NULL.
               callback_signature_json: cb_sig && JSON.generate(cb_sig)
             }
           end
         when "FunctionDecl"
-          # Phase 1 T6: `static inline` 関数は header に body を持つだけで
-          # dylib export を持たへんため、 通常の static (body 無し or static
-          # storage の internal helper) と区別して import する。 marker
-          # `unsupported_pattern = "inline_only"` を立て、 Phase 2 emitter /
-          # dispatcher は call 時に rich diagnostic raise の判定材料として
-          # この cell を読む。 通常の static (非 inline) は今まで通り
-          # 取り込まへん (export されてへんし body も別 TU で参照不可)。
           if node["storageClass"] != "static" || inline_only_function?(node)
             symbols << {
               name: node["name"],
@@ -197,8 +162,6 @@ module AppleSDKKnowledge
         end
       end
 
-      # Flattens clang's FullComment subtree into a single doc string.
-      # Returns nil when the declaration carries no doc comment.
       def extract_documentation(node)
         full = (node["inner"] || []).find { |c| c.is_a?(Hash) && c["kind"] == "FullComment" }
         return nil unless full
@@ -239,9 +202,6 @@ module AppleSDKKnowledge
             kind: Kind.classify_kind(qual_type, desugared, nullability),
             is_out_param: Kind.out_param?(qual_type, name, p == last_pointer),
             nullability: nullability,
-            # Phase 1 T3: surface nullability as a Ruby/JSON boolean for
-            # emitters that need a binary "use nilable marshaller?" gate
-            # without re-parsing the string form. nil ↔ unspecified.
             nullable: parameter_nullable(qual_type)
           }
         end
@@ -253,12 +213,6 @@ module AppleSDKKnowledge
         nil
       end
 
-      # Phase 1 T5: scan an ObjCMethodDecl's ParmVarDecl children and
-      # return a structured signature ({ params:, return_type: }) for
-      # the first typed block parameter (`Ret (^[_Nullable|_Nonnull]?)(args)`).
-      # Returns nil if the method has no block-typed parameter. Multiple
-      # block params (rare in practice) collapse to the first one;
-      # Phase 2 may expand to an array if real APIs demand it.
       def extract_first_block_signature(node)
         params = (node["inner"] || []).select { |i| i["kind"] == "ParmVarDecl" }
         params.each do |p|
@@ -270,12 +224,6 @@ module AppleSDKKnowledge
         nil
       end
 
-      # clang prints typed block pointers as either `Ret (^)(args)` or
-      # `Ret (^ _Nullable)(args)` / `Ret (^ _Nonnull)(args)`. The regex
-      # tolerates the optional block-pointer nullability tag because
-      # method-level callbacks are commonly `_Nonnull`-annotated in
-      # Foundation headers (NSURLSession etc.) and we still want to lift
-      # the inner arg types.
       def extract_block_signature_from_qualtype(qual_type)
         m = qual_type.match(/\A([^\(]+?)\s*\(\^(?:\s*_Nullable|\s*_Nonnull)?\)\s*\(([^)]*)\)\z/)
         return nil unless m
@@ -294,24 +242,12 @@ module AppleSDKKnowledge
         { params: args, return_type: return_type }
       end
 
-      # Normalises a clang-emitted type fragment to a Knowledge-Base
-      # facing short form: drops trailing `*`, collapses `void` to "Void",
-      # and strips any leaked nullability tokens. Leaves primitive
-      # spellings (int / long long / unsigned long) untouched so emitters
-      # can dispatch on them without further parsing.
       def simple_type_name(s)
         s = s.to_s.sub(/\b_Nullable\b|\b_Nonnull\b/, "").strip
         return "Void" if s == "void"
         s.sub(/\s*\*+\s*\z/, "").strip
       end
 
-      # Phase 1 T4: clang surfaces `cf_returns_retained` /
-      # `NS_RETURNS_RETAINED` as direct `inner` children of the
-      # owning FunctionDecl / ObjCMethodDecl, with kinds
-      # `CFReturnsRetainedAttr` and `NSReturnsRetainedAttr`.
-      # Both map to the same `return_ownership = "retained"` cell;
-      # downstream emitters treat CF/NS retain semantics identically
-      # for the autorelease-decision question.
       def returns_retained?(node)
         (node["inner"] || []).any? do |child|
           next false unless child.is_a?(Hash)
@@ -320,29 +256,12 @@ module AppleSDKKnowledge
         end
       end
 
-      # Phase 1 T6: clang AST JSON は `static inline` を
-      # `storageClass: "static"` + `inline: true` の組み合わせで露出する。
-      # `extern inline` / `inline alone` (storageClass 欠落) は dylib に
-      # 一意 symbol が出るため import 対象外として除外し、 純粋な
-      # `static inline` だけを `unsupported_pattern = "inline_only"` で
-      # mark する。 これにより header body を runtime に call できへん
-      # 関数のみが diagnostic 対象になる。
       def inline_only_function?(node)
         return false unless node["kind"] == "FunctionDecl"
         return false unless node["inline"] == true
         node["storageClass"] == "static"
       end
 
-      # Phase 1 T7: `#define NAME(arg, ...) body` を function-like macro
-      # と判定する。 C preprocessor の文法上、 macro name の直後に空白を
-      # 挟まず `(` が続く場合だけ function-like macro になる
-      # (`#define FOO (1+2)` は value macro、 `#define FOO(x) (x+1)` は
-      # function-like)。 line-continuation `\` で複数行 body に跨る macro
-      # も name の見え方は同じやから、 先頭行だけ scan すれば足りる。
-      # block comment / ifdef block 内の `#define` も拾うてまうが、 phase 1
-      # の TDD では実 framework header に対する正規 macro 取り込みが目的、
-      # 偽陽性が出ても Phase 2 dispatcher は marker 付き symbol を call 時
-      # raise 経路に流すだけなので副作用は無い。
       def scan_function_like_macros(path, symbols)
         File.foreach(path) do |line|
           m = line.match(/^\s*#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)\(([^)]*)\)/)

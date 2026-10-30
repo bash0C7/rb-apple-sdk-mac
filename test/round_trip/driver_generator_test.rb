@@ -1,4 +1,3 @@
-# test/round_trip/driver_generator_test.rb
 # frozen_string_literal: true
 require "test/unit"
 require_relative "../../lib/apple_sdk_mac/round_trip/driver_generator"
@@ -45,8 +44,6 @@ class DriverGeneratorTest < Test::Unit::TestCase
   end
 
   def test_opaque_body_emits_null_true_for_optional_aware_nil
-    # call_expr が nil を返す可能性がある Optional 型の symbol で
-    # "null":false ハードコードではなく nil チェックを入れることを確認。
     sym = { call_expr: "Optional<NSObject>(nil) as AnyObject?" }
     src = AppleSDKMac::RoundTrip::DriverGenerator.generate(
       framework: "Foundation", symbol: sym, value_kind: :opaque
@@ -56,7 +53,7 @@ class DriverGeneratorTest < Test::Unit::TestCase
 
   def test_setter_body_raises_when_set_value_contains_unescaped_double_quote
     sym = { set_expr: "obj.x = 1", read_expr: "obj.x",
-            set_value: '"broken"' } # double-quote in set_value breaks JSON
+            set_value: '"broken"' }
     assert_raise(ArgumentError) do
       AppleSDKMac::RoundTrip::DriverGenerator.generate(
         framework: "F", symbol: sym, value_kind: :setter

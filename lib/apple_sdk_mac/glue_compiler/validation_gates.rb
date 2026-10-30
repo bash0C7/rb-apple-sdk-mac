@@ -29,9 +29,6 @@ module AppleSDKMac
 
       private
 
-      # Static violations (bad @c shape, unsupported imports, raw rb_raise from
-      # Ruby-side code) are rejected before swiftc invocation.
-
       ASYNC_REQUIRED_PATTERNS = [
         [/DispatchSemaphore\(value:\s*0\)/, "DispatchSemaphore(value: 0)"],
         [/Task\s*\{/, "Task { ... }"],
@@ -89,11 +86,6 @@ module AppleSDKMac
           next unless swift.include?(pat)
           clean_pat = pat.sub(/\W.*/, "")
           next if target_symbol.start_with?(clean_pat)
-          # Apple SDK の正規 NS-prefixed class (NSURLSession 等) を user が
-          # 明示 discover した経路は target_symbol が `NS<Klass>_<member>` 形に
-          # なる。 これらは安全な discover として banned 検査を bypass する。
-          # LLM が任意に URLSession を持ち込む経路 (target_symbol="MIDIDispose"
-          # 等) は引き続き ban。
           next if target_symbol.start_with?("NS" + clean_pat)
           errors << "GATE 4 banned API used: #{pat}"
         end

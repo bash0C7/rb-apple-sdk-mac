@@ -55,13 +55,8 @@ class TestGlueCompiler < Test::Unit::TestCase
     end
   end
 
-  # exported_symbol sanitize. canonical_name "NSString.stringWithUTF8String"
-  # は Swift identifier として無効（dot 含む）。glue_compiler は機械的に
-  # `gsub(/[^A-Za-z0-9_]/, "_")` で swift_identifier 化する必要がある。
   class FakeTemplate
     def generate(framework:, symbol:, glue_id:)
-      # 最小限の Swift スタブ。exported_symbol が Swift-safe であることを
-      # template が前提にできるよう、ここは sanitize 済み identifier を埋める。
       ident = symbol[:name].gsub(/[^A-Za-z0-9_]/, "_")
       <<~SWIFT
         @c
@@ -97,15 +92,14 @@ class TestGlueCompiler < Test::Unit::TestCase
 end
 
 class GlueCompilerCoverageBoundaryTest < Test::Unit::TestCase
-  # template が nil を返し、かつ契約範囲外なら OutOfCoverageError。
   def test_out_of_coverage_raises_when_backend_none
     fake_template = Object.new
-    def fake_template.generate(**) = nil   # 常に template_nil
+    def fake_template.generate(**) = nil
     cache = make_fake_cache
     compiler = AppleSDKMac::GlueCompiler.new(
       cache: cache, runtime_dylib_path: "/tmp/none.dylib",
       template_generator: fake_template,
-      inference_backend: nil   # :none 相当
+      inference_backend: nil
     )
     sym = { name: "WeirdMacro", kind: "swift_macro", abi: "swift",
             signature: "()", parameters_json: "[]" }
@@ -114,8 +108,6 @@ class GlueCompilerCoverageBoundaryTest < Test::Unit::TestCase
     end
   end
 
-  # 範囲内 (covered) で template が nil の場合は OutOfCoverageError を上げず
-  # success?:false Result を返す (これは「穴」= バグとして別途修正対象)。
   def test_in_coverage_template_nil_returns_failed_result_not_raise
     fake_template = Object.new
     def fake_template.generate(**) = nil
@@ -144,7 +136,6 @@ class GlueCompilerCoverageBoundaryTest < Test::Unit::TestCase
 end
 
 class GlueCompilerInferenceTest < Test::Unit::TestCase
-  # backend が valid Swift を返し、gate/swiftc が通れば cache.insert され成功。
   def test_inference_success_inserts_with_inference_generator
     inserted = {}
     cache = Object.new
@@ -154,12 +145,11 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     cache.define_singleton_method(:insert) { |**kw| inserted.replace(kw) }
 
     fake_template = Object.new
-    def fake_template.generate(**) = nil   # template は必ず nil → 範囲外へ
+    def fake_template.generate(**) = nil
 
     gates = Object.new
     def gates.validate(*, **) = Struct.new(:pass?, :errors).new(true, [])
     swiftc = Object.new
-    # compile 成功は dylib 生成を意味する契約 (try_inference は accept 時に dylib を mv する)。
     def swiftc.compile(dylib_path:, **)
       File.write(dylib_path, "")
       [true, nil]
@@ -175,14 +165,13 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
       inference_backend: backend
     )
     sym = { name: "Sym", kind: "swift_macro", abi: "swift", signature: "()",
-            parameters_json: "[]" }   # 範囲外 kind
+            parameters_json: "[]" }
     result = compiler.compile(framework: "F", symbol: sym)
     assert_true result.success?
     assert_equal "inference:claude_p", result.generator
     assert_equal "inference:claude_p", inserted[:generator]
   end
 
-  # backend が nil を返したら OutOfCoverageError。
   def test_inference_nil_raises_out_of_coverage
     cache = Object.new
     cache.define_singleton_method(:base_dir) { Dir.mktmpdir }
@@ -206,8 +195,6 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
   end
 
   def test_inference_closed_loop_passes_failure_detail_to_second_attempt
-    # backend が 1 回目に nil を返し, 2 回目に valid swift を返す。
-    # 2 回目の呼び出しに seed[:failure_detail] が渡っていることを確認。
     seeds_received = []
     backend = Object.new
     backend.define_singleton_method(:name) { "claude_p" }
@@ -243,7 +230,6 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     result = compiler.compile(framework: "F", symbol: sym)
     assert_true result.success?
     assert_equal 2, call_count, "should call backend twice (first nil, second valid)"
-    # 2 回目の seed に 1 回目の failure detail が入っていること
     assert_not_nil seeds_received[1], "second call should receive a seed hash"
     assert_not_nil seeds_received[1][:failure_detail], "second seed should carry failure_detail from first attempt"
   end
@@ -251,7 +237,7 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
   def test_inference_loud_fail_on_budget_exhaustion
     backend = Object.new
     backend.define_singleton_method(:name) { "claude_p" }
-    backend.define_singleton_method(:generate_glue) { |**| nil } # 常に nil
+    backend.define_singleton_method(:generate_glue) { |**| nil }
 
     fake_template = Object.new
     fake_template.define_singleton_method(:generate) { |**| nil }
@@ -273,10 +259,6 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     assert_match(/exhausted budget=2/, err.reason)
   end
 
-  # budget 枯渇で raise された OutOfCoverageError から retry_with(context:) を
-  # 呼ぶと, backend が context 入り seed で再試行され green になる統合契約。
-  # mock backend は seed[:context] が来たときだけ valid swift を返すので、
-  # context が実際に backend まで伝搬していないと success にならない (非トートロジー)。
   def test_retry_with_resumes_inference_with_user_context_and_succeeds
     seen_contexts = []
     backend = Object.new
@@ -310,14 +292,12 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     )
     sym = { name: "Sym", kind: "swift_macro", abi: "swift", signature: "()", parameters_json: "[]" }
 
-    # context 無しでは budget 枯渇 → OutOfCoverageError。
     err = assert_raise(AppleSDKMac::OutOfCoverageError) do
       compiler.compile(framework: "F", symbol: sym)
     end
     assert_nil seen_contexts.last, "first run should see no user context"
     assert_not_nil err.last_failure_detail, "error should carry the last failure detail"
 
-    # retry_with(context:) で gap ヒントを渡すと backend が context 入り seed で再試行。
     result = err.retry_with(context: "Use UInt32 return type")
     assert_true result.success?, "retry with user context should succeed"
     assert_equal "inference:claude_p", result.generator
@@ -325,8 +305,6 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
       "user context must reach the backend seed on retry"
   end
 
-  # test-unit 3.x は stub を同梱しないため、依存追加せず plain Ruby で
-  # singleton method を一時差し替え (ensure で復元)。
   def with_stub(mod, name, value)
     original = mod.method(name)
     mod.define_singleton_method(name) { |*_args, **_kw| value }
@@ -336,8 +314,6 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
     mod.define_singleton_method(name, original)
   end
 
-  # §3b: budget 枯渇時、IRB session 中なら elicit した context を閉ループに
-  # 再投入して成功する経路。
   def test_irb_elicitation_invoked_on_budget_exhaustion_in_irb_session
     backend = Object.new
     backend.define_singleton_method(:name) { "claude_p" }
@@ -379,8 +355,6 @@ class GlueCompilerInferenceTest < Test::Unit::TestCase
   end
 end
 
-# Step 7: swiftc 成功後の round-trip 検証統合。round_trip_runner を inject して
-# GREEN/RED 分岐・永続化証跡を実 swiftc/claude -p なしで検証する。
 class GlueCompilerRoundTripIntegrationTest < Test::Unit::TestCase
   BR = AppleSDKMac::Inference::BackendResult
   RTOutcome = Struct.new(:green?, :detail, keyword_init: true)
@@ -431,8 +405,6 @@ class GlueCompilerRoundTripIntegrationTest < Test::Unit::TestCase
   UNCOVERED_SYM = { name: "Sym", kind: "swift_macro", abi: "swift",
                     signature: "()", parameters_json: "[]" }.freeze
 
-  # driver_inputs あり + runner GREEN → success、round_trip_test と
-  # round_trip_outcome ("green:") が Tier 1 に永続化される。
   def test_round_trip_green_persists_test_and_outcome
     backend = backend_returning(BR.new(
       swift_source: "@c public func glue_x_Sym() -> UInt32 { 0 }",
@@ -458,8 +430,6 @@ class GlueCompilerRoundTripIntegrationTest < Test::Unit::TestCase
     assert_false File.read(rtt_path).empty?
   end
 
-  # driver_inputs あり + runner RED → その attempt は失敗扱いで閉ループ next、
-  # budget 枯渇で OutOfCoverageError。round-trip RED を握り潰して success にしない。
   def test_round_trip_red_fails_attempt_and_loud_fails_on_budget
     backend = backend_returning(BR.new(
       swift_source: "@c public func glue_x_Sym() -> UInt32 { 0 }",
@@ -482,7 +452,6 @@ class GlueCompilerRoundTripIntegrationTest < Test::Unit::TestCase
     assert_equal [], @glue_store.provenance_entries, "RED glue must not be persisted as success"
   end
 
-  # driver_inputs 無し + runner 未注入 → round-trip skip、success、outcome nil (現状維持)。
   def test_no_driver_inputs_skips_round_trip_and_succeeds
     backend = backend_returning(BR.new(
       swift_source: "@c public func glue_x_Sym() {}", driver_inputs: nil
@@ -491,17 +460,14 @@ class GlueCompilerRoundTripIntegrationTest < Test::Unit::TestCase
       cache: make_cache, runtime_dylib_path: "/dev/null",
       template_generator: nil_template, gates: passthrough_gates,
       swiftc_invoker: ok_swiftc, inference_backend: backend,
-      glue_store: @glue_store   # round_trip_runner 未注入
+      glue_store: @glue_store
     )
     result = compiler.compile(framework: "F", symbol: UNCOVERED_SYM)
     assert_true result.success?
-    # glue は store されるが round_trip_outcome は nil、round_trip_test も無し
     rtt_path = @glue_store.round_trip_test_path(framework: "F", symbol_name: "Sym")
     assert_false File.exist?(rtt_path), "no round_trip_test when round-trip skipped"
   end
 
-  # GlueAnalyzer C fallback: backend が driver_inputs nil でも、glue source から
-  # 合成できれば round-trip にかかる (runner GREEN なら永続化)。
   def test_c_fallback_synthesizes_driver_inputs_when_backend_omits
     backend = backend_returning(BR.new(
       swift_source: "@c public func glue_x_Sym() -> Int32 {\n  return NativeCall(1)\n}",

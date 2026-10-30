@@ -4,33 +4,23 @@
 /doc/
 /pkg/
 /spec/reports/
-.bundle/
+.bundle/*
+!.bundle/config
 vendor/bundle/
 Gemfile.lock
 *.gem
-
-# Built native extension artifacts
 ext/**/.build/
 ext/**/Makefile
 ext/**/*.o
 ext/**/*.bundle
 ext/**/*.bundle.dSYM/
 ext/**/mkmf.log
-ext/**/*-Swift.h
 lib/**/*.bundle
 lib/**/*.bundle.dSYM/
 /tmp/
-
-# Claude Code runtime files
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
-
-# rake test transient cache (KB / glue dispatch). Always cleared before rake test.
 .rb-apple-sdk-mac/
-
-# Development process docs (spec / plan / handoff / smoke notes): kept on disk,
-# excluded from version control per ~/dev/src/CLAUDE.md. Public docs
-# (README / CHANGELOG / LICENSE) live at repo root and stay tracked.
 /docs/
 /HANDOFF*.md
 /SPEC*.md

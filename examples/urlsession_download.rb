@@ -1,21 +1,4 @@
 # frozen_string_literal: true
-# T53 — URLSession real HTTP download。release 水準 README L3
-# "Call any public Apple framework API from Ruby with no pre-declarations" を
-# 直接満たす example の 1 つ。 file:// 退路 / DEFERRED 退路完全廃止、 実 HTTP
-# (T53_FIXTURE_URL もしくは public Apple endpoint) に対して NSURLSession で
-# data task を発行、 completionHandler 経由で受信 NSData の length と
-# sha256 を Ruby 側で計算して出力する。
-#
-# 並列性 + Apple→Ruby callback bridge:
-# - dataTask.resume() で URLSession のバックグラウンド thread が HTTP リクエストを実行
-# - 完了時 completionHandler block (T53a の :block_persistent Hash 形 arity 3
-#   typed dispatch) が Apple thread で fire、 Ruby callback を main thread queue に enqueue
-# - Ruby main は threading_poll で drain、 lambda を実行して NSData を Ruby Integer (raw pointer) で受け取る
-# - Apple::Foundation::NSData.from_ref(raw) で proxy 化、 .length / .bytes 経由でバイト読み取り
-# - sha256 を Digest::SHA256 で計算して fixture と完全一致を確認
-#
-# Usage:
-#   T53_FIXTURE_URL=http://127.0.0.1:8080/blob bundle exec ruby examples/urlsession_download.rb
 require "apple_sdk_mac"
 require "digest"
 require "fiddle"

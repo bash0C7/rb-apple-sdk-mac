@@ -4,13 +4,7 @@ require "json"
 require "set"
 
 class ValidateCallTest < Test::Unit::TestCase
-  # spec §4.6 — Ruby コード片の Apple.discover / Apple::FW.method 呼び出しを
-  # KB に対して検証。 swiftc は走らせない (重い、 dry-run は §4.5)。
-
   FakeKB = Struct.new(:known) do
-    # 2-tuple [framework, symbol] entries for top-level symbols (lookup_symbol)
-    # 3-tuple [framework, klass, method] entries for parent_id child rows
-    # (lookup_klass_method)
     def lookup_symbol(framework:, symbol:)
       known.include?([framework.to_s, symbol.to_s]) ? { name: symbol.to_s } : nil
     end
@@ -69,7 +63,6 @@ class ValidateCallTest < Test::Unit::TestCase
     RUBY
     result = tool.call(ruby_code: code)
     parsed = JSON.parse(result)
-    # Only 1 unknown symbol → 1 issue
     assert_equal 1, parsed["issues"].size
   end
 
@@ -82,14 +75,7 @@ class ValidateCallTest < Test::Unit::TestCase
     assert_equal true, parsed["valid"]
   end
 
-  # Phase C-2 — Apple.discover ブロックでなく、 既に discover 済みの動的メソッドを
-  # `Apple::FW::Klass.method(...)` または `Apple::FW.func(...)` として直接呼び
-  # 出している箇所も regex 抽出 → KB lookup で検証する。
-
   def test_direct_klass_method_call_known_passes
-    # 3-tuple [framework, klass, method] = lookup_klass_method 用 fixture。
-    # 旧 lookup_symbol("URL.appendingPathComponent") では parent_id 階層に
-    # hit せん (KB index 仕様)、 klass + method 分離 lookup が必要。
     kb = FakeKB.new(Set.new([["Foundation", "URL", "appendingPathComponent"]]))
     tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: kb)
     code = 'Apple::Foundation::URL.appendingPathComponent("foo")'
@@ -125,17 +111,12 @@ class ValidateCallTest < Test::Unit::TestCase
     assert_equal 2, parsed["checked_count"]
   end
 
-  # Phase F E2E (2026-05-08) で発覚: nested `claude -p` の prompt 内で single
-  # quote 文字列に書いた `\n` は literal 2 chars (backslash + n) として MCP
-  # tool に届く。 旧 regex の `\b` は `n→A` 間で word boundary が立たず
-  # direct call が抜けて checked_count が想定より 1 少なくなる回帰。
   def test_direct_call_after_literal_backslash_n_is_detected
     kb = FakeKB.new(Set.new([
       ["Foundation", "URL"],
       ["Foundation", "URL", "appendingPathComponent"]
     ]))
     tool = AppleSDKMac::MCP::Tools::ValidateCall.new(kb: kb)
-    # single-quote literal なので \n は backslash+n の 2 chars (Phase F と同形)
     code = 'Apple.discover(framework: :Foundation, symbol: :URL)\nApple::Foundation::URL.appendingPathComponent("foo")'
     parsed = JSON.parse(tool.call(ruby_code: code))
     assert_equal 2, parsed["checked_count"], "discover + direct の 2 件抽出すべき"

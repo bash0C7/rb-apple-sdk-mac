@@ -8,18 +8,22 @@ class TestIRBInstall < Test::Unit::TestCase
     AppleSDKMac::IRB.uninstall!
   end
 
+  def fake_cache(frameworks: [])
+    cache = Object.new
+    cache.define_singleton_method(:list_frameworks) { frameworks }
+    cache.define_singleton_method(:list_framework_symbols) { |**| [] }
+    cache.define_singleton_method(:list_klass_methods) { |**| [] }
+    cache.define_singleton_method(:lookup_documentation) { |**| nil }
+    cache
+  end
+
   def test_install_sets_installed_flag
-    AppleSDKMac::IRB.install!
+    AppleSDKMac::IRB.install!(knowledge_cache: fake_cache)
     assert AppleSDKMac::IRB.installed?
   end
 
   def test_install_provides_apple_provider
-    fake_cache = Object.new
-    fake_cache.define_singleton_method(:list_frameworks) { ["Foundation", "Vision"] }
-    fake_cache.define_singleton_method(:list_framework_symbols) { |**| [] }
-    fake_cache.define_singleton_method(:list_klass_methods) { |**| [] }
-
-    AppleSDKMac::IRB.install!(knowledge_cache: fake_cache)
+    AppleSDKMac::IRB.install!(knowledge_cache: fake_cache(frameworks: ["Foundation", "Vision"]))
     provider = AppleSDKMac::IRB.apple_provider
     refute_nil provider
 
@@ -30,11 +34,6 @@ class TestIRBInstall < Test::Unit::TestCase
   end
 
   def test_completor_delegates_non_apple_to_base
-    fake_cache = Object.new
-    fake_cache.define_singleton_method(:list_frameworks) { [] }
-    fake_cache.define_singleton_method(:list_framework_symbols) { |**| [] }
-    fake_cache.define_singleton_method(:list_klass_methods) { |**| [] }
-
     AppleSDKMac::IRB.install!(knowledge_cache: fake_cache)
     provider = AppleSDKMac::IRB.apple_provider
 
@@ -49,7 +48,7 @@ class TestIRBInstall < Test::Unit::TestCase
   end
 
   def test_completor_returns_empty_for_non_apple_when_no_base
-    AppleSDKMac::IRB.install!
+    AppleSDKMac::IRB.install!(knowledge_cache: fake_cache)
     provider = AppleSDKMac::IRB.apple_provider
     completor = AppleSDKMac::IRB::Completor.new(provider: provider, base: nil)
 
@@ -57,12 +56,12 @@ class TestIRBInstall < Test::Unit::TestCase
   end
 
   def test_install_sets_irb_completor_to_type
-    AppleSDKMac::IRB.install!
+    AppleSDKMac::IRB.install!(knowledge_cache: fake_cache)
     assert_equal :type, IRB.conf[:COMPLETOR]
   end
 
   def test_uninstall_clears_provider
-    AppleSDKMac::IRB.install!
+    AppleSDKMac::IRB.install!(knowledge_cache: fake_cache)
     AppleSDKMac::IRB.uninstall!
     refute AppleSDKMac::IRB.installed?
     assert_nil AppleSDKMac::IRB.apple_provider
@@ -70,25 +69,19 @@ class TestIRBInstall < Test::Unit::TestCase
   end
 
   def test_install_provides_doc_dialog
-    fake_cache = Object.new
-    fake_cache.define_singleton_method(:list_frameworks) { [] }
-    fake_cache.define_singleton_method(:list_framework_symbols) { |**| [] }
-    fake_cache.define_singleton_method(:list_klass_methods) { |**| [] }
-    fake_cache.define_singleton_method(:lookup_documentation) { |**| nil }
-
     AppleSDKMac::IRB.install!(knowledge_cache: fake_cache)
     assert AppleSDKMac::IRB.apple_doc_dialog.is_a?(AppleSDKMac::IRB::DocDialog),
       "install! must produce a DocDialog instance for the :show_doc proc"
   end
 
   def test_install_prepends_context_override
-    AppleSDKMac::IRB.install!
+    AppleSDKMac::IRB.install!(knowledge_cache: fake_cache)
     assert IRB::Context.include?(AppleSDKMac::IRB::ContextOverride),
       "IRB::Context must be prepended with ContextOverride"
   end
 
   def test_install_prepends_reline_input_method_override
-    AppleSDKMac::IRB.install!
+    AppleSDKMac::IRB.install!(knowledge_cache: fake_cache)
     assert IRB::RelineInputMethod.include?(AppleSDKMac::IRB::RelineInputMethodOverride),
       "IRB::RelineInputMethod must be prepended with RelineInputMethodOverride"
   end

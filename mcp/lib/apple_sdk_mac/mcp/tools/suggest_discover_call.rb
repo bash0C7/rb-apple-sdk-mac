@@ -1,17 +1,6 @@
 # frozen_string_literal: true
 require "json"
 
-# Intent → Apple.discover kwargs 生成。
-#
-# フロー:
-#   1. Knowledge Base search で候補取得
-#   2a. 0 件 → action: "no_match"
-#   2b. 1 件 → 即決、 action: "accept" + kwargs
-#   2c. 2 件以上 + server_context あり → create_form_elicitation で user に選ばせる
-#       accept / decline / cancel の 3 分岐
-#   2d. 2 件以上 + server_context なし → action: "candidates" でリスト返却 (host が
-#       elicitation 非対応の場合の fallback)
-
 module AppleSDKMac
   module MCP
     module Tools
@@ -59,8 +48,6 @@ module AppleSDKMac
           begin
             handle_elicitation(intent: intent, candidates: candidates, server_context: server_context)
           rescue StandardError => e
-            # capability 未 declare、 transport 切断、 elicitation reject 等の例外を
-            # candidates fallback に降ろす。 caller (AI agent) が手元で選べるように。
             candidates_response(candidates, "elicitation failed: #{e.message[0..200]}")
           end
         end
@@ -126,11 +113,6 @@ module AppleSDKMac
           )
         end
 
-        # search row は薄い (framework/name/kind/signature 程度)。 AI agent が
-        # params: / return_kind: の override を判断するには documentation /
-        # parameters_json / return_kind 等の richer field が要る。 lookup_symbol
-        # で fetch しなおして上書き。 KB が lookup_symbol を持たん / nil 返すと
-        # search row に fallback。
         def enrich_record(record)
           return record unless @kb.respond_to?(:lookup_symbol)
           fw   = record[:framework] || record["framework"]
@@ -149,8 +131,6 @@ module AppleSDKMac
           name = record[:name] || record["name"]
           kind = record[:kind] || record["kind"]
           sig = (record[:signature] || record["signature"]).to_s
-          # signature の先頭 80 文字を suffix にして duplicate label を避ける
-          # (Foundation の同名 instance_method overload 等)。
           suffix = sig.empty? ? "" : " — #{sig[0, 80]}"
           "#{fw}::#{name} (#{kind})#{suffix}"
         end

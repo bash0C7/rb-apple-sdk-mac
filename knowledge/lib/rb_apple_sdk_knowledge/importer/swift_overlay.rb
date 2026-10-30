@@ -5,92 +5,25 @@ require "json"
 
 module AppleSDKKnowledge
   module Importer
-    # Swift overlay ingester: parses .swiftinterface files that contain
-    # Swift native type declarations (AVFoundation / Vision / SwiftUI etc.)
-    # and writes both the ObjC selector and its Swift imported name into
-    # the Knowledge Base SQLite.
-    #
-    # Parse strategy: regex-based line scanning. Generic / async / throws /
-    # where clauses that can't be reliably parsed are skipped; the LLM safety
-    # net handles those (coverage > speed tenet).
     class SwiftOverlay
-      # Matches: extension <DottedName>(.\w+)*(\s*:\s*<Conformances>)?(\s+where\s+...)?\s*\{
-      # Captures: [1] dotted name (e.g. "Foundation.URL", "Foundation.URL.ParseStrategy")
-      # Real Apple .swiftinterface always uses module-qualified names; klass key
-      # is taken as the LAST dotted segment by extract_extension_blocks.
       EXTENSION_HEADER_RE = /\bextension\s+([A-Za-z_][\w.]*)[^{]*\{/.freeze
 
-      # Matches: (open|public) [class|static] func name(params) [throws/async/rethrows]* [-> RetType]
-      # Captures: [1] class/static?, [2] func name, [3] raw params,
-      #           [4] effect modifiers (throws/async/rethrows, space-separated, or nil),
-      #           [5] return type
-      # `(?:<[^>]+>)?` after the function name accepts generic type parameters
-      # like `func publisher<Value>(...)` that appear in real Apple
-      # .swiftinterface (Foundation/AppKit/Vision/SwiftUI overlay).
-      # `func parse(_:) throws -> URL` / `func fetch() async throws -> Data` 形を
-      # capture できるよう、 effect modifiers (`async`/`throws`/`rethrows`) を
-      # `)` と `->` の間で吸収する。 modifier 不在時は capture group 4 が nil。
       DECL_FUNC_RE = /(?:open|public)\s+(?:(class|static)\s+)?func\s+(\w+)(?:<[^>]+>)?\s*\(([^)]*)\)((?:\s+(?:async|throws|rethrows))*)?(?:\s*->\s*([^\n{]+))?/.freeze
 
-      # Matches: (open|public) [convenience|required] init[?](params) [throws/rethrows]*
-      # Captures: [1] qualifier?, [2] failable mark (?) or empty, [3] raw params,
-      #           [4] effect modifiers (throws/rethrows, optional)
-      # `init\??` accepts both `init(...)` and Swift failable initializers
-      # `init?(...)` which appear throughout Foundation overlay (URL, etc.).
-      # `init(forReading:) throws` を capture できるよう effect modifiers を
-      # 末尾で吸収する。
       DECL_INIT_RE = /(?:open|public)\s+(?:(convenience|required)\s+)?init(\??)\s*\(([^)]*)\)((?:\s+(?:throws|rethrows))*)?/.freeze
 
-      # Matches: (open|public) [class|static] var name: Type [{ get [set] }]
-      # Captures: [1] class/static?, [2] var name, [3] type, [4] accessor
-      # clause body (e.g. "get set" / "get" / nil).
-      # Phase 1 T13: capture the `{ get set }` vs `{ get }` accessor clause
-      # so we can lift readwrite vs readonly into the is_settable schema
-      # column. The accessor clause is optional — stored-property bare
-      # declarations (`public var foo: Int`) collapse to readwrite by
-      # Swift's default semantics.
       DECL_VAR_RE = /(?:open|public)\s+(?:(class|static)\s+)?var\s+(\w+)\s*:\s*([^\n{]+?)(?:\s*\{\s*([^}]*)\})?\s*\z/.freeze
 
-      # Matches: (open|public) [indirect] enum <Name>[: <Conformances>]? {
-      # Captures: [1] enum name. Optional raw-value / conformance clause
-      # (e.g. `: String`, `: RawRepresentable, Codable`) is absorbed by the
-      # non-greedy `[^\n{]*` between the name and the opening brace, so the
-      # enum is recognised regardless of conformance shape. Phase 1 T12:
-      # the parser only captures top-level enum declarations — nested enums
-      # inside extension blocks fall through to the existing extension path
-      # and are handled (or not) by the line-decl scanner.
       DECL_ENUM_RE = /(?:open|public)\s+(?:indirect\s+)?enum\s+(\w+)(?:[^\n{]*)\{/.freeze
 
-      # Matches a `case` line inside an enum body. Captures [1] one or more
-      # case names separated by commas (e.g. `case a, b, c`). Trailing
-      # associated-value parens `case load(Data)` or raw-value assignments
-      # `case foo = "f"` are tolerated — the regex only locks onto the
-      # identifier head(s) and lets parse_enum_block_cases split commas.
       CASE_RE = /^\s*case\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)/.freeze
 
-      # Matches: (open|public) [final] class <Name>[: <Conformances>]? {
-      # Captures: [1] class name. Top-level class declaration scanner —
-      # extension blocks are handled separately (extract_extension_blocks).
-      # Phase 1 T14: class-level macro attribute (`@Observable` etc.) は
-      # `extract_class_blocks` で header 直前の `@<Attr>` 行群と組で蓄積、
-      # detect_unsupported で marker に lift する。
       DECL_CLASS_RE = /(?:open|public)\s+(?:final\s+)?class\s+(\w+)(?:[^\n{]*)\{/.freeze
 
-      # Swift macros (compile-time syntactic transformation). When a decl is
-      # preceded by one of these attributes, the symbol is marked
-      # `unsupported_pattern = "swift_macro"` so phase 2 emitter / dispatcher
-      # raise a rich diagnostic at call time instead of silently generating
-      # glue that misses the macro expansion. Fixed list — unknown `@<Attr>`
-      # is left unmarked (normal import).
       SWIFT_MACRO_ATTRS = %w[
         @Observable @attached @freestanding
       ].freeze
 
-      # Swift result builders (declarative DSL transform). Same lift policy
-      # as SWIFT_MACRO_ATTRS but distinguished as `result_builder` so phase 2
-      # can word the diagnostic differently (DSL vs macro). Apple-defined
-      # builder attributes are enumerated; user-defined `@*Builder` outside
-      # this list is left unmarked.
       SWIFT_RESULT_BUILDER_ATTRS = %w[
         @ViewBuilder @SceneBuilder @CommandsBuilder @ToolbarContentBuilder
         @RegexComponentBuilder
@@ -100,28 +33,12 @@ module AppleSDKKnowledge
         @store = store
       end
 
-      # SDK root 直下の全 Swift overlay framework 配下から .swiftinterface
-      # を broad に列挙する library helper。 既存の Pipeline#import_swift_overlay
-      # は SDKResolver.frameworks を経由して 1 framework ずつ同等の glob を
-      # 回しており、 本 helper はそれを「SDK 全体を 1 ショットで列挙」する
-      # 形に再パッケージしたもの。 外部 caller (subagent / 検査 script /
-      # debugging) から Foundation / AppKit / SwiftUI 等 主要 overlay を
-      # 含む macOS SDK の swiftinterface セット全体を取得する用途。
-      #
-      # macOS framework は `Modules/` が `Versions/Current/Modules` への
-      # symlink になっているため、 トップレベル glob だけで Versions 配下も
-      # follow される。
       def self.framework_swiftinterface_paths(sdk_root)
         Dir.glob(
           File.join(sdk_root, "System/Library/Frameworks/*.framework/Modules/*.swiftmodule/*.swiftinterface")
         ).uniq
       end
 
-      # -- extension scanner --------------------------------------------------
-
-      # Returns [{klass: String, body: String}] for each `extension Foo { ... }`
-      # block found in +source+. Uses StringScanner with brace-counting so
-      # nested braces inside method signatures are handled correctly.
       def extract_extension_blocks(source)
         scanner = StringScanner.new(source)
         blocks  = []
@@ -129,9 +46,6 @@ module AppleSDKKnowledge
         until scanner.eos?
           if (m = scanner.scan_until(EXTENSION_HEADER_RE))
             dotted     = scanner.captures.first || m[/extension\s+([A-Za-z_][\w.]*)/, 1]
-            # Real Apple .swiftinterface uses module-qualified or nested-type
-            # names: "Foundation.URL", "Foundation.URL.ParseStrategy". The KB
-            # key is the type identifier alone — last dotted segment.
             klass      = dotted.split(".").last
             body_start = scanner.pos
             depth      = 1
@@ -155,12 +69,6 @@ module AppleSDKKnowledge
         blocks
       end
 
-      # -- enum scanner -------------------------------------------------------
-
-      # Returns [{name: String, cases: Array<String>}] for each top-level
-      # `public enum Foo { ... }` block found in +source+. Brace-counted
-      # body extraction mirrors extract_extension_blocks so nested type
-      # braces don't bleed across enum boundaries.
       def extract_enum_blocks(source)
         scanner = StringScanner.new(source)
         blocks  = []
@@ -190,17 +98,6 @@ module AppleSDKKnowledge
         blocks
       end
 
-      # -- class scanner -----------------------------------------------------
-
-      # Returns [{name: String, body: String, attrs: Array<String>}] for each
-      # top-level `public class Foo { ... }` block found in +source+.
-      # +attrs+ is the list of `@<Attr>` lines that appeared immediately
-      # before the class header (with no intervening non-attribute, non-blank
-      # line). Phase 1 T14: the class-level macro attribute is lifted to
-      # `unsupported_pattern` via detect_unsupported.
-      #
-      # Brace-counted body extraction mirrors extract_extension_blocks so
-      # nested type braces don't bleed across class boundaries.
       def extract_class_blocks(source)
         scanner = StringScanner.new(source)
         blocks  = []
@@ -208,11 +105,6 @@ module AppleSDKKnowledge
         until scanner.eos?
           if scanner.scan_until(DECL_CLASS_RE)
             name = scanner.captures.first
-            # Scan back from the match start to collect contiguous
-            # `@<Attr>` lines preceding the class header. `pre_match`
-            # gives us everything up to (but not including) the matched
-            # `public class ...{` chunk; the last newline-delimited
-            # tokens that look like attributes are the class's adornments.
             attrs = preceding_attrs_for(scanner.pre_match)
 
             body_start = scanner.pos
@@ -237,13 +129,6 @@ module AppleSDKKnowledge
         blocks
       end
 
-      # Returns the contiguous `@<Attr>` token lines immediately preceding
-      # the end of +text+ (a `pre_match` slice up to a decl header). Lines
-      # are returned in source order. Blank lines and `@_`-prefixed
-      # underscored attributes (Swift internal markers like `@_specialize`)
-      # are skipped — `@_` is also filtered by the existing line-scanner
-      # `next if line.start_with?("@_")` in import!, so we mirror that
-      # policy here. Non-attribute lines terminate the lookback.
       def preceding_attrs_for(text)
         return [] if text.nil? || text.empty?
         attrs = []
@@ -251,26 +136,13 @@ module AppleSDKKnowledge
           stripped = raw.strip
           next if stripped.empty?
           break unless stripped.start_with?("@")
-          # `@_specialize`, `@_implementationOnly` 等 underscored internal
-          # markers は marker 判定対象外 (lookback も継続させて、 上に
-          # 通常 macro attr が積んであれば検出する)。
           next if stripped.start_with?("@_")
           attrs.unshift(stripped)
         end
         attrs
       end
 
-      # Splits a line that begins with `@<Attr>` into [head, rest] where
-      # head is the bare attribute token (`@ViewBuilder`) and rest is the
-      # remainder of the line after consuming the attribute (and its
-      # optional `(...)` argument list). Returns [head, nil] for a
-      # pure-attribute line (`@Observable` alone). Used by import! to
-      # detect inline-attached attributes like
-      # `@ViewBuilder public var body: AnyView { get }`.
       def split_inline_attr(line)
-        # Attribute token: `@` + identifier. Optional argument list
-        # `(...)` is consumed greedily (no nested parens expected in
-        # macro / builder invocation forms used by Apple overlays).
         if (m = line.match(/\A(@\w+(?:\([^)]*\))?)\s*(.*)\z/))
           rest = m[2].strip
           [m[1], rest.empty? ? nil : rest]
@@ -279,11 +151,6 @@ module AppleSDKKnowledge
         end
       end
 
-      # Maps a set of preceding `@<Attr>` lines to an unsupported_pattern
-      # marker. Returns "swift_macro" / "result_builder" / nil.
-      # Dotted attributes (`@MainActor.preconcurrency` 等の isolation
-      # marker / sub-attribute) は対象外 — そもそも fixed list に
-      # 含まれてへんので自然に nil 落ちする。
       def detect_unsupported(attrs)
         return nil if attrs.nil? || attrs.empty?
         attr_heads = attrs.map { |line| line.strip.split(/[\s(]/, 2).first }.compact
@@ -292,10 +159,6 @@ module AppleSDKKnowledge
         nil
       end
 
-      # Extracts flat case-name array from an enum body. Multi-name
-      # `case a, b, c` is expanded into separate entries. Associated-value
-      # / raw-value tails (`case load(Data)` / `case foo = "f"`) are
-      # ignored — only the identifier head is retained.
       def parse_case_names(body)
         names = []
         body.scan(CASE_RE) do |m|
@@ -304,24 +167,6 @@ module AppleSDKKnowledge
         names
       end
 
-      # -- declaration parser -------------------------------------------------
-
-      # Parses a single line from an extension body.
-      # Returns a Hash or nil if unparseable.
-      #
-      # Returned keys:
-      #   kind:        :class_func | :instance_func | :init | :class_var | :instance_var
-      #   name:        String
-      #   params:      Array<{label:, internal:, type:}>
-      #   return_type: String or nil
-      #   signature:   String (raw trimmed line)
-      #   throws:      Boolean (func / init で `throws` 末尾を持つか)
-      #   async:       Boolean (func の `async` 末尾、 init には立たない)
-      #   failable:    Boolean (init? の `?` を持つか、 func/var には常に false)
-      #   settable:    Boolean (var で `{ get set }` を持つか;
-      #                func / init には常に false。 stored-property の
-      #                accessor 省略形 `public var foo: Int` は Swift 既定
-      #                semantics に従い readwrite として true)
       def parse_decl_line(line)
         stripped = line.strip
 
@@ -352,9 +197,6 @@ module AppleSDKKnowledge
           is_class = !m[1].nil?
           kind     = is_class ? :class_var : :instance_var
           accessor = m[4]
-          # Accessor clause absent (bare stored property) → Swift's
-          # default is readwrite, so settable defaults to true.
-          # `{ get set }` → settable = true; `{ get }` alone → false.
           settable = accessor.nil? ? true : accessor.include?("set")
           { kind: kind, name: m[2], params: [], return_type: m[3].strip,
             throws: false, async: false, failable: false,
@@ -366,28 +208,6 @@ module AppleSDKKnowledge
         end
       end
 
-      # Parses a raw Swift parameter list string into structured form.
-      # e.g. "for mediaType: AVMediaType" =>
-      #   [{label: "for", internal: "mediaType", type: "AVMediaType",
-      #     external_label: "for", internal_name: "mediaType"}]
-      #
-      # Phase 1 T9: each element now also carries explicit
-      # +external_label+ / +internal_name+ keys mirroring Swift's two
-      # parameter naming positions, so a Phase 2 emitter can pick the
-      # right name without re-parsing the signature string. Conventions:
-      # - `_ raw: String`     → external_label = nil, internal_name = "raw"
-      # - `url: URL`          → external_label = internal_name = "url"
-      # - `forReading url: U` → external_label = "forReading", internal_name = "url"
-      # The legacy `:label` / `:internal` shorthand is preserved for the
-      # selector reconstruction path (objc_selector_for / swift_imported_name_for).
-      #
-      # Phase 1 T10: per-parameter literal default values are extracted via
-      # extract_default_value and exposed as the +default_value+ key. The
-      # regex now captures an optional `= <expr>` tail with a non-greedy
-      # type fragment so `Int = 42` is split into type=Int / default=42.
-      # Non-literal expressions (closures / function calls / arithmetic)
-      # collapse to default_value = nil at the extractor; the raw `=`
-      # fragment is consumed regardless so the type column stays clean.
       def parse_params(raw)
         return [] if raw.nil? || raw.strip.empty?
 
@@ -417,14 +237,6 @@ module AppleSDKKnowledge
         end
       end
 
-      # Recognised Swift literal default expressions:
-      #   numeric          → 42 / -3.14
-      #   string           → "default"
-      #   dot-enum case    → .utf8 / .red
-      #   bool / nil       → true / false / nil
-      # 複雑 expression (closure / function call / arithmetic) は nil を返す。
-      # Phase 2 emitter は default_value 非 nil の引数なら glue で省略可能、
-      # nil なら user に explicit に渡してもらう policy で利用する。
       LITERAL_DEFAULT_RE = /\A(?:
         -?\d+(?:\.\d+)?           # numeric literal
         | "[^"]*"                 # string literal (no escaped-quote handling — Apple overlay literals are plain ASCII)
@@ -439,14 +251,6 @@ module AppleSDKKnowledge
         LITERAL_DEFAULT_RE.match?(stripped) ? stripped : nil
       end
 
-      # Determines whether the *outer* form of a Swift type expression is
-      # Optional (`T?` / `T??`) or Implicitly-Unwrapped Optional (`T!`).
-      # Crude string `end_with?("?")` 判定では `Array<URL?>` のような
-      # 内側 ? が誤検出されるため、 paren / bracket / angle の depth balance
-      # を確認し、 末尾文字が ? or ! でかつ depth が 0 に閉じてる時のみ
-      # outer optional とみなす。 Phase 2 emitter は nullable=true で
-      # Ruby 側 nil 受容 / NULL bridging path を、 false で non-null 前提
-      # glue を選ぶ。
       def nullable_outer?(type)
         s = type.to_s.strip
         return false if s.empty?
@@ -461,16 +265,6 @@ module AppleSDKKnowledge
         s.end_with?("?", "!")
       end
 
-      # -- selector reconstruction --------------------------------------------
-
-      # Reconstructs the ObjC selector for a parsed declaration.
-      # Returns String (e.g. "devicesWithMediaType:") or nil.
-      #
-      # Apple's ObjC naming convention for Swift functions:
-      # - When the first param has label == internal (or label is "_"):
-      #     func foo(bar baz:) → "fooBar:" or "foo:" (underscore label)
-      # - When the first param has label != internal (e.g. func foo(for mediaType:)):
-      #     the ObjC name uses "With<InternalName>" suffix → "fooWithMediaType:"
       def objc_selector_for(klass, decl)
         case decl[:kind]
         when :class_func, :instance_func
@@ -503,8 +297,6 @@ module AppleSDKKnowledge
         end
       end
 
-      # Builds the Swift imported name for a declaration.
-      # e.g. {name: "devices", params: [{label: "for", ...}]} => "devices(for:)"
       def swift_imported_name_for(decl)
         case decl[:kind]
         when :class_func, :instance_func
@@ -533,13 +325,8 @@ module AppleSDKKnowledge
         end
       end
 
-      # -- persistence --------------------------------------------------------
-
-      # Public entry point. Reads the .swiftinterface file at +path+, parses
-      # Swift extension blocks, reconstructs ObjC selectors, and writes rows
-      # into the Knowledge Base Store.
       def import!(framework:, path:)
-        source = File.read(path)
+        source = File.read(path).gsub("::", ".")
         fw_id  = upsert_framework(framework)
 
         extract_extension_blocks(source).each do |block|
@@ -556,22 +343,10 @@ module AppleSDKKnowledge
           end
         end
 
-        # Phase 1 T12: top-level `public enum X { case ... }` declarations
-        # are not exposed via the extension scanner. Ingest them as their
-        # own symbol rows with kind="enum" and serialise the case-name
-        # list into enum_cases_json. Phase 2 namespace_builder reads this
-        # column to install `Apple::<Framework>::<Enum>::<Case>` constants.
         extract_enum_blocks(source).each do |enum_block|
           upsert_enum(enum_block, fw_id: fw_id)
         end
 
-        # Phase 1 T14: top-level `public class X { ... }` blocks. The
-        # existing extension scanner only sees `extension X { ... }`,
-        # so class-direct bodies (`@Observable public class WatchedThing`
-        # / `public class PlainThing { @ViewBuilder var body ... }`)
-        # are imported here. The class-level macro attribute lifts to
-        # `unsupported_pattern` on the class symbol, and per-member
-        # `@<Attr>` lookback inside the body lifts to the member symbol.
         extract_class_blocks(source).each do |class_block|
           class_marker = detect_unsupported(class_block[:attrs])
           klass_id = upsert_klass(class_block[:name], fw_id,
@@ -582,12 +357,6 @@ module AppleSDKKnowledge
             line = raw_line.strip
             next if line.empty? || line.start_with?("//")
 
-            # Underscored Swift internal markers (`@_specialize` 等) は
-            # marker 判定対象外。 通常 attribute はここで蓄積し、 decl
-            # 本体行に到達した時点で detect_unsupported に流す。
-            # `@ViewBuilder public var body: AnyView { get }` のように
-            # attribute と decl が同一行にあるケースも吸収するため、
-            # 先頭 `@<Attr>` を剥がして残りを decl 本体として再評価する。
             if line.start_with?("@_")
               next
             elsif line.start_with?("@")
@@ -620,9 +389,6 @@ module AppleSDKKnowledge
         str[0].upcase + str[1..]
       end
 
-      # Computes the ObjC suffix for the first param of a func declaration.
-      # When label == internal (or label is "_"), uses the label directly.
-      # When label != internal (e.g. "for" vs "mediaType"), uses "With<Internal>".
       def first_param_suffix(param)
         label    = param[:label]
         internal = param[:internal]
@@ -631,21 +397,14 @@ module AppleSDKKnowledge
         elsif label == internal
           capitalize(label)
         else
-          # label is a preposition (for/in/at/with/etc.) — Apple convention:
-          # func foo(for bar:) → "fooWithBar:"
           "With#{capitalize(internal)}"
         end
       end
 
-      # Variant for init: always Capitalize<Internal>, regardless of whether
-      # the Swift label is "_" or a preposition. Apple's ObjC bridging
-      # convention for initializers is uniformly "initWith<Internal>:" — the
-      # external label never participates in the selector head.
       def first_param_with_suffix(param)
         capitalize(param[:internal])
       end
 
-      # Computes the ObjC selector part for subsequent (non-first) params.
       def rest_param_part(param)
         param[:label] == "_" ? ":" : "#{param[:label]}:"
       end
@@ -657,12 +416,6 @@ module AppleSDKKnowledge
         @store.insert_framework(name: name, swift_module: name, category: "swift_overlay")
       end
 
-      # Inserts a top-level Swift enum symbol with its case list serialised
-      # to enum_cases_json. Idempotent via the (framework_id, name, kind)
-      # selector check — re-imports under the same content_hash collapse
-      # into the same row through Store#insert_symbol's ON CONFLICT path.
-      # Empty case lists serialise to nil so the column stays NULL for
-      # zero-case (degenerate) enum declarations.
       def upsert_enum(enum_block, fw_id:)
         name  = enum_block[:name]
         cases = enum_block[:cases]
@@ -685,12 +438,6 @@ module AppleSDKKnowledge
           [fw_id, klass_name]
         ).first
         if row
-          # Class symbol was already inserted (e.g. via extract_extension_blocks
-          # or an earlier extract_class_blocks pass). Re-emit insert_symbol
-          # carrying the marker so the COALESCE path on unsupported_pattern
-          # picks up the macro lift on a subsequent class-block-direct
-          # ingest. Without this branch, an extension-first import would
-          # cement the class row before the `@Observable` lookback runs.
           if unsupported_pattern
             hash = Digest::SHA256.hexdigest("#{fw_id}|#{klass_name}|class|swift_overlay")
             @store.insert_symbol(
@@ -726,25 +473,8 @@ module AppleSDKKnowledge
         kind_str   = kind_string_for(decl[:kind])
         hash       = Digest::SHA256.hexdigest("#{fw_id}|#{klass_id}|#{selector}|#{kind_str}|swift_overlay")
 
-        # Single atomic INSERT ... ON CONFLICT — swift_imported_name rides
-        # along so a re-import under the same content_hash updates this
-        # column in the same statement.
-        # return_type は downstream emitter (rb-apple-sdk-mac) が wrap_class /
-        # marshalling 判定に使うため Swift overlay 由来 row でも DB に乗せる。
-        # Phase 1 T8: lift parse-time effect modifiers (throws / async /
-        # failable) into schema columns so Phase 2 emitter can pick
-        # AndReturnError marshalling and Optional unwrap paths from a
-        # SELECT without re-parsing the signature string.
-        # Phase 1 T9: serialise per-parameter external_label / internal_name /
-        # type into parameters_json so Phase 2 emitter can pick Swift's
-        # call-site label and the in-body identifier directly from a
-        # SELECT, no signature string re-parse.
         params_json = parameters_json_for(decl[:params])
 
-        # Phase 1 T13: lift Swift property readwrite vs readonly into
-        # is_settable. parse_decl_line only sets :settable on var decls;
-        # func / init decls omit the key (NilClass#nil?), so the column
-        # defaults to 0 for non-property symbols.
         @store.insert_symbol(
           framework_id:        fw_id,
           name:                selector,
@@ -764,20 +494,6 @@ module AppleSDKKnowledge
         )
       end
 
-      # Serialises the parameter list into the canonical user-facing JSON
-      # payload. Internal-only keys (`:label` / `:internal`) used for
-      # selector reconstruction are intentionally dropped — the Knowledge
-      # Base surface keeps only `external_label` / `internal_name` /
-      # `type` / `default_value` per element. Returns nil for empty
-      # parameter lists so the column stays NULL for zero-arg declarations.
-      # Phase 1 T10: `default_value` carries a Swift literal default expression
-      # (numeric / string / dot-prefixed enum case / bool / nil) when present,
-      # nil otherwise. Phase 2 emitter uses non-nil entries to omit args in
-      # generated glue and falls back to explicit user-passing when nil.
-      # Phase 1 T11: `nullable` carries the outer-Optional / IUO judgement
-      # (`URL?` / `URL!` → true、 `Array<URL?>` → false) per parameter so
-      # Phase 2 emitter picks NULL bridging vs non-null glue without
-      # re-parsing the type string at codegen time.
       def parameters_json_for(params)
         return nil if params.nil? || params.empty?
 
@@ -790,19 +506,6 @@ module AppleSDKKnowledge
         })
       end
 
-      # Maps parser-internal :symbol kinds to canonical Knowledge Base kind
-      # strings. Canonical values (verified via SELECT DISTINCT kind FROM
-      # symbols on a populated sdk_knowledge.sqlite):
-      #   actor, class, class_method, enum_case, enum_module, function,
-      #   global_constant, instance_method, instance_property, protocol, struct
-      #
-      # Notes:
-      # - There is no "class_property" in the canonical set; static / class
-      #   var declarations are folded into "instance_property", matching
-      #   swift_interface_parser.rb's existing convention (which collapses
-      #   public var / public let — instance or static — to instance_property).
-      # - :init maps to "class_method" because Swift initializers ingest as
-      #   class-level entry points (matching swift_interface_parser.rb).
       def kind_string_for(kind)
         case kind
         when :class_func, :static_func, :init  then "class_method"

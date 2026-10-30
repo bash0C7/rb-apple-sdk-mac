@@ -7,7 +7,6 @@ case ARGV[0]
 when 'serve', nil
   AppleSDKMac::MCP::Server.new.run
 when 'probe'
-  # CLI から tools リストを確認 (Claude 接続なしで動作確認用)
   facade = AppleSDKMac::MCP::Server.new.build_mcp_server
   puts facade.tool_classes.map(&:tool_name).inspect
 else

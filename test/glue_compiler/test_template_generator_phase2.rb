@@ -39,7 +39,6 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
       glue_id: "abcd1234"
     )
     assert_not_nil swift, "emit_swift_init should produce Swift source"
-    # T8: throws init now emits do { try ... } catch { rb_raise(...) }, no longer try?
     assert_match(/do \{/, swift, "is_throws=true should emit do block")
     assert_match(/try AVAudioFile\(/, swift, "do block should contain unwrapped try")
     assert_no_match(/guard let v = try\?/, swift, "silent try? swallow must be eliminated")
@@ -156,7 +155,7 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
         kind: "swift_init",
         name: "AVAudioFile.init(forReading:)",
         swift_class: "AVAudioFile",
-        swift_initializer: "init()",  # 文字列 fallback では label 0 個 (誤判定)、 Knowledge Base driven なら正しく取れる
+        swift_initializer: "init()",
         params: [:opaque_ref],
         return_kind: :opaque_ref
       },
@@ -166,15 +165,7 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
       "labels should come from parameters_json external_label, not initializer string")
   end
 
-  # CF retained detection via generate public API.
-  # Fixture: kind:"function" + abi:"c" + signature starting with CFStringRef
-  # so effective_return_kind reaches cftype_ref, then cf_returns_retained? decides
-  # whether to emit runtime_arc_box_cftype (retained) or raw rb_ull2inum (not retained).
-
   def test_cf_returns_retained_uses_kb_return_ownership_over_name_regex
-    # 名前が CFCreate / CFCopy で始まらないが Knowledge Base で cf_returns_retained と marked。
-    # generate 出力に runtime_arc_box_cftype(raw_uint) 呼び出しが現れることで Knowledge Base 優先を検証。
-    # Note: HEADER に @_silgen_name 宣言が常に含まれるため、呼び出し側 "raw_uint" 引数パターンで区別。
     kc = FakeKnowledgeCache.new(
       ["CoreFoundation", "CFBundleGetMainBundleCopyExecutableURL"] => {
         return_ownership: "cf_returns_retained"
@@ -197,8 +188,6 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
   end
 
   def test_cf_returns_retained_falls_back_to_name_regex_when_kb_miss
-    # Knowledge Base miss + CFCreate prefix → 名前 regex fallback で retained と判定。
-    # Note: HEADER に @_silgen_name 宣言が常に含まれるため、呼び出し側 "raw_uint" 引数パターンで区別。
     kc = FakeKnowledgeCache.new({})
     tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
     swift = tg.generate(
@@ -217,8 +206,6 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
   end
 
   def test_cf_returns_retained_returns_false_when_kb_miss_and_no_naming_match
-    # Knowledge Base miss + 名前が CFCreate/CFCopy でない → retained=false → raw unsafeBitCast 経路。
-    # Note: HEADER に @_silgen_name 宣言が常に含まれるため、呼び出し側 "raw_uint" 引数パターンで区別。
     kc = FakeKnowledgeCache.new({})
     tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
     swift = tg.generate(
@@ -226,7 +213,7 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
       symbol: {
         kind: "function", abi: "c",
         name: "CFArrayGetCount",
-        signature: "CFArrayRef",  # cftype_ref だが retained=false
+        signature: "CFArrayRef",
         params: nil
       },
       glue_id: "test003"
@@ -239,9 +226,6 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
   end
 
   def test_resolve_callback_route_known_signature_returns_route_name
-    # CALLBACK_PILLAR_ROUTES.values の中に必ず存在する route name を期待値とする。
-    # ::AppleSDKMac::GlueCompiler::CALLBACK_PILLAR_ROUTES.values.uniq.first を取得して
-    # それを stub の normalized 値とする (実 route と test data を結合)。
     routes = ::AppleSDKMac::GlueCompiler::CALLBACK_PILLAR_ROUTES.values.uniq
     omit "no callback routes registered" if routes.empty?
     known_route = routes.first
@@ -296,7 +280,7 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
 
   def test_resolve_callback_route_returns_nil_when_callback_signature_absent
     kc = FakeKnowledgeCache.new(
-      ["Foo", "Bar"] => { is_throws: true }  # callback_signature_json 無し
+      ["Foo", "Bar"] => { is_throws: true }
     )
     tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
     result = tg.send(:resolve_callback_route, framework: "Foo", symbol_name: "Bar")
@@ -399,7 +383,7 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
   def test_emit_swift_init_throws_emits_do_catch_with_swift_error_raise
     kc = FakeKnowledgeCache.new(
       ["AVFoundation", "AVAudioFile.init(forReading:)"] => {
-        is_throws: true, is_failable: false, throws_error_type: nil  # untyped throws
+        is_throws: true, is_failable: false, throws_error_type: nil
       }
     )
     tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
@@ -418,7 +402,6 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
     assert_match(/do \{/, swift, "throws init should emit do block")
     assert_match(/try AVAudioFile\(/, swift, "do block should contain unwrapped try (no try?)")
     assert_no_match(/guard let v = try\? /, swift, "try? else Qnil silent swallow must be eliminated")
-    # untyped throws (throws_error_type=nil) -> SwiftError dispatch
     assert_match(/rb_raise\(/, swift, "catch block should rb_raise")
   end
 
@@ -440,8 +423,6 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
       },
       glue_id: "abcd1234"
     )
-    # ObjcError dispatch confirmation:
-    # throws_error_type=NSError should route to ObjcError lookup
     assert_match(/ObjcError/, swift,
       "throws_error_type=NSError should route to ObjcError")
     assert_no_match(/SwiftError/, swift,
@@ -491,7 +472,6 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
     assert_match(/URLCache\.shared = /, swift)
   end
 
-  # global_constant emitter: numeric (double) representative round-trips.
   def test_emit_global_constant_double_references_constant_and_returns_float
     kc = FakeKnowledgeCache.new(
       ["CoreFoundation", "kCFCoreFoundationVersionNumber"] => {
@@ -518,7 +498,6 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
       "double constant should be returned via rb_float_new")
   end
 
-  # global_constant emitter: integer family (NSUInteger) returns via rb_ull2inum/rb_ll2inum.
   def test_emit_global_constant_integer_returns_inum
     kc = FakeKnowledgeCache.new({})
     tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
@@ -537,8 +516,6 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
       "integer constant should be returned via an inum helper")
   end
 
-  # global_constant emitter: types not robustly bridgeable (CFStringRef / NSString)
-  # return nil so they stay out-of-coverage rather than emitting broken glue.
   def test_emit_global_constant_unbridgeable_type_returns_nil
     kc = FakeKnowledgeCache.new({})
     tg = AppleSDKMac::GlueCompiler::TemplateGenerator.new(knowledge_cache: kc)
@@ -566,7 +543,6 @@ class TestTemplateGeneratorPhase2 < Test::Unit::TestCase
           name: "NSWindow.title=",
           swift_class: "NSWindow",
           swift_property: "title",
-          # params 故意に未指定
           return_kind: :void,
           instance: true
         },

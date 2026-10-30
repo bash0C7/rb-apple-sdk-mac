@@ -8,14 +8,15 @@ Rake::TestTask.new(:test) do |t|
   t.warning = false
 end
 
+desc "Validate the RBS signatures"
+task :rbs do
+  sh "rbs", "-I", "sig", "validate"
+end
+
+task test: :rbs
 task default: :test
 
 namespace :probe do
-  # Phase F E2E (2026-05-08) の再現用 task。 nested `claude -p` 経由で 7 tool
-  # 全部を順次呼び、 log を tmp/longrun/apple-mcp-e2e-<ts>.log に流す。
-  # `claude -p` は print mode = headless で elicitation auto-cancel する仕様
-  # なので suggest_discover_call は action: cancel を返すのが正しい挙動。
-  # interactive 検証は docs/elicitation-headless-investigation.md 参照。
   desc "Reproduce Phase F E2E via headless `claude -p` (auto-cancel elicitation)"
   task :headless_e2e do
     require "fileutils"

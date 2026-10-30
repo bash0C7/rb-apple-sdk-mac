@@ -3,10 +3,6 @@ require "test_helper"
 require "apple_sdk_mac/irb"
 require "apple_sdk_mac/irb/llm_resolver"
 
-# LLMResolver generates doc on the fly when DocResolver returned nil
-# (Swift-overlay Apple symbols with empty documentation, or Ruby
-# stdlib classes outside the KB scope). Same `resolve(matched) ⇒ str|nil`
-# contract as DocResolver, so DocDialog can chain them transparently.
 class TestLLMResolver < Test::Unit::TestCase
   LLMResolver = AppleSDKMac::IRB::LLMResolver
 
@@ -17,8 +13,6 @@ class TestLLMResolver < Test::Unit::TestCase
     end
     kb
   end
-
-  # --- Apple symbol generation ------------------------------------------
 
   def test_resolves_apple_class_method_via_llm
     seen_prompt = nil
@@ -32,12 +26,6 @@ class TestLLMResolver < Test::Unit::TestCase
   end
 
   def test_apple_prompt_uses_api_wording_not_bare_symbol
-    # Live verification (2026-05-08) showed Apple's on-device model
-    # interpreting bare "Apple SDK symbol" as a visual icon and returning
-    # nonsense like "a rectangle with a blue circle in the middle and a
-    # diagonal line crossing through it." The prompt must use API-doc
-    # wording (API element / framework API / method) so the model treats
-    # the input as a programming construct.
     seen = nil
     llm = ->(p) { seen = p; "x" }
     LLMResolver.new(llm_proc: llm).resolve("Apple::Foundation::URL.appendingPathComponent")
@@ -76,8 +64,6 @@ class TestLLMResolver < Test::Unit::TestCase
     assert_match(/ARKit/, seen_prompt)
   end
 
-  # --- Non-Apple (Ruby stdlib) generation -------------------------------
-
   def test_resolves_ruby_stdlib_input
     seen_prompt = nil
     llm = ->(prompt) { seen_prompt = prompt; "Returns string representation." }
@@ -85,8 +71,6 @@ class TestLLMResolver < Test::Unit::TestCase
     assert_equal "Returns string representation.", out
     assert_match(/String\.to_s|String#to_s/, seen_prompt)
   end
-
-  # --- Failure modes -----------------------------------------------------
 
   def test_returns_nil_when_llm_proc_raises
     llm = ->(_prompt) { raise "model unavailable" }
@@ -112,8 +96,6 @@ class TestLLMResolver < Test::Unit::TestCase
     assert_nil LLMResolver.new(llm_proc: llm).resolve(nil)
     assert_nil LLMResolver.new(llm_proc: llm).resolve("")
   end
-
-  # --- Cache + transform -------------------------------------------------
 
   def test_caches_per_input
     counter = 0

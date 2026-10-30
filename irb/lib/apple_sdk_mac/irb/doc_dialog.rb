@@ -5,12 +5,6 @@ require "apple_sdk_mac/irb/doc_resolver"
 
 module AppleSDKMac
   module IRB
-    # Renders the popup right-side doc preview from the hovered Apple
-    # SDK candidate. The proc form (#to_proc) is registered with
-    # Reline.add_dialog_proc(:show_doc, ..., DEFAULT_DIALOG_CONTEXT) and
-    # piggybacks on the autocomplete dialog's pushed context (cursor
-    # pos, candidate list, pointer, dialog) so we read the user's
-    # current hover target without intercepting key events.
     class DocDialog
       DEFAULT_WIDTH = 60
 
@@ -21,13 +15,6 @@ module AppleSDKMac
         @width = width
       end
 
-      # Pure render entry-point — easy to unit-test without a Reline
-      # DialogProcScope. Returns Reline::DialogRenderInfo or nil.
-      # Side-effect: kicks the prefetcher (if injected) regardless of
-      # whether documentation is available, so first-call latency on
-      # an undocumented Apple symbol still gets the prefetch benefit.
-      # Resolution order: KB-driven primary resolver, then llm_resolver
-      # for Swift-overlay / Ruby stdlib symbols the KB cannot answer.
       def render(matched:, cursor_pos:, max_height:, autocomplete_dialog: nil, max_width: @width)
         @prefetcher&.prefetch(matched)
         doc = @resolver.resolve(matched)
@@ -65,17 +52,10 @@ module AppleSDKMac
       def to_proc
         dialog_obj = self
         ->() {
-          # Defensive: never trap keys (we only render).
           dialog.trap_key = nil
 
-          # When the user is just moving the cursor without an active
-          # autocomplete journey, the popup's right-side dialog has no
-          # candidate to describe — skip rendering.
           return nil if just_cursor_moving && completion_journey_data.nil?
 
-          # The :autocomplete dialog pushes [cursor_pos, result, pointer,
-          # dialog] onto Reline::DEFAULT_DIALOG_CONTEXT. We pop them here
-          # to learn which candidate is currently highlighted.
           cursor_pos_to_render, result, pointer, autocomplete_dialog = context.pop(4)
           return nil if result.nil? || pointer.nil? || pointer < 0
           matched = result[pointer]

@@ -2,13 +2,6 @@
 require "json"
 require "securerandom"
 
-# TemplateGenerator#generate だけ呼んで Swift glue source 文字列を返す
-# (swiftc は走らせない)。 親 gem 強依存ポイント:
-# AppleSDKMac::GlueCompiler::TemplateGenerator を直接呼ぶ。
-#
-# trust-but-verify ループ: AI が「ユーザが Apple.discover 走らせたら↓の Swift が
-# cache される」を実行前に確認できる。
-
 module AppleSDKMac
   module MCP
     module Tools

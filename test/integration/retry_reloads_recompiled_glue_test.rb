@@ -1,4 +1,3 @@
-# test/integration/retry_reloads_recompiled_glue_test.rb
 # frozen_string_literal: true
 require "test/unit"
 require "tmpdir"
@@ -9,20 +8,8 @@ require_relative "../../lib/apple_sdk_mac/glue_compiler"
 require_relative "../../lib/apple_sdk_mac/round_trip/production_runner"
 require_relative "../../lib/apple_sdk_mac/inference/backend"
 
-# 回帰テスト: try_inference の閉ループで attempt 2 以降が「再コンパイルした新しい glue」を
-# 実際に再 invoke できることを、実 swiftc / 実 ProductionRunner / 実 GlueLoader で実証する。
-# 実 claude -p は使わない (決定論 backend) のでミリ秒〜秒で走る。
-#
-# 失敗モード (fix 前): 全 attempt が同一 exported symbol + 同一 dylib パスを使い、
-# ProductionRunner の GlueLoader が attempt 1 の関数ポインタをキャッシュ短絡し、
-# かつ dlopen が同一パスの再コンパイル済みイメージを再ロードしない。結果、attempt 2 が
-# 正しい glue を出しても ruby 側は attempt 1 の値で固定 → round-trip RED 固定 → 精度の天井。
 class RetryReloadsRecompiledGlueTest < Test::Unit::TestCase
-  GEM_ROOT = File.expand_path("../..", __dir__)
 
-  # attempt 1 は ruby=999 を返す glue (swift=42 と不一致 → RED)、
-  # attempt 2 以降は ruby=42 を返す glue (swift=42 と一致 → GREEN) を返す。
-  # 返り値は Ruby Fixnum エンコード (n<<1)|1 を直接組むので Apple API も rb_* extern も不要。
   class TwoAttemptBackend
     def initialize
       @calls = 0
@@ -47,13 +34,11 @@ class RetryReloadsRecompiledGlueTest < Test::Unit::TestCase
     end
   end
 
-  # gate 検証はこのテストの関心外 (staleness とは直交) なので素通しする。
   class PassGates
     Res = Struct.new(:pass?, :errors)
     def validate(*) = Res.new(true, [])
   end
 
-  # try_inference が触る最小限 (base_dir / sdk_version / insert / record_attempt)。
   class FakeCache
     attr_reader :base_dir, :sdk_version
     def initialize(base_dir)
@@ -110,11 +95,11 @@ class RetryReloadsRecompiledGlueTest < Test::Unit::TestCase
   private
 
   def runtime_dylib_path
-    dylib = File.join(GEM_ROOT, "ext/apple_sdk_mac_runtime/.build/arm64-apple-macosx/release/libAppleSDKMacRuntime.dylib")
+    dylib = File.join(AppleSDKMac::RUNTIME_BUILD_DIR, "libAppleSDKMacRuntime.dylib")
     File.exist?(dylib) ? dylib : nil
   end
 
   def runtime_modules_paths
-    [File.join(GEM_ROOT, "ext/apple_sdk_mac_runtime/.build/arm64-apple-macosx/release/Modules")].select { |p| File.directory?(p) }
+    [AppleSDKMac::RUNTIME_BUILD_DIR]
   end
 end

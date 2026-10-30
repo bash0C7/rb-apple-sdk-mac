@@ -3,13 +3,6 @@
 #include <stdlib.h>
 #include "AppleSDKMacRuntime-Swift.h"
 
-// proc_registry lives in the Swift runtime dylib (see appleProcRegistry in
-// RuntimeBridge.swift). The previous rb_define_variable("$__apple_sdk_mac_proc_registry")
-// approach didn't work under Ruby::Box: the Ruby-visible global was Box-wrapped
-// and didn't share storage with the C-static VALUE the dispatcher read.
-// runtime_proc_registry_get / runtime_proc_registry_init are exported from the
-// libAppleSDKMacRuntime.dylib in flat namespace, so both this C ext and any
-// glue dylib resolve to the same Hash regardless of RTLD_LOCAL boundaries.
 #define proc_registry runtime_proc_registry_get()
 
 static VALUE rb_dlopen_glue(VALUE self, VALUE path) {
@@ -45,10 +38,6 @@ static void ruby_callback_dispatcher(uint64_t proc_id, int64_t arg) {
     rb_proc_call_with_block(proc, 1, args, Qnil);
 }
 
-// N-arg dispatcher path. Multi-arg typed escaping blocks (URLSession
-// completion handler 等) は ThreadingBridge.enqueueFromAppleThread3 経由で
-// (procId, count, args[]) 形で main thread queue に積まれ、 ここで Ruby Array
-// 引数に展開して proc を invoke する。 1-arg path とも共存する。
 static void ruby_callback_dispatcher_n(uint64_t proc_id, int32_t count, const int64_t *args) {
     VALUE pid = ULL2NUM(proc_id);
     VALUE proc = rb_hash_lookup(proc_registry, pid);
@@ -134,12 +123,6 @@ static VALUE rb_async_taskgroup_double(VALUE self, VALUE a, VALUE b, VALUE c) {
     return LL2NUM(runtime_async_test_taskgroup_double(NUM2LL(a), NUM2LL(b), NUM2LL(c)));
 }
 
-// `runtime_rb_array_len` lives in the Swift dylib (RuntimeBridge.swift), not
-// here, because mkmf-built C ext bundles are linked two-level-namespace and
-// the flat-namespace lookup performed by dlopen on glue dylibs would miss it.
-// The Swift implementation calls rb_funcallv("length") + rb_num2ll for parity
-// with RARRAY_LEN.
-
 static VALUE rb_runloop_pump(VALUE self, VALUE timeout) {
     runtime_runloop_pump(NUM2DBL(timeout));
     return Qnil;
@@ -189,7 +172,6 @@ static VALUE rb_callback_pillar_unregister_midi_notify(VALUE self, VALUE slot) {
     return Qnil;
 }
 
-// Persistent (escaping) block slot table.
 static VALUE rb_callback_pillar_register_block_persistent(VALUE self, VALUE proc) {
     VALUE pid = rb_obj_id(proc);
     rb_hash_aset(proc_registry, pid, proc);
@@ -207,11 +189,6 @@ static VALUE rb_callback_pillar_release_auto_block(VALUE self, VALUE slot_id) {
     return Qnil;
 }
 
-// proc_registry lives in libAppleSDKMacRuntime.dylib (flat namespace). Both
-// the dispatcher above (via the proc_registry macro = runtime_proc_registry_get())
-// and per-symbol glue Swift dylibs reach the same Hash, sidestepping
-// Ruby::Box's wrapping of rb_define_variable globals.
-
 void Init_apple_sdk_mac_runtime(void) {
     runtime_proc_registry_init();
     runtime_callback_set_dispatcher(ruby_callback_dispatcher);
@@ -227,11 +204,6 @@ void Init_apple_sdk_mac_runtime(void) {
     rb_define_singleton_method(module, "conformance_register_handlers", rb_conformance_register, 1);
     rb_define_singleton_method(module, "conformance_release_handlers", rb_conformance_release, 1);
 
-    // Test submodule is env-gated so production gem installs don't expose
-    // runtime probe helpers. test_helper.rb sets RB_APPLE_SDK_MAC_RUNTIME_TEST=1
-    // before requiring apple_sdk_mac so the *_bridge_test.rb suites can reach
-    // these methods. Without the env, AppleSDKMacRuntime::Test stays undefined
-    // and the underlying C functions remain compiled-in but unregistered.
     if (getenv("RB_APPLE_SDK_MAC_RUNTIME_TEST") != NULL) {
         VALUE test_module = rb_define_module_under(module, "Test");
         rb_define_singleton_method(test_module, "callback_register", rb_callback_register_test, 0);

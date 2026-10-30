@@ -5,12 +5,6 @@ require "fileutils"
 require "rb_apple_sdk_knowledge/importer"
 require "rb_apple_sdk_knowledge/store"
 
-# Asserts Pipeline.run is idempotent: running it twice against the same
-# store yields the same row count. Uses a fixture-based FakeResolver
-# instead of the real Apple SDK so the test runs in seconds rather than
-# the ~17 min Pipeline.run takes against the full SDK. The end-to-end
-# real-SDK invariants live in test/integration/full_rebuild_assertions_test.rb
-# (post-rebuild assertions reading the standing Knowledge Base).
 class TestImporterPipelineIdempotence < Test::Unit::TestCase
   Framework = AppleSDKKnowledge::Importer::SDKResolver::Framework
 
@@ -43,7 +37,6 @@ class TestImporterPipelineIdempotence < Test::Unit::TestCase
 
   def test_rerun_on_existing_store_is_idempotent
     db_path = File.join(@tmp, "kb.sqlite")
-    ENV["RB_APPLE_SDK_KNOWLEDGE_FAST"] = "1"
 
     AppleSDKKnowledge::Importer::Pipeline.new(
       store_path: db_path,
@@ -67,19 +60,10 @@ class TestImporterPipelineIdempotence < Test::Unit::TestCase
 
     assert_equal first_count, second_count,
       "expected re-run to be idempotent: same symbol count both times"
-  ensure
-    ENV.delete("RB_APPLE_SDK_KNOWLEDGE_FAST")
   end
 
-  # Asserts Pipeline wires SwiftOverlay into the rebuild flow: given a
-  # framework dir whose .swiftinterface contains a Swift overlay extension,
-  # the resulting SQLite holds rows with swift_imported_name populated and
-  # the reconstructed ObjC selector. Lifted from
-  # knowledge/test/importer/swift_overlay_pipeline_test.rb
-  # (test_pipeline_writes_swift_imported_name_for_overlay_decls).
   def test_pipeline_wires_swift_overlay_into_rebuild_flow
     db_path = File.join(@tmp, "kb.sqlite")
-    ENV["RB_APPLE_SDK_KNOWLEDGE_FAST"] = "1"
     AppleSDKKnowledge::Importer::Pipeline.new(
       store_path: db_path,
       resolver:   FakeResolver.new(frameworks: [@fw]),
@@ -99,7 +83,5 @@ class TestImporterPipelineIdempotence < Test::Unit::TestCase
     selectors = rows.map(&:first)
     assert_includes selectors, "devicesWithMediaType:",
       "ObjC selector for `class func devices(for mediaType:)` must be reconstructed"
-  ensure
-    ENV.delete("RB_APPLE_SDK_KNOWLEDGE_FAST")
   end
 end

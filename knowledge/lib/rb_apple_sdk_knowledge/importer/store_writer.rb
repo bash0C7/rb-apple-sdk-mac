@@ -27,9 +27,6 @@ module AppleSDKKnowledge
         end
         ret
       rescue SQLite3::ConstraintException
-        # Caller (Pipeline#insert_one) handles duplicate-skip semantics.
-        # A UNIQUE violation on a single INSERT does not invalidate the
-        # surrounding transaction in SQLite, so we must NOT rollback here.
         raise
       rescue
         @mutex.synchronize do

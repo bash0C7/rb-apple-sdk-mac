@@ -23,10 +23,6 @@ class TestEmitterPhase2Smoke < Test::Unit::TestCase
     @kc&.close
   end
 
-  # Smoke 1: throws init emitter path — register_transient で AVAudioFile.init(forReading:)
-  # を is_throws=true で Knowledge Base に inject し、 do/catch + rb_raise dispatch を
-  # emit することを確認。 real Knowledge Base に swift_init kind の is_throws record は
-  # 現行 schema に未収録のため transient 注入でエンドツーエンドを smoke する。
   def test_smoke_throws_init_emits_do_catch
     @kc.register_transient(
       framework: "AVFoundation",
@@ -39,7 +35,7 @@ class TestEmitterPhase2Smoke < Test::Unit::TestCase
         is_failable: false,
         is_settable: false,
         return_ownership: nil,
-        throws_error_type: nil,   # untyped throws → SwiftError dispatch
+        throws_error_type: nil,
         callback_signature_json: nil,
         enum_cases_json: nil,
         unsupported_pattern: nil
@@ -66,9 +62,6 @@ class TestEmitterPhase2Smoke < Test::Unit::TestCase
     @kc&.clear_transient!
   end
 
-  # Smoke 2: real Knowledge Base に存在する swift_macro marked symbol (Phase 1 で
-  # 3290 件 unsupported_pattern marked) を動的に 1 件取得し、 generate が
-  # UnsupportedPatternError を raise することを確認。
   def test_smoke_unsupported_pattern_swift_macro_raises
     db = SQLite3::Database.new(knowledge_db_path)
     db.results_as_hash = false

@@ -2,20 +2,10 @@
 require "test_helper"
 require "open3"
 
-# NS-0 baseline — 11 examples の事前宣言状態 (Apple.discover 行数 / bootstrap!
-# 呼び出し有無) を pin down する。 後続 NS-1 〜 NS-6 phase で改善率を計測する
-# anchor。 actual run gate は env-gated (実 SDK 必要)。
-#
-# baseline.md は `tmp/` 配下に置いて `.gitignore` 例外として force-add 済。
-# 「NS-0 anchor として永続化必要やが、 generated artifact 同等の位置づけ」 の
-# 妥協配置。 v2.0 整理時に `docs/superpowers/baselines/` 移管候補。
-
 class BaselineE2ETest < Test::Unit::TestCase
   EXAMPLES_DIR = File.expand_path("../../examples", __dir__)
   BASELINE_MD  = File.expand_path("../../tmp/baseline-2026-05-15.md", __dir__)
 
-  # 2026-05-15 観測値。 各 example の (discover_lines, has_bootstrap) を pin。
-  # NS-6 後にこの hash は「全 example discover_lines=0」 に書き換わる契機。
   BASELINE = {
     "async_taskgroup.rb"         => { discover_lines: 4,  has_bootstrap: false },
     "audio_device_count.rb"      => { discover_lines: 0,  has_bootstrap: true },
@@ -44,7 +34,6 @@ class BaselineE2ETest < Test::Unit::TestCase
       path = File.join(EXAMPLES_DIR, fname)
       assert File.exist?(path), "missing example: #{fname}"
       src = File.read(path)
-      # match "Apple.discover" at start-of-line or after whitespace
       count = src.scan(/^\s*Apple\.discover\b/).size
       assert_equal expected[:discover_lines], count,
                    "#{fname}: discover_lines drift"
@@ -61,19 +50,15 @@ class BaselineE2ETest < Test::Unit::TestCase
     end
   end
 
-  # Actual run is env-gated — requires real SDK + RUBY_BOX. CI / nightly
-  # only; default `rake test` skips this body via the omit gate.
   def test_actual_run_smoke_under_ruby_box
     omit "set RUBY_BOX_E2E=1 to run actual example smoke" unless ENV["RUBY_BOX_E2E"] == "1"
 
-    # interactive examples — skip (manual smoke only)
     interactive = %w[coremidi_receive.rb piano_keyboard.rb irb_completion_demo.rb]
 
     BASELINE.each do |fname, _expected|
       next if interactive.include?(fname)
       path = File.join(EXAMPLES_DIR, fname)
-      cmd = ". ~/.swiftly/env.sh && exec env RUBY_BOX=1 bundle exec ruby \"$1\""
-      out, status = Open3.capture2e("bash", "-c", cmd, "_", path)
+      out, status = Open3.capture2e({ "RUBY_BOX" => "1" }, "bundle", "exec", "ruby", path)
       exitcode = status.exitstatus
       assert_equal 0, exitcode, "#{fname} exited non-zero:\n#{out.lines.last(10).join}"
       refute_match(/^DEFERRED\b/, out, "#{fname} emitted DEFERRED line")

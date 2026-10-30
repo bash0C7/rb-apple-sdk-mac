@@ -34,11 +34,6 @@ class TestCompiledGlueCache < Test::Unit::TestCase
     assert_equal "template", rec[:generator]
   end
 
-  # schema_version mismatch evicts rows. When the mac gem bumps
-  # CACHE_SCHEMA_VERSION (template HEADER, marshaller emit, etc. change in
-  # ways that invalidate stored Swift sources), reopening the cache must
-  # evict the stale dylibs so the next discover recompiles instead of
-  # dlopen'ing a pre-bump dylib that may no longer link.
   def test_schema_version_mismatch_evicts_compiled_glue_rows
     @cache.insert(
       glue_id: "old1", framework: "F", symbol: "Sym",
@@ -70,11 +65,6 @@ class TestCompiledGlueCache < Test::Unit::TestCase
     cache2.close
   end
 
-  # 同 (framework, symbol) で別 glue_id (= parameters_json 差) の row が並存すると、
-  # lookup は LIMIT 1 / no ORDER BY で旧 row を返す可能性がある。 これは Apple.discover が
-  # `params:` / `return_kind:` override を渡したときに発生する cache pollution の真因
-  # (postmortem 2026-05-14 #1)。 insert は同 (framework, symbol) の旧 row を invalidate して
-  # 「(framework, symbol) は最新 1 row のみ」 の invariant を保つ。
   def test_insert_invalidates_prior_row_with_same_framework_and_symbol
     @cache.insert(
       glue_id: "old_id", framework: "AVFAudio",
@@ -104,8 +94,6 @@ class TestCompiledGlueCache < Test::Unit::TestCase
       "stale row with different glue_id must be invalidated"
   end
 
-  # 同 glue_id の再 insert は既存 INSERT OR REPLACE 経路に乗って idempotent。
-  # 新 invariant 導入で他 (framework, symbol) row が誤って消えないことも保証。
   def test_insert_does_not_disturb_unrelated_rows
     @cache.insert(
       glue_id: "id_a", framework: "F1", symbol: "S1",

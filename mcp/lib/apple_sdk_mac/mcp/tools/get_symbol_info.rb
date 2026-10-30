@@ -1,10 +1,6 @@
 # frozen_string_literal: true
 require "json"
 
-# Symbol full record (parameters_json 込み)。
-# 親 gem の KnowledgeCache#lookup_symbol を呼び、 transient overlay → DB の
-# 優先順で record (Hash) または nil を返す。 nil は JSON 'null' として返却。
-
 module AppleSDKMac
   module MCP
     module Tools

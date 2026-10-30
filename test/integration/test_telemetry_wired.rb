@@ -8,13 +8,6 @@ require_relative "../../lib/apple_sdk_mac/dispatcher"
 require_relative "../../lib/apple_sdk_mac/glue_compiler"
 require_relative "../../lib/apple_sdk_mac/telemetry"
 
-# Phase 3 Task 10: dispatcher が SymbolMissingError / UnsupportedPatternError /
-# GlueCompileError の 3 typed raise を発する直前で
-# AppleSDKMac::Telemetry.append_event を呼んでることを確認する integration test。
-#
-# event は ~/.cache/rb-apple-sdk-mac/diagnostics/<UTC date>.jsonl に append される。
-# 本 test では APPLE_SDK_MAC_DIAGNOSTICS_DIR で書き先を tmpdir に貼り替えて
-# 1 raise = 1 jsonl line になることを assert する。
 class TestTelemetryWired < Test::Unit::TestCase
   class FakeKnowledgeCache
     def initialize(symbol_data: nil)
@@ -26,9 +19,6 @@ class TestTelemetryWired < Test::Unit::TestCase
     end
   end
 
-  # 現状 dispatcher.rb は @cache.lookup(framework:, symbol:) を呼ぶ。
-  # plan の FakeGlueCache#find は dispatcher 経路で呼ばれへんから、
-  # lookup を nil 返す stub にして cache miss を模擬する。
   class FakeGlueCache
     attr_reader :base_dir, :sdk_version
     def initialize(dir)
@@ -45,15 +35,12 @@ class TestTelemetryWired < Test::Unit::TestCase
     def find(*); nil; end
   end
 
-  # compile_failed path 用: compile 呼ばれても cache を埋めへん stub。
-  # 結果 dispatcher の cache_hit nil check に落ちて GlueCompileError raise。
   class FakeCompilerSilentFail
     def compile(framework:, symbol:)
       nil
     end
   end
 
-  # unsupported_pattern path 用: compile 内で UnsupportedPatternError を raise。
   class FakeCompilerUnsupported
     def compile(framework:, symbol:)
       raise AppleSDKMac::UnsupportedPatternError.new(

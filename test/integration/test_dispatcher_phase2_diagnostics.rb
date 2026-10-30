@@ -48,17 +48,15 @@ class TestDispatcherPhase2Diagnostics < Test::Unit::TestCase
           symbol: symbol[:name].to_s
         )
       when :fail
-        # compile fails silently — cache stays empty
         nil
       when :success
-        # caller will see @cache.lookup hit thanks to test fixture
         :compiled
       end
     end
   end
 
   def test_dispatcher_raises_symbol_missing_when_kb_lookup_returns_nil
-    kc = FakeKnowledgeCache.new({})  # empty store
+    kc = FakeKnowledgeCache.new({})
     d = AppleSDKMac::Dispatcher.new(
       knowledge_cache: kc,
       glue_cache: FakeGlueCache.new,
@@ -78,9 +76,9 @@ class TestDispatcherPhase2Diagnostics < Test::Unit::TestCase
     )
     d = AppleSDKMac::Dispatcher.new(
       knowledge_cache: kc,
-      glue_cache: FakeGlueCache.new,  # cache miss
+      glue_cache: FakeGlueCache.new,
       loader: FakeLoader.new,
-      compiler: FakeCompiler.new(:fail)  # compile no-op、 cache 依然空
+      compiler: FakeCompiler.new(:fail)
     )
     err = assert_raise(AppleSDKMac::GlueCompileError) do
       d.dispatch(framework: "Foundation", symbol: "BadAPI", args: [])
@@ -94,7 +92,7 @@ class TestDispatcherPhase2Diagnostics < Test::Unit::TestCase
     )
     d = AppleSDKMac::Dispatcher.new(
       knowledge_cache: kc,
-      glue_cache: FakeGlueCache.new,  # cache miss
+      glue_cache: FakeGlueCache.new,
       loader: FakeLoader.new,
       compiler: FakeCompiler.new(:unsupported)
     )
