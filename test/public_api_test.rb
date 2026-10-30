@@ -1,16 +1,6 @@
 # frozen_string_literal: true
 require "test_helper"
 
-# Apple.discover polymorphic single entry.
-#
-# Apple.discover accepts 7 keyword shapes and synthesizes a symbol record
-# with the correct `kind` for each. Each shape is registered into the
-# KnowledgeCache transient lookup tier so the existing compile pipeline
-# picks the right glue path (TemplateGenerator + Knowledge Base for all
-# symbol kinds).
-#
-# These tests pin the synthesis + registration contract. End-to-end
-# compile + dispatch is exercised by integration tests / examples.
 class TestPublicApiDiscoverPolymorphic < Test::Unit::TestCase
   def teardown
     cache = AppleSDKMac.knowledge_cache
@@ -51,10 +41,6 @@ class TestPublicApiDiscoverPolymorphic < Test::Unit::TestCase
     assert_equal "stringWithUTF8String:", rec[:selector]
   end
 
-  # canonical_name 単一化。 selector 末尾の `:` を取り、
-  # `<Klass>.<method>` 形式の Ruby/Swift 共有 identifier にする。
-  # synth record :name は KnowledgeCache transient lookup key、CompiledGlueCache
-  # symbol_name、NamespaceBuilder install identifier すべての primary key。
   def test_synthesize_class_method_canonical_name_strips_trailing_colon
     rec = AppleSDKMac::DiscoveryShape.synthesize_symbol_record(
       framework: :Foundation, klass: :NSString,
@@ -65,7 +51,6 @@ class TestPublicApiDiscoverPolymorphic < Test::Unit::TestCase
       "canonical_name must strip trailing selector colon (Swift identifier shape)"
   end
 
-  # instance selector も dot form。`#` 区切りは廃止（旧実装は混在）。
   def test_synthesize_instance_selector_single_segment_dot_form
     rec = AppleSDKMac::DiscoveryShape.synthesize_symbol_record(
       framework: :Foundation, klass: :NSString,
@@ -76,8 +61,6 @@ class TestPublicApiDiscoverPolymorphic < Test::Unit::TestCase
       "instance selector single-segment uses dot form (no '#')"
   end
 
-  # multi-segment selector の init は Swift bridged form `init(arg:arg:)`
-  # に変換される。
   def test_synthesize_init_multi_segment_swift_form
     rec = AppleSDKMac::DiscoveryShape.synthesize_symbol_record(
       framework: :Vision, klass: :VNImageRequestHandler,
@@ -89,7 +72,6 @@ class TestPublicApiDiscoverPolymorphic < Test::Unit::TestCase
       "multi-segment init selector becomes init(cgImage:options:) Swift form"
   end
 
-  # swift_initializer の name も同形式。
   def test_synthesize_swift_initializer_canonical_name_keeps_init_form
     rec = AppleSDKMac::DiscoveryShape.synthesize_symbol_record(
       framework: :Foundation, klass: :URL,
@@ -100,7 +82,6 @@ class TestPublicApiDiscoverPolymorphic < Test::Unit::TestCase
       "swift_initializer canonical_name = '<Klass>.<initSig>'"
   end
 
-  # swift_property も dot form で synth name 統一。
   def test_synthesize_swift_property_canonical_name_dot_form
     rec = AppleSDKMac::DiscoveryShape.synthesize_symbol_record(
       framework: :Foundation, klass: :ProcessInfo,
@@ -155,7 +136,6 @@ class TestPublicApiDiscoverPolymorphic < Test::Unit::TestCase
     end
   end
 
-  # Transient lookup tier — register_transient + lookup_symbol round trip.
   def test_knowledge_cache_register_and_lookup_transient
     cache = AppleSDKMac.knowledge_cache
     record = {
@@ -172,10 +152,6 @@ class TestPublicApiDiscoverPolymorphic < Test::Unit::TestCase
     assert_equal "NSString", rec[:objc_class]
   end
 
-  # Transient must overlay (not collide with) DB rows. If a symbol exists
-  # in the DB, register_transient with the same name overrides it for the
-  # lifetime of the cache instance — primarily for test isolation and for
-  # users who want to override a discover result.
   def test_transient_overlays_db_records
     cache = AppleSDKMac.knowledge_cache
     db_rec = cache.lookup_symbol(framework: "CoreMIDI", symbol: "MIDIClientCreate")

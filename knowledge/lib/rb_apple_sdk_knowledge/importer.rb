@@ -102,7 +102,6 @@ module AppleSDKKnowledge
           unsupported_pattern: sym[:unsupported_pattern]
         )
       rescue SQLite3::ConstraintException
-        # symbol already exists from a prior run (content_hash UNIQUE): skip silently
         nil
       end
     end

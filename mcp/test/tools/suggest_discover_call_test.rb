@@ -3,10 +3,6 @@ require_relative "../test_helper"
 require "json"
 
 class SuggestDiscoverCallTest < Test::Unit::TestCase
-  # spec §4.4 + §6 — intent → Apple.discover kwargs 生成。
-  # 候補 1 個なら elicitation なし即決、 2 個以上なら server_context.create_form_elicitation
-  # で user に選ばせる。 accept / decline / cancel 3 分岐。
-
   FakeKB = Struct.new(:fixture) do
     def search(framework:, query:, limit: 5)
       fixture.select { |r|
@@ -138,10 +134,6 @@ class SuggestDiscoverCallTest < Test::Unit::TestCase
     assert_operator parsed["candidates"].size, :>=, 2
   end
 
-  # Phase C-1 — accept response の record は lookup_symbol で fetch した
-  # 完全 record (documentation / parameters_json 等込み) に置き換える。
-  # AI agent は record を見て override 判断できるので、 search row では薄すぎる。
-
   RichKB = Struct.new(:search_fixture, :lookup_fixture) do
     def search(framework:, query:, limit: 5)
       search_fixture.select { |r|
@@ -186,7 +178,7 @@ class SuggestDiscoverCallTest < Test::Unit::TestCase
   def test_accept_falls_back_to_search_row_when_lookup_symbol_returns_nil
     search_fix = [{ framework: "CoreMIDI", name: "MIDIClientCreate", kind: "function",
                     signature: "OSStatus MIDIClientCreate(...)" }]
-    lookup_fix = {} # lookup_symbol が nil を返す
+    lookup_fix = {}
     kb     = RichKB.new(search_fix, lookup_fix)
     tool   = AppleSDKMac::MCP::Tools::SuggestDiscoverCall.new(kb: kb)
     parsed = JSON.parse(tool.call(intent: "MIDIClientCreate", framework: "CoreMIDI", server_context: nil))

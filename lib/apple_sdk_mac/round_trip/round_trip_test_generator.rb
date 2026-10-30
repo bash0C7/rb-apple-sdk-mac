@@ -1,17 +1,10 @@
-# lib/apple_sdk_mac/round_trip/round_trip_test_generator.rb
 # frozen_string_literal: true
 
 module AppleSDKMac
   module RoundTrip
-    # GlueStore に永続化する自走 test-unit ファイルを生成する。committed glue
-    # (<symbol>.swift) を team/CI が claude -p 無しで再コンパイル + round-trip 再検証
-    # できるよう、driver_inputs (call_expr / invoke_args / value_kind / setter 系) を
-    # bake-in する。検証は ProductionRunner に委ね、report は test-unit の assert に乗せる。
     module RoundTripTestGenerator
       module_function
 
-      # @param driver_inputs [Hash] call_expr/invoke_args/value_kind (+setter 系)
-      # @return [String] test-unit ソース
       def generate(framework:, symbol:, driver_inputs:)
         di = driver_inputs
         klass = "RoundTrip#{camelize(symbol[:name])}Test"
@@ -73,7 +66,6 @@ module AppleSDKMac
         RUBY
       end
 
-      # symbol 名を Swift/Ruby 識別子に使える CamelCase に。非英数は単語境界扱い。
       def camelize(name)
         name.to_s.split(/[^A-Za-z0-9]+/).reject(&:empty?).map { |w| w[0].upcase + w[1..].to_s }.join
       end

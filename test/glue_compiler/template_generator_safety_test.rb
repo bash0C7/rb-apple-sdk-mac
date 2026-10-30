@@ -3,8 +3,6 @@ require "json"
 require "apple_sdk_mac/glue_compiler/template_generator"
 
 class TemplateGeneratorSafetyTest < Test::Unit::TestCase
-  # Task 3.2 GREEN — IntMarshaller now has out_handling, so the template path
-  # generates Swift (not nil) for a UInt32 * out param.
   def test_generates_swift_when_int_out_param_has_out_handling
     sym = {
       name: "FakeFunctionWithIntOut",

@@ -7,9 +7,15 @@ require "fileutils"
 Rake::TestTask.new(:test) do |t|
   t.libs << "test"
   t.libs << "lib"
-  t.test_files = FileList["test/**/test_*.rb"]
+  t.test_files = FileList["test/**/test_*.rb", "test/**/*_test.rb"] - FileList["test/test_helper.rb"]
 end
 
+desc "Validate the RBS signatures"
+task :rbs do
+  sh "rbs", "-I", "sig", "validate"
+end
+
+task test: :rbs
 task default: :test
 
 Rake::TestTask.new(:integration) do |t|
@@ -25,9 +31,6 @@ namespace :apple do
       require "rb_apple_sdk_knowledge"
       require "rb_apple_sdk_knowledge/importer"
       sdk_version = AppleSDKKnowledge::SDK.version
-      # When APPLE_SDK_MAC_KB_BASE_DIR is set (e.g. by the parent gem's Rakefile),
-      # write to that project-scoped directory; otherwise fall back to the gem-internal
-      # data/ path so standalone `knowledge/` builds keep working.
       kb_base_dir = ENV["APPLE_SDK_MAC_KB_BASE_DIR"]
       path = AppleSDKKnowledge.knowledge_path(sdk_version: sdk_version, base_dir: kb_base_dir)
       FileUtils.mkdir_p(File.dirname(path))

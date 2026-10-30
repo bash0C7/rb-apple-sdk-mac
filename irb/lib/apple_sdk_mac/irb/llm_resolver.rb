@@ -4,13 +4,6 @@ require "apple_sdk_mac/irb/doc_resolver"
 
 module AppleSDKMac
   module IRB
-    # Generates documentation on the fly via an injected llm_proc when
-    # the KB has no doc populated. Used as the secondary in DocDialog
-    # (after the KB-driven DocResolver returns nil) so:
-    # - Swift-overlay Apple symbols (Foundation::URL.appendingPathComponent)
-    #   that the swiftinterface stripped of `///` get a synthesized doc
-    # - Ruby stdlib expressions (String.to_s) that fall outside the KB
-    #   scope still surface a useful description
     class LLMResolver
       def initialize(llm_proc:, knowledge_cache: nil)
         @llm_proc = llm_proc

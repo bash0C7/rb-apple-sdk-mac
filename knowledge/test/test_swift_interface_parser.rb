@@ -37,6 +37,13 @@ class TestSwiftInterfaceParser < Test::Unit::TestCase
     assert_not_nil s
   end
 
+  def test_extracts_struct_body_methods_with_module_selector_types
+    m = @symbols.find { |s| s[:parent_name] == "MiniStruct" && s[:name] == "appending" }
+    assert_not_nil m
+    assert_equal "instance_method", m[:kind]
+    assert_match(/-> MiniFramework\.MiniStruct\z/, m[:signature])
+  end
+
   def test_extracts_protocol
     p = @symbols.find { |s| s[:name] == "MiniProtocol" && s[:kind] == "protocol" }
     assert_not_nil p

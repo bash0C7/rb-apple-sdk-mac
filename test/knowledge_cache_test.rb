@@ -7,14 +7,12 @@ require "rb_apple_sdk_knowledge/store"
 
 class TestKnowledgeCache < Test::Unit::TestCase
   def test_lookup_symbol_returns_nil_for_unknown
-    omit "knowledge SQLite not built; run rake apple:knowledge:rebuild" unless real_knowledge_built?
     cache = AppleSDKMac::KnowledgeCache.open
     assert_nil cache.lookup_symbol(framework: "CoreMIDI", symbol: "DefinitelyNotARealAPI___xyz")
     cache.close
   end
 
   def test_lookup_real_known_symbol
-    omit "knowledge SQLite not built" unless real_knowledge_built?
     cache = AppleSDKMac::KnowledgeCache.open
     sym = cache.lookup_symbol(framework: "CoreMIDI", symbol: "MIDIClientCreate")
     assert_not_nil sym
@@ -22,8 +20,6 @@ class TestKnowledgeCache < Test::Unit::TestCase
     cache.close
   end
 
-  # Task 8: KnowledgeCache#lookup_symbol surfaces fields_json. Self-contained
-  # unit test using an in-memory store fixture (no dependency on rebuilt DB).
   def test_lookup_symbol_surfaces_fields_json
     Dir.mktmpdir do |dir|
       db_path = File.join(dir, "k.sqlite")
@@ -45,10 +41,6 @@ class TestKnowledgeCache < Test::Unit::TestCase
     end
   end
 
-  # postmortem 2026-05-14 #12 follow-up: SwiftOverlay importer が return_type
-  # を DB に乗せたので、 consumer (emitter / dispatcher) は KB record の
-  # `return_type` を読めるようにする。 lookup_symbol の戻り Hash に :return_type
-  # を含める。
   def test_lookup_symbol_surfaces_return_type
     Dir.mktmpdir do |dir|
       db_path = File.join(dir, "k.sqlite")
@@ -70,7 +62,6 @@ class TestKnowledgeCache < Test::Unit::TestCase
     end
   end
 
-  # 同 invariant を lookup_klass_method 側 (parent_id JOIN 経由) でも。
   def test_lookup_klass_method_surfaces_return_type
     Dir.mktmpdir do |dir|
       db_path = File.join(dir, "k.sqlite")
@@ -101,9 +92,6 @@ class TestKnowledgeCache < Test::Unit::TestCase
 
   def test_list_klass_methods_returns_methods_with_parent_class
     cache = AppleSDKMac.knowledge_cache
-    # Foundation.URL (Swift struct) は appendingPathComponent 等の instance_method
-    # を多数持つ。 KB importer が parent_id を populate していない場合 0 で fail。
-    # NSString は ObjC native で swiftinterface 経由の KB には出てこない。
     rows = cache.list_klass_methods(framework: "Foundation", klass: "URL")
     assert_operator rows.size, :>=, 1, "Foundation.URL must have at least 1 child method"
     rows.each do |r|
@@ -118,10 +106,6 @@ class TestKnowledgeCache < Test::Unit::TestCase
     assert_equal [], rows
   end
 
-  # Phase F follow-up (2026-05-08) — KB symbols は parent_id 階層で索引されて
-  # おり、 "URL.appendingPathComponent" のような flat name は lookup_symbol で
-  # 必ず miss する。 lookup_klass_method は klass + method を分けて parent_id
-  # JOIN で正確に hit させる。
   def test_lookup_klass_method_returns_record_for_known
     cache = AppleSDKMac.knowledge_cache
     rec = cache.lookup_klass_method(framework: "Foundation", klass: "URL",
@@ -144,10 +128,6 @@ class TestKnowledgeCache < Test::Unit::TestCase
                                           method: "anything")
   end
 
-  # Step 3.2 — KnowledgeCache.lookup_documentation for the irb sub-gem
-  # :show_doc dialog. The 2026-05-08 KB rebuild populates symbols.documentation
-  # for ObjC/C frameworks via clang's FullComment AST; CoreFoundation symbols
-  # in particular carry rich docstrings.
   def test_lookup_documentation_returns_apple_doc_for_top_level_function
     cache = AppleSDKMac.knowledge_cache
     doc = cache.lookup_documentation(framework: "CoreFoundation", name: "CFArrayAppendValue")
@@ -170,9 +150,6 @@ class TestKnowledgeCache < Test::Unit::TestCase
 
   def test_lookup_documentation_returns_nil_for_undocumented_swift_overlay
     cache = AppleSDKMac.knowledge_cache
-    # Foundation::URL.appendingPathComponent comes from the Swift overlay,
-    # whose *.swiftinterface is stripped of doc-comments by the compiler.
-    # The lookup should return nil rather than an empty string.
     doc = cache.lookup_documentation(framework: "Foundation", klass: "URL", name: "appendingPathComponent")
     assert_nil doc
   end
@@ -183,7 +160,6 @@ class TestKnowledgeCache < Test::Unit::TestCase
     assert doc.is_a?(String) && !doc.empty?,
       "ARKit framework lookup must return a synthesized description even when frameworks.doc_url is empty"
     assert_match(/ARKit/i, doc)
-    # Internal "N symbols indexed" gem metadata must not leak into user-facing doc dialog.
     refute_match(/symbol/i, doc)
     refute_match(/index/i, doc)
   end
@@ -193,10 +169,6 @@ class TestKnowledgeCache < Test::Unit::TestCase
     assert_nil cache.lookup_framework_documentation(name: "NoSuchFramework__")
   end
 
-  # Phase G — KnowledgeCache becomes the single source for cross-tool helpers
-  # (mcp StatsResource, mcp Search#fetch_cross_framework,
-  # mcp SuggestDiscoverCall#fetch_candidates). Both #stats and
-  # #search_all_frameworks are public surface; abstraction never leaks @db.
   def test_stats_returns_framework_count_and_symbol_count_hash
     cache = AppleSDKMac.knowledge_cache
     s = cache.stats
@@ -227,7 +199,6 @@ class TestKnowledgeCache < Test::Unit::TestCase
     end
   end
 
-  # Phase 1: lookup_symbol が新 column 9 個を expose する。
   def test_lookup_symbol_surfaces_phase1_metadata
     Dir.mktmpdir do |dir|
       db_path = File.join(dir, "k.sqlite")
@@ -259,7 +230,6 @@ class TestKnowledgeCache < Test::Unit::TestCase
     end
   end
 
-  # parent_id 経由 lookup でも同様。
   def test_lookup_klass_method_surfaces_phase1_metadata
     Dir.mktmpdir do |dir|
       db_path = File.join(dir, "k.sqlite")
@@ -283,14 +253,5 @@ class TestKnowledgeCache < Test::Unit::TestCase
       assert_equal false, rec[:is_async]
       cache.close
     end
-  end
-
-  private
-
-  def real_knowledge_built?
-    require "rb_apple_sdk_knowledge"
-    File.exist?(AppleSDKKnowledge.knowledge_path)
-  rescue
-    false
   end
 end

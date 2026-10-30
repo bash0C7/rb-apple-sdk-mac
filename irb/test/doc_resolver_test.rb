@@ -3,10 +3,6 @@ require "test_helper"
 require "apple_sdk_mac/irb"
 require "apple_sdk_mac/irb/doc_resolver"
 
-# DocResolver は popup hover 中の candidate string (full-prefix
-# Apple::Framework[::Klass[.method]] 形) を受けて、 KnowledgeCache の
-# lookup_documentation 経由で Apple SDK doc 文字列を返す。 Apple SDK 形式
-# でない / 該当 doc が無い場合は nil。 sub-gem の :show_doc dialog から呼ばれる。
 class TestDocResolver < Test::Unit::TestCase
   Resolver = AppleSDKMac::IRB::DocResolver
 
@@ -54,7 +50,7 @@ class TestDocResolver < Test::Unit::TestCase
   end
 
   def test_returns_nil_when_kb_has_no_doc
-    cache = make_cache({}) # always nil
+    cache = make_cache({})
     assert_nil Resolver.new(knowledge_cache: cache).resolve("Apple::Foundation::URL.appendingPathComponent")
   end
 end

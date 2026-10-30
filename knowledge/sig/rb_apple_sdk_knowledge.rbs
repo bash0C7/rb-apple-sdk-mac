@@ -1,0 +1,104 @@
+module AppleSDKKnowledge
+  # The gem version.
+  VERSION: String
+
+  # Raised when the knowledge base is missing or an xcrun query fails.
+  class Error < StandardError
+  end
+
+  # Returns the SQLite path for +sdk_version+ (the active SDK by default).
+  # With +base_dir+ the path is <base_dir>/<sdk_version>/sdk_knowledge.sqlite; without it the path is inside the gem's data/ directory.
+  def self.knowledge_path: (?sdk_version: String?, ?base_dir: String?) -> String
+
+  # Opens the knowledge base at knowledge_path. Raises Error when the file does not exist.
+  def self.open: (?sdk_version: String?, ?base_dir: String?) -> Store
+
+  # The active Xcode SDK, resolved through xcrun.
+  module SDK
+    # Returns the active SDK version, for example "27.0".
+    def self.version: () -> String
+
+    # Returns the active SDK root path.
+    def self.path: () -> String
+
+    # Runs xcrun with +args+ and returns its stripped stdout. Raises Error when xcrun fails.
+    def self.xcrun: (*String args) -> String
+  end
+
+  # A SQLite knowledge base of Apple framework symbols.
+  class Store
+    # The on-disk schema version. A knowledge base built with another version needs a rebuild.
+    SCHEMA_VERSION: Integer
+
+    # The schema applied by migrate!.
+    SCHEMA_SQL: String
+
+    # The underlying database handle.
+    attr_reader db: untyped
+
+    # The SQLite file path.
+    attr_reader path: String
+
+    # Opens +path+ and applies the schema.
+    def self.open: (String path) -> Store
+
+    def initialize: (String path) -> void
+
+    # Applies SCHEMA_SQL and records SCHEMA_VERSION.
+    def migrate!: () -> untyped
+
+    # Inserts a framework row and returns its id.
+    def insert_framework: (name: String, swift_module: String, ?category: String?, ?doc_url: String?, ?min_macos: String?) -> Integer
+
+    # Inserts a symbol row, or updates the row with the same +content_hash+, and returns its id.
+    def insert_symbol: (framework_id: Integer, name: String, kind: String, abi: String, content_hash: String, **untyped) -> Integer?
+
+    # Rebuilds the full-text search index from the symbols table.
+    def rebuild_fts!: () -> untyped
+
+    # Returns up to +limit+ symbols of +framework_name+ that match +query+ in the full-text index.
+    def fts_search: (String framework_name, String query, ?limit: Integer) -> Array[Hash[Symbol, String?]]
+
+    # Returns the id of the framework named +name+, or nil.
+    def find_framework_id_by_name: (String name) -> Integer?
+
+    # Closes the database.
+    def close: () -> void
+  end
+
+  module Importer
+    # Imports every framework of the active SDK into a knowledge base.
+    class Pipeline
+      # Prepares an import into +store_path+. +resolver+ selects the frameworks (an SDKResolver by default).
+      def initialize: (store_path: String, ?resolver: untyped) -> void
+
+      # Runs the import and rebuilds the full-text index.
+      def run: () -> untyped
+    end
+
+    # Enumerates the frameworks of the active SDK.
+    class SDKResolver
+      # Limits the frameworks to the names in +filter+ when given.
+      def initialize: (?filter: Array[String]?) -> void
+
+      def sdk_version: () -> String
+
+      def sdk_path: () -> String
+
+      # Returns the frameworks sorted by name.
+      def frameworks: () -> Array[untyped]
+    end
+
+    # Classifies C and Objective-C types into marshalling kinds.
+    module Kind
+      # Returns the marshalling kind for a clang +qual_type+, for example "string", "int", "opaque_ref", or "unsupported".
+      def self.classify_kind: (String qual_type, ?String desugared, ?String nullability) -> String
+
+      # Returns whether a parameter is an out-parameter.
+      def self.out_param?: (String qual_type, String name, bool is_last_pointer) -> bool
+
+      # Returns "nonnull", "nullable", or "unspecified" from the annotations in +qual_type+.
+      def self.nullability_of: (String qual_type) -> String
+    end
+  end
+end

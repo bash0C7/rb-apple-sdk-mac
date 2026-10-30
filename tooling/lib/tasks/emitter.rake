@@ -1,7 +1,4 @@
 # frozen_string_literal: true
-#
-# Rake tasks for the HITL emitter-improvement workflow. Thin orchestrators —
-# every task is load → call EmitterDev module → format.
 
 require "json"
 require "fileutils"

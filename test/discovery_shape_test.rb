@@ -1,12 +1,6 @@
 # frozen_string_literal: true
 require "test_helper"
 
-# DiscoveryShape — symbol-record domain transformations used by
-# Apple.discover. Public surface is the synthesize_symbol_record + the
-# override_c_symbol_params + the KIND_SYM_TO_TYPE constant. Stateless
-# module form. Extracted from public_api.rb so the public API file can
-# focus on orchestration (transient-tier register, compile, install) and
-# the synthesis case-dispatch lives next to its data.
 class TestDiscoveryShape < Test::Unit::TestCase
   def test_kind_sym_to_type_constant_present
     map = AppleSDKMac::DiscoveryShape::KIND_SYM_TO_TYPE

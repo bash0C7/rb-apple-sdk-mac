@@ -76,7 +76,6 @@ class TestWorkerPool < Test::Unit::TestCase
   end
 
   def test_processes_more_items_than_buffer_size_without_deadlock
-    # ResultChannel buffer (4) より多くの item (20) を投入し、 deadlock せず取れる
     channel = AppleSDKKnowledge::Importer::ResultChannel.new(buffer_size: 4)
     pool = AppleSDKKnowledge::Importer::WorkerPool.new(
       size: 2,
@@ -84,7 +83,6 @@ class TestWorkerPool < Test::Unit::TestCase
       channel: channel
     )
 
-    # 別 thread で submit + shutdown を実行、 main は drain
     bg = Thread.new do
       20.times { |i| pool.submit(seq: i, payload: { framework: "F", header: "h#{i}" }) }
       pool.shutdown(wait: true)

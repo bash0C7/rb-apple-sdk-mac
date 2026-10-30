@@ -2,16 +2,10 @@
 require "json"
 require "time"
 
-# Server。 tools = [search, get_symbol_info, list_klass_methods,
-# suggest_discover_call, dry_run_template, validate_call, probe_capabilities]、
-# resources = [static_doc, framework_list, stats]。
-
 module AppleSDKMac
   module MCP
     class Server
       attr_reader :tool_classes, :resource_list
-      # 各 MCP tool 呼び出しを wrap して構造化 JSON ログを stderr に 1 行吐く。
-      # tool 内 block 末尾の Response を return する。
       class << self
         def wrap_with_log(tool_name:, &block)
           t0     = Time.now
@@ -28,9 +22,6 @@ module AppleSDKMac
           result
         end
 
-        # MCP::Tool::Response から result_rows を best-effort 推定。 Array JSON
-        # は length、 それ以外 (object / scalar / parse 失敗) は 0。 ログの目的は
-        # 偏り観測なので厳密性より頑健性を優先。
         def extract_row_count(response)
           return 0 unless response.respond_to?(:content)
           first = response.content.first
@@ -47,10 +38,6 @@ module AppleSDKMac
         @kb = kb
       end
 
-      # KB は遅延 open。 テストでは Struct ベースの fake を inject、 production では
-      # AppleSDKMac::KnowledgeCache.open (親 gem が AppleSDKKnowledge.open を wrap
-      # した #search / #lookup_symbol / #list_klass_methods を持つ class) を使う。
-      # KB が無い (rake apple:knowledge:rebuild 未実行) 場合はここで raise する。
       def kb
         @kb ||= AppleSDKMac::KnowledgeCache.open
       end

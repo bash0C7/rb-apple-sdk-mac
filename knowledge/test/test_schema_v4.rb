@@ -2,10 +2,6 @@
 require "test_helper"
 require "tmpdir"
 
-# Asserts the current `symbols` table column shape. The dead schema-reservation
-# columns (cf_create_rule, objc_kind, swift_kind) were never populated by any
-# code path; they're removed. The Swift overlay importer's `swift_imported_name`
-# remains because it is actively written and read.
 class TestSchema < Test::Unit::TestCase
   def test_swift_imported_name_column_present
     Dir.mktmpdir do |dir|

@@ -15,6 +15,8 @@ require_relative "selector_bridge"
 require_relative "discovery_shape"
 
 module AppleSDKMac
+  RUNTIME_BUILD_DIR = File.expand_path("../../ext/apple_sdk_mac_runtime/.build/release", __dir__)
+
   @config = nil
   @knowledge_cache = nil
   @glue_cache = nil
@@ -54,8 +56,6 @@ module AppleSDKMac
           project_dir: AppleSDKMac.cache_dir,
           sdk_version: AppleSDKKnowledge::SDK.version
         ),
-        # 推論経路は生成 glue が native call と振る舞い等価かを round-trip で検証し、
-        # GREEN な glue だけを採用・永続化する (compile 通過は等価の proxy にすぎない)。
         round_trip_runner: RoundTrip::ProductionRunner.new(
           sdk_path: AppleSDKKnowledge::SDK.path
         )
@@ -71,45 +71,21 @@ module AppleSDKMac
       )
     end
 
-    # Polymorphic single entry. Seven keyword shapes:
-    #   symbol:           — C function (the README canonical form)
-    #   selector:         — ObjC instance method (requires klass:)
-    #   class_method:     — ObjC class method (requires klass:)
-    #   swift_func:       — Swift function (top-level or static)
-    #   swift_initializer:— Swift initializer (requires klass:)
-    #   swift_property:   — Swift property (requires klass:)
-    #   type_args:        — Swift generic resolution (combined with swift_func:)
-    #
-    # Synthesizes a symbol record with the proper kind, registers it into
-    # the Knowledge Base transient lookup tier, then runs the compile
-    # pipeline. C-symbol path uses the stored record when available so the
-    # README canonical snippet's behavior matches the bootstrap path.
     def discover(framework:, **opts)
       sym_meta = DiscoveryShape.synthesize_symbol_record(framework: framework, **opts)
       canonical = sym_meta[:name]
 
-      # For C symbols where the DB has the record, use the DB version —
-      # it carries parameters_json + abi + signature that the synthesized
-      # record can't guess. Synthesized record is the fallback only.
       if opts.key?(:symbol)
         db_meta = knowledge_cache.lookup_symbol(
           framework: framework.to_s, symbol: canonical
         )
         sym_meta = db_meta if db_meta
-        # Knowledge Base 分類迂回 `params:` / `return_kind:` override。
-        # User が明示的に渡した kind 配列 / return_kind で parameters_json と
-        # signature を上書きする (CFStringRef を string とした、 buffer を
-        # is_out_param=true とした、 Boolean を unrecognised return とした等の
-        # 分類を回避)。
         if opts[:params] || opts[:return_kind]
           sym_meta = DiscoveryShape.override_c_symbol_params(
             sym_meta, params: opts[:params], return_kind: opts[:return_kind]
           )
         end
       else
-        # Non-C shapes: register synthesized record into transient tier so
-        # downstream lookups (Dispatcher, NamespaceBuilder) see it. Key MUST
-        # be sym_meta[:name] (canonical).
         knowledge_cache.register_transient(
           framework: framework.to_s, symbol: canonical, record: sym_meta
         )
@@ -124,10 +100,6 @@ module AppleSDKMac
       true
     end
 
-    # Eagerly populate Apple::<Framework> modules and their type constants from
-    # the knowledge base without compiling glue. Function methods are still
-    # defined (proxied through the dispatcher) but no symbol is dlopen'd until
-    # called. Idempotent.
     def bootstrap!
       builder = NamespaceBuilder.new(
         knowledge_cache: knowledge_cache, target: ::Apple,
@@ -152,26 +124,13 @@ module AppleSDKMac
     private
 
     def runtime_dylib_path
-      # Linker expects MH_DYLIB. The Ruby C extension `.bundle` (MH_BUNDLE) is
-      # loaded by Ruby via require but is not a valid linkage target. Prefer the
-      # Swift package's libAppleSDKMacRuntime.dylib when present (development
-      # checkout); fall back to nil so SwiftcInvoker omits the -Xlinker arg
-      # entirely (glue uses @_silgen_name + -undefined dynamic_lookup, so the
-      # runtime is not strictly required at link time for kinds that don't
-      # reference AppleSDKMacRuntime Swift symbols).
-      gem_root = File.expand_path("../../..", __FILE__)
-      dylib = File.join(gem_root, "ext/apple_sdk_mac_runtime/.build/arm64-apple-macosx/release/libAppleSDKMacRuntime.dylib")
-      File.exist?(dylib) ? dylib : nil
+      File.join(RUNTIME_BUILD_DIR, "libAppleSDKMacRuntime.dylib")
     end
 
     def runtime_modules_paths
-      gem_root = File.expand_path("../../..", __FILE__)
-      [File.join(gem_root, "ext/apple_sdk_mac_runtime/.build/arm64-apple-macosx/release/Modules")].select { |p| File.directory?(p) }
+      [RUNTIME_BUILD_DIR]
     end
 
-    # Apple.discover の install path を install_one 経由に。
-    # build! 全走査の毎回コストが消え、 transient synth record (DB に未収載の
-    # objc/swift kinds) も install できる。
     def install_into_box(framework, _canonical_name, sym_meta)
       builder = NamespaceBuilder.new(
         knowledge_cache: knowledge_cache, target: ::Apple,

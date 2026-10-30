@@ -1,12 +1,4 @@
 # frozen_string_literal: true
-# T54 — Vision OCR fixture image generator (re-run to refresh).
-#
-# 800×200 px PNG, 白背景 / 黒文字 (96pt Helvetica Bold) で "HELLO RUBY"。
-# Apple Vision の VNRecognizeTextRequest (default recognitionLevel) で
-# 99% 認識される高コントラスト印刷フォント条件。
-#
-# Usage:
-#   ruby script/regen_t54_fixture.rb
 require "fileutils"
 
 OUT = File.expand_path("../examples/fixtures/ocr_hello.png", __dir__)

@@ -1,13 +1,4 @@
 # frozen_string_literal: true
-#
-# WARNING: This file applies global monkey patches to Object, Kernel, File.
-# It is intended to be loaded ONLY via Ruby::Box.require so that the patches
-# stay scoped to the Apple box. Requiring this file from outside a Ruby::Box
-# context will break the host process (test-unit, irb, etc. all rely on the
-# patched methods).
-#
-# Trusted internal callers wrap restricted operations in
-# AppleSDKMac::SecurityCop.allow { ... } to bypass the cop.
 
 require_relative "security_cop/policy"
 

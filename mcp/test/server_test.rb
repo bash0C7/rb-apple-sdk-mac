@@ -3,10 +3,6 @@ require_relative "test_helper"
 require "json"
 
 class ServerTest < Test::Unit::TestCase
-  # v0.1 gate: tools/list で probe_capabilities、 resources/list で 0 件
-  # v0.2 gate: tools/list に apple_sdk_mac_search が追加 (合計 2 件)
-  # spec: docs/superpowers/specs/2026-05-08-rb-apple-sdk-mac-mcp-design.md §8
-
   FakeKB = Struct.new(:list_frameworks) do
     def search(framework:, query:, limit: 5); []; end
     def lookup_symbol(framework:, symbol:); nil; end
@@ -73,7 +69,6 @@ class ServerTest < Test::Unit::TestCase
   end
 
   def test_resources_registered
-    # 8 個の Resources (静的 markdown 6 + KB 動的 2)。
     server = AppleSDKMac::MCP::Server.new(kb: @fake_kb)
     server.build_mcp_server
     assert_equal 8, server.resource_list.size
@@ -83,9 +78,6 @@ class ServerTest < Test::Unit::TestCase
     mcp_server = AppleSDKMac::MCP::Server.new(kb: @fake_kb).build_mcp_server
     assert_respond_to mcp_server, :name
   end
-
-  # Phase D — wrap_with_log は block を実行しつつ stderr に 1 行 JSON を吐き、
-  # block の戻り値をそのまま返す。 chiebukuro-mcp の wrap_with_log_proc 同形。
 
   def test_wrap_with_log_emits_json_to_stderr_and_returns_block_value
     log = capture_stderr do

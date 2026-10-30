@@ -2,18 +2,9 @@
 
 module AppleSDKMac
   class GlueCompiler
-    # High-priority resolver for ObjC selector → Swift call expression.
-    # Tries Knowledge Base swift_imported_name; returns nil when the
-    # Knowledge Base has no entry, in which case the caller (template
-    # generator) falls through to its heuristic.
-    #
-    # Stateless module — caller passes kc / framework / klass / selector /
-    # params directly.
     module SwiftBridgeName
       module_function
 
-      # Returns the Swift call expression string, or nil if the KB has no
-      # swift_imported_name for the (framework, klass, selector) triple.
       def resolve(framework:, klass:, selector:, params:, kc: nil)
         from_kb(framework, klass, selector, params, kc)
       end
@@ -27,9 +18,6 @@ module AppleSDKMac
         rebuild_from_swift_imported_name(klass, name, params)
       end
 
-      # Parse a Swift imported name like "devices(for:)" / "init(string:)" /
-      # "shared()" into a call expression bound to `arg0..argN` slots.
-      # Underscore labels (`_:`) emit a positional argument.
       def rebuild_from_swift_imported_name(klass, name, params)
         m = name.match(/\A(\w+)\(([^)]*)\)\z/)
         return nil unless m

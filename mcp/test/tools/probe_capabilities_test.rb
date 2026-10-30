@@ -3,11 +3,6 @@ require_relative "../test_helper"
 require "json"
 
 class ProbeCapabilitiesTest < Test::Unit::TestCase
-  # spec §4.7 (修正): client_capabilities hash 覗きでなく、 chiebukuro-mcp 流に
-  # server_context.create_form_elicitation / create_sampling_message を実呼び
-  # して例外で判定する実証型に変更。 mcp gem の client_capabilities は host 側
-  # transport の実装で必ずしも populate されないため、 実呼びの方が信頼できる。
-
   def test_tool_name
     assert_equal "apple_sdk_mac_probe_capabilities",
                  AppleSDKMac::MCP::Tools::ProbeCapabilities.tool_class.tool_name
@@ -52,7 +47,6 @@ class ProbeCapabilitiesTest < Test::Unit::TestCase
   end
 
   def test_elicitation_supported_sampling_unsupported_mixed
-    # 実 host (Claude Code 含む) でよくある状態: 片方だけ実装。
     tool_class   = AppleSDKMac::MCP::Tools::ProbeCapabilities.tool_class
     fake_context = MixedContext.new
     response     = nil

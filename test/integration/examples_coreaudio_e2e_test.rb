@@ -2,8 +2,6 @@
 require "test_helper"
 require "open3"
 
-# CoreAudio out-param + struct-in が静的 emitter で round-trip することの
-# actual-run gate。env-gated (実 SDK 必要)。
 class ExamplesCoreAudioE2ETest < Test::Unit::TestCase
   EXAMPLES_DIR = File.expand_path("../../examples", __dir__)
 

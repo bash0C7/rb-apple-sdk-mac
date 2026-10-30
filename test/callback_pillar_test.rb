@@ -3,7 +3,6 @@ require "test_helper"
 
 class TestCallbackPillar < Test::Unit::TestCase
   def setup
-    # Pool is process-global; clear all slots before each test.
     4.times { |i| AppleSDKMacRuntime::CallbackPillar.unregister_midi_notify(i) }
   end
 
@@ -27,10 +26,6 @@ class TestCallbackPillar < Test::Unit::TestCase
     assert_equal slot, slot_reused
   end
 
-  # End-to-end dispatch path that the MIDINotifyProc trampoline takes:
-  # register a Ruby Proc → invoke via callback_invoke (which is what
-  # the trampoline body's ThreadingBridge.enqueue ultimately drives) →
-  # observe the Proc was called.
   def test_register_and_dispatch_round_trip
     received = []
     proc = ->(x) { received << x }
@@ -40,9 +35,6 @@ class TestCallbackPillar < Test::Unit::TestCase
     assert_equal [42], received
   end
 
-  # T2c: persistent (escaping) block slot table. Decoupled from the
-  # typed per-signature slot pools above; auto-incrementing slot ids; lifetime
-  # tied to BoxedBlockHandle on the Ruby side.
   def test_register_block_persistent_returns_nonzero_slot_id
     proc = ->(err) {}
     slot_id = AppleSDKMacRuntime::CallbackPillar.register_block_persistent(proc)
@@ -63,9 +55,7 @@ class TestCallbackPillar < Test::Unit::TestCase
   def test_release_auto_block_is_alias_for_unregister
     proc = ->(err) {}
     slot_id = AppleSDKMacRuntime::CallbackPillar.register_block_persistent(proc)
-    # Should not raise; semantically removes the slot like unregister.
     AppleSDKMacRuntime::CallbackPillar.release_auto_block(slot_id)
-    # Re-registering after release should succeed.
     slot_id2 = AppleSDKMacRuntime::CallbackPillar.register_block_persistent(proc)
     refute_equal slot_id, slot_id2,
       "auto-incrementing slot ids should not collide across release"

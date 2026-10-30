@@ -3,11 +3,6 @@ require "test_helper"
 require "irb"
 require "apple_sdk_mac/irb"
 
-# Reline は target (= preposing+target) を candidate の prefix に対して match する。
-# IRB の BASIC_WORD_BREAK_CHARACTERS には `:` も `.` も入らんので、
-# `Apple::Foundation::U<TAB>` のとき target = "Apple::Foundation::U" 全部、
-# preposing = "" になる。 candidates が単に ["URL"] やと target と prefix が
-# 噛み合わず Reline は確定できへん。 full-prefix で返す必要あり。
 class TestCompletorPrefixMatch < Test::Unit::TestCase
   Provider = Struct.new(:result) do
     def call(_context); result; end

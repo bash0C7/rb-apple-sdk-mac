@@ -3,7 +3,6 @@ require "test/unit"
 require "apple_sdk_mac/glue_compiler/swift_bridge_name"
 
 class SwiftBridgeNameTest < Test::Unit::TestCase
-  # Stub implementing the relevant slice of KnowledgeCache for unit testing.
   class StubKC
     def initialize(table)
       @table = table

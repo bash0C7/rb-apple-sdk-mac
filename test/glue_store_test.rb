@@ -59,10 +59,6 @@ class GlueStoreTest < Test::Unit::TestCase
   end
 
   def test_safe_name_is_injective_no_collision
-    # "NSString.foo" and literal "NSString_foo" must NOT collapse to the same
-    # path. With a lossy gsub(/[^A-Za-z0-9_]/, "_") both became "NSString_foo"
-    # and the second store silently overwrote the first (1 entry). The injective
-    # encoding keeps them distinct (2 entries), each looking up its own content.
     @store.store(framework: "Foundation", symbol_name: "NSString.foo",
                  swift_source: "// dotted")
     @store.store(framework: "Foundation", symbol_name: "NSString_foo",
@@ -73,7 +69,6 @@ class GlueStoreTest < Test::Unit::TestCase
   end
 
   def test_safe_name_injective_objc_selector
-    # ObjC selector "foo:bar:" must not collide with literal "foo_bar_".
     @store.store(framework: "Foundation", symbol_name: "foo:bar:", swift_source: "// selector")
     @store.store(framework: "Foundation", symbol_name: "foo_bar_", swift_source: "// literal")
     assert_equal 2, @store.all_entries.size
@@ -116,7 +111,6 @@ class GlueStoreTest < Test::Unit::TestCase
                  "no sidecar should be emitted when no provenance fields are given"
   end
 
-  # round-trip green 証跡を provenance に永続化し、Tier 3 export まで流せる。
   def test_store_records_round_trip_outcome_in_provenance
     @store.store(framework: "CoreAudio", symbol_name: "AudioObjectGetPropertyDataSize",
                  swift_source: "@c public func glue_x_Sym() {}",
@@ -126,7 +120,6 @@ class GlueStoreTest < Test::Unit::TestCase
     assert_equal "green: equivalent", e["round_trip_outcome"]
   end
 
-  # round_trip_outcome だけでも sidecar を生成する (他金脈フィールドが nil でも)。
   def test_round_trip_outcome_alone_triggers_provenance_sidecar
     @store.store(framework: "CoreAudio", symbol_name: "AudioSym",
                  swift_source: "// glue", round_trip_outcome: "green: equivalent")
@@ -134,7 +127,6 @@ class GlueStoreTest < Test::Unit::TestCase
     assert_equal "green: equivalent", @store.provenance_entries.first["round_trip_outcome"]
   end
 
-  # 未検証 (round_trip_outcome 渡さない) ときは provenance に nil で乗る。
   def test_round_trip_outcome_nil_when_not_verified
     @store.store(framework: "CoreAudio", symbol_name: "AudioSym2",
                  swift_source: "// glue", kind: "function")

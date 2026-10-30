@@ -1,0 +1,221 @@
+module AppleSdkMac
+  # The gem version.
+  VERSION: String
+end
+
+module AppleSDKMac
+  # The SwiftPM release directory that holds libAppleSDKMacRuntime.dylib and its Swift module.
+  RUNTIME_BUILD_DIR: String
+
+  # The Knowledge Base schema version this gem reads.
+  KNOWLEDGE_BASE_SCHEMA: Integer
+
+  # Base class for errors raised by this gem.
+  class Error < StandardError
+  end
+
+  # Raised when a discover call cannot describe the requested symbol.
+  class DiscoveryError < Error
+  end
+
+  # Raised when glue for a symbol fails to compile.
+  class CompileError < Error
+  end
+
+  GlueCompileError: singleton(CompileError)
+
+  # Raised when the Knowledge Base has no such framework.
+  class FrameworkMissingError < Error
+  end
+
+  # Raised when the Knowledge Base has no such symbol.
+  class SymbolMissingError < Error
+  end
+
+  # Raised when a symbol uses a pattern that cannot be bridged, such as a header-only inline function or a function-like macro.
+  class UnsupportedPatternError < Error
+    attr_reader pattern: String
+    attr_reader framework: String
+    attr_reader symbol: String
+    attr_reader hint: String?
+
+    def initialize: (pattern: String, framework: String, symbol: String, ?hint: String?) -> void
+  end
+
+  # Raised when a throwing Objective-C API fails with an NSError.
+  class ObjcError < Error
+  end
+
+  # Raised when a throwing Swift API fails with a Swift error.
+  class SwiftError < Error
+  end
+
+  # Raised when a symbol is outside the deterministic template coverage.
+  class OutOfCoverageError < Error
+    # Raised by retry_with when no inference backend is configured.
+    class RetryUnavailableError < Error
+    end
+
+    attr_reader framework: String
+    attr_reader symbol: String
+    attr_reader pattern: String
+    attr_reader reason: String
+    attr_reader last_failure_detail: String?
+
+    def initialize: (framework: String, symbol: String, pattern: String, reason: String, ?retry_proc: Proc?, ?last_failure_detail: String?) -> void
+
+    # Retries glue generation with an inference backend and extra +context+.
+    # Raises RetryUnavailableError when no inference backend is configured.
+    def retry_with: (context: untyped) -> untyped
+  end
+
+  # Raised when no Gemfile or gems.rb is found above the working directory.
+  class ProjectRootError < StandardError
+  end
+
+  # Returns <project>/.rb-apple-sdk-mac, where <project> is the Bundler root or the nearest directory with a Gemfile or gems.rb.
+  # Raises ProjectRootError when neither is found.
+  def self.cache_dir: () -> String
+
+  # Settings read from $XDG_CONFIG_HOME/rb-apple-sdk-mac/config.yml and the RB_APPLE_SDK_MAC_* environment variables.
+  class Config
+    DEFAULTS: Hash[Symbol, untyped]
+
+    attr_accessor trust_mode: Symbol
+    attr_accessor raise_on_error: bool
+    attr_accessor llm_model: String
+    attr_accessor inference_backend: Symbol
+
+    # Loads +config_file+, or the default config.yml when nil, then applies the environment.
+    def initialize: (?config_file: String?) -> void
+  end
+
+  # Yields the Config and returns it.
+  def self.configure: () ?{ (Config) -> void } -> Config
+
+  # Returns the process-wide Config.
+  def self.config: () -> Config
+
+  # Returns the Knowledge Base for the active SDK under cache_dir.
+  def self.knowledge_cache: () -> untyped
+
+  # Returns the compiled-glue cache for the active SDK under cache_dir.
+  def self.glue_cache: () -> untyped
+
+  def self.loader: () -> untyped
+
+  def self.compiler: () -> untyped
+
+  def self.dispatcher: () -> untyped
+
+  # Compiles glue for one symbol and installs its method under Apple::<framework>.
+  # Pass exactly one of symbol:, selector:, class_method:, swift_func:, swift_initializer:, or swift_property:.
+  # selector:, class_method:, swift_initializer:, and swift_property: require klass:.
+  # params: and return_kind: override the Knowledge Base classification.
+  # Raises CompileError when the glue fails to compile.
+  def self.discover: (framework: Symbol | String, **untyped) -> true
+
+  # Defines Apple::<Framework> modules, type constants, and method shells for every Knowledge Base symbol without compiling glue.
+  # Each method compiles its glue on its first call.
+  def self.bootstrap!: () -> true
+
+  # Pumps the run loop and dispatches queued callbacks until the yielded EventLoopContext is stopped.
+  def self.event_loop: () ?{ (EventLoopContext) -> void } -> void
+
+  # The handle yielded by event_loop.
+  class EventLoopContext
+    attr_reader start_time: Time
+
+    def initialize: () -> void
+
+    # Ends event_loop after the current iteration.
+    def stop: () -> true
+
+    def stopped?: () -> bool
+
+    # Returns the seconds since event_loop started.
+    def elapsed: () -> Float
+  end
+
+  # Snapshot of the glue cache and runtime state.
+  module Diagnostics
+    HISTORY_CAP: Integer
+
+    # Returns cache statistics, recent compile attempts, recent validation failures, and runtime counters.
+    def self.dump: (?cache: untyped) -> Hash[Symbol, untyped]
+  end
+
+  # A Ruby object that bumps an ARC release counter when garbage collected.
+  class OpaqueRef
+    def initialize: (?Integer? counter_handle) -> void
+
+    def self.finalizer: (Integer? counter_handle) -> Proc
+  end
+end
+
+# The namespace that holds Apple::<Framework> modules. Under RUBY_BOX=1 it is a Ruby::Box.
+module Apple
+  Error: singleton(AppleSDKMac::Error)
+  DiscoveryError: singleton(AppleSDKMac::DiscoveryError)
+  CompileError: singleton(AppleSDKMac::CompileError)
+
+  # Same as AppleSDKMac.discover.
+  def self.discover: (**untyped) -> true
+
+  # Same as AppleSDKMac.event_loop.
+  def self.event_loop: () ?{ (AppleSDKMac::EventLoopContext) -> void } -> void
+
+  # Same as AppleSDKMac.configure.
+  def self.configure: () ?{ (AppleSDKMac::Config) -> void } -> AppleSDKMac::Config
+
+  # Same as AppleSDKMac::Diagnostics.dump.
+  def self.diagnostics: () -> Hash[Symbol, untyped]
+
+  # Same as AppleSDKMac.bootstrap!.
+  def self.bootstrap!: () -> true
+end
+
+# The C extension that loads and calls glue dylibs.
+module AppleSDKMacRuntime
+  # dlopens the glue dylib at +path+ and returns the handle. Raises RuntimeError when dlopen fails.
+  def self.dlopen_glue: (String path) -> Integer
+
+  # Returns the address of +symname+ in +handle+. Raises RuntimeError when the symbol is missing.
+  def self.dlsym_glue: (Integer handle, String symname) -> Integer
+
+  # Calls the glue function at +fn_ptr+ with +args+ and returns its result.
+  def self.invoke_glue: (Integer fn_ptr, Array[untyped] args) -> untyped
+
+  # Drops the Swift object held by a RefTable handle.
+  def self.ref_release: (Integer handle) -> nil
+
+  # Increments an ARC release counter.
+  def self.arc_counter_bump: (Integer handle) -> nil
+
+  # Dispatches callbacks queued by Apple threads for up to +timeout+ seconds and returns how many ran.
+  def self.threading_poll: (Float timeout) -> Integer
+
+  # Runs the current run loop for up to +timeout+ seconds.
+  def self.runloop_pump: (Float timeout) -> nil
+
+  # Registers a Hash of protocol method handlers and returns its handle.
+  def self.conformance_register_handlers: (Hash[untyped, untyped] handlers) -> Integer
+
+  # Releases a handle returned by conformance_register_handlers.
+  def self.conformance_release_handlers: (Integer handle) -> nil
+
+  # C function pointers and blocks that call Ruby procs.
+  module CallbackPillar
+    # Registers +proc+ as a MIDINotifyProc and returns [slot, function pointer]. Raises RuntimeError when every slot is in use.
+    def self.register_midi_notify: (Proc proc) -> [Integer, Integer]
+
+    def self.unregister_midi_notify: (Integer slot) -> nil
+
+    # Registers +proc+ for an escaping block and returns the slot id.
+    def self.register_block_persistent: (Proc proc) -> Integer
+
+    def self.unregister_block_persistent: (Integer slot_id) -> nil
+
+    def self.release_auto_block: (Integer slot_id) -> nil
+  end
+end

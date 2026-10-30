@@ -1,20 +1,5 @@
 # frozen_string_literal: true
 
-# MCP server exposing the Apple SDK knowledge base to MCP-capable AI agents.
-#
-# Activated by:
-#   require "apple_sdk_mac"      # main gem
-#   require "apple_sdk_mac/mcp"  # this sub-gem
-#   AppleSDKMac::MCP::Server.new.run  # blocks (stdio transport)
-#
-# Logical sub-gem inside the rb-apple-sdk-mac repo, path-loaded via Gemfile.
-# Never auto-required by lib/apple_sdk_mac.rb so non-MCP users do not pull
-# in the mcp gem dependency.
-#
-# NOTE: the upstream `mcp` gem is referenced as `::MCP::...` because bare
-# `MCP` inside `module AppleSDKMac::MCP` resolves to self (this module),
-# not the upstream gem — same convention IRB sub-gem uses for stdlib IRB.
-
 require "apple_sdk_mac"
 require "mcp"
 

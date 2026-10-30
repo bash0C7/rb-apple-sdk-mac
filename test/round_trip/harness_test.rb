@@ -1,4 +1,3 @@
-# test/round_trip/harness_test.rb
 # frozen_string_literal: true
 require "test/unit"
 require "json"
@@ -7,7 +6,6 @@ require_relative "../../lib/apple_sdk_mac/round_trip/harness"
 class HarnessTest < Test::Unit::TestCase
   H = AppleSDKMac::RoundTrip::Harness
 
-  # value: Swift 直走 stdout の RTRESULT 行を parse し、ruby 値と値比較
   def test_value_match
     swift = ->(_src) { "noise\nRTRESULT:{\"v\":3}\nmore" }
     ruby  = ->() { 3 }

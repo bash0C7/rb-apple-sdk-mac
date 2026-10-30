@@ -1,0 +1,25 @@
+module AppleSDKMac
+  # IRB completion, documentation preview, and discover prefetch for Apple SDK symbols.
+  module IRB
+    # The maximum number of completion candidates.
+    CAP: Integer
+
+    # Hooks Apple SDK completion and the :show_doc dialog into IRB. Does nothing when already installed.
+    # +knowledge_cache+ defaults to AppleSDKMac.knowledge_cache; +discover_proc+ replaces Apple.discover for the prefetch.
+    # The documentation preview falls back to foundation_model_mac when it is installed and APPLE_IRB_NO_LLM is not 1.
+    def self.install!: (?knowledge_cache: untyped, ?discover_proc: untyped) -> untyped
+
+    # Clears the installed state. The IRB prepends stay in place and become inactive.
+    def self.uninstall!: () -> nil
+
+    def self.installed?: () -> bool
+
+    def self.apple_provider: () -> untyped
+
+    def self.apple_doc_dialog: () -> untyped
+
+    def self.apple_prefetcher: () -> untyped
+
+    def self.apple_llm_resolver: () -> untyped
+  end
+end

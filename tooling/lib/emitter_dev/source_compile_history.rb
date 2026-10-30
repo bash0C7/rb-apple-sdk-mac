@@ -47,9 +47,6 @@ module EmitterDev
 
       private
 
-      # Empty cache.sqlite (just-bootstrapped repo) has no schema yet. Return
-      # [] silently rather than crash — the add path naturally degrades to "no
-      # candidates" and trim/all mode still emits trim findings.
       def table_exists?(db, name)
         row = db.execute(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", [name],

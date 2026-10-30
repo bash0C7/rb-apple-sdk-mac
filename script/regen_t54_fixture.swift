@@ -1,12 +1,3 @@
-// T54 — Vision OCR fixture image generator (Swift CLI version).
-//
-// Run via:
-//   swift script/regen_t54_fixture.swift
-//
-// Outputs examples/fixtures/ocr_hello.png — 800×200 px, 白背景 / 黒文字
-// (96pt Helvetica Bold) で "HELLO RUBY"。 Vision VNRecognizeTextRequest が
-// default recognitionLevel で 99% 認識する高コントラスト条件。
-
 import Cocoa
 
 let outPath = ProcessInfo.processInfo.arguments.count > 1

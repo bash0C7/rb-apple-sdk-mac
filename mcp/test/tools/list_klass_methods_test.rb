@@ -3,11 +3,6 @@ require_relative "../test_helper"
 require "json"
 
 class ListKlassMethodsTest < Test::Unit::TestCase
-  # spec §4.3 — クラス子要素列挙。
-  # input: framework + klass (both required)
-  # behavior: KnowledgeCache#list_klass_methods を呼ぶ
-  # 用途: Apple::Foundation::URL.<TAB> で見える候補と同じ列を AI に渡す
-
   FakeKB = Struct.new(:fixture) do
     def list_klass_methods(framework:, klass:)
       fixture[[framework, klass]] || []

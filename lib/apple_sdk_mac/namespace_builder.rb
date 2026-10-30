@@ -2,10 +2,6 @@
 
 module AppleSDKMac
   class NamespaceBuilder
-    # KIND_TO_DEFINER:
-    # :method            — top-level on framework module（C function, Swift func）
-    # :method_under_klass — singleton method on Apple::<FW>::<Klass> proxy class
-    # :constant          — type proxy constant on framework module
     KIND_TO_DEFINER = {
       "function"             => :method,
       "global_constant"      => :method,
@@ -39,9 +35,6 @@ module AppleSDKMac
       end
     end
 
-    # Per-symbol install API. Apple.discover の transient synth record
-    # を namespace に install する経路。 build! と違って DB 全走査せず、
-    # 渡された 1 record のみを install する。
     def install_one(framework_name, sym_record)
       fw_module = define_framework_module(framework_name.to_s)
       return nil unless fw_module
@@ -52,9 +45,6 @@ module AppleSDKMac
     private
 
     def define_framework_module(name)
-      # Apple knowledge base contains private framework names like
-      # `_ARKit_SwiftUI` (leading underscore) that aren't valid Ruby constants.
-      # Skip them; the dispatcher addresses these by string name when needed.
       return nil unless name =~ /\A[A-Z]/
       if @target.const_defined?(name, false)
         @target.const_get(name)
@@ -74,24 +64,12 @@ module AppleSDKMac
         define_function_method(framework_module, framework_name, sym[:name])
       when :method_under_klass
         if sym[:kind] == "objc_method_instance" && !init_form_selector?(sym[:selector])
-          # Proxy instance method receiver path. selector が `init` で始まる
-          # 場合 (alloc.init 経路) は emit_objc_instance_method が receiver を
-          # 取らない form を生成するため、 class singleton method として
-          # install する path を保持する。
           define_instance_method_under_klass(framework_module, framework_name, sym)
         elsif sym[:kind] == "swift_property" && sym[:instance] == true
-          # swift_property instance: true は emit が receiver argv[0] を取る
-          # instance property template を出すため、 namespace 側も proxy
-          # instance method として install。
           define_instance_method_under_klass(framework_module, framework_name, sym)
         elsif sym[:kind] == "swift_property_setter" && sym[:instance] == true
-          # is_settable=1 の instance setter。 emit が receiver argv[0] / value
-          # argv[1] を取る instance form を出すため、 proxy instance method として
-          # install。 Ruby setter naming (<prop>=) は define_instance_method_under_klass
-          # の ruby_method_name_for が "=" suffix を保持する形で処理する。
           define_instance_method_under_klass(framework_module, framework_name, sym)
         elsif sym[:kind] == "swift_property_setter"
-          # class static setter: singleton method として install。
           define_method_under_klass(framework_module, framework_name, sym)
         else
           define_method_under_klass(framework_module, framework_name, sym)
@@ -105,19 +83,11 @@ module AppleSDKMac
       dispatcher = @dispatcher
       builder = self
       mod.singleton_class.send(:define_method, symbol_name) do |*args|
-        # C function (`Apple::ImageIO.CGImageSourceCreateWithURL` 等) の
-        # 引数列に Apple proxy instance (NSURL 等) が含まれる場合、 raw opaque
-        # ref Integer に再帰 unwrap (instance method 経路と同じ pass)。
         unwrapped = builder.send(:unwrap_proxy_args, args)
         dispatcher.call(framework: framework, symbol: symbol_name, args: unwrapped)
       end
     end
 
-    # :method_under_klass install path. canonical_name "<Klass>.<method>" を
-    # split し、 Apple::<FW>::<Klass> proxy class を ensure → singleton method
-    # を define、 内部で dispatcher.call(symbol: canonical_name, args:) を呼ぶ。
-    # return_kind が opaque_ref / cftype_ref の場合、 dispatcher の raw
-    # Integer 戻り値を proxy instance に auto-wrap して返す (chain 用)。
     def define_method_under_klass(mod, framework, sym)
       canonical = sym[:name].to_s
       klass_name, _, method_part = canonical.partition(".")
@@ -130,8 +100,6 @@ module AppleSDKMac
 
       dispatcher = @dispatcher
       wrap_proxy = opaque_ref_return?(sym)
-      # return_klass: で wrap 先 class を override (受信 class と異なる戻り値
-      # 型の場合)。 未指定なら receiver の proxy class で wrap。
       wrap_class = wrap_class_for(mod, framework, sym, default_proxy: proxy_class)
       builder = self
       proxy_class.singleton_class.send(:define_method, ruby_method) do |*args|
@@ -145,13 +113,6 @@ module AppleSDKMac
       end
     end
 
-    # Proxy class の instance method として install。
-    # canonical_name "<Klass>.<method>" を split し、 proxy class の
-    # instance method を define、 内部で receiver の `__opaque_ref` を
-    # 引数列の先頭に prepend して dispatcher.call(symbol: canonical, args:) を
-    # 呼ぶ。 ObjC instance method の Swift 側 receiver は argv[0] を
-    # `unsafeBitCast(OpaquePointer(bitPattern: rb_num2ull(argv[0])), to: Klass.self)`
-    # で取り出す形 (template_generator.rb emit_objc_instance_method)。
     def define_instance_method_under_klass(mod, framework, sym)
       canonical = sym[:name].to_s
       klass_name, _, method_part = canonical.partition(".")
@@ -164,7 +125,6 @@ module AppleSDKMac
 
       dispatcher = @dispatcher
       wrap_proxy = opaque_ref_return?(sym)
-      # return_klass: で wrap 先 class を override
       wrap_class = wrap_class_for(mod, framework, sym, default_proxy: proxy_class)
       builder = self
       proxy_class.send(:define_method, ruby_method) do |*args|
@@ -181,10 +141,6 @@ module AppleSDKMac
       end
     end
 
-    # Apple proxy instance を含む引数列を raw opaque ref Integer に再帰的に
-    # unwrap。 Array 要素も element-wise に unwrap (array_of_opaque_ref
-    # Marshaller は要素を rb_num2ull で読むため Integer 必須)。
-    # それ以外の値はそのまま pass-through。
     def unwrap_proxy_args(args)
       args.map { |a| unwrap_one(a) }
     end
@@ -195,29 +151,17 @@ module AppleSDKMac
       value
     end
 
-    # Selector が ObjC alloc.init 経路 (`initWith...` / `init`) かを判定。
-    # template_generator.rb emit_objc_instance_method は selector.start_with?("init")
-    # の場合 receiver を取らない form を emit する。 namespace_builder 側もこれと
-    # 揃え、 init form は class singleton method として install する。
     def init_form_selector?(selector)
       return false if selector.nil?
       selector.to_s.start_with?("init")
     end
 
-    # Proxy auto-wrap 先 class を decide。 sym[:return_klass] が指定されて
-    # いればその class の proxy を ensure、 そうでなければ default (受信 class
-    # の proxy) を使う。 NSURLSession#dataTask が NSURLSessionDataTask を返す
-    # ようなケースで wrap class を receiver と分離する。
     def wrap_class_for(mod, framework, sym, default_proxy:)
       rk = sym[:return_klass]
       return default_proxy if rk.nil? || rk.to_s.empty?
       ensure_proxy_class(mod, framework, rk.to_s)
     end
 
-    # opaque_ref / cftype_ref return_kind 判定。
-    # Apple.discover で渡された return_kind は Symbol で、
-    # DiscoveryShape.synthesize_symbol_record 経由で sym[:return_kind] に
-    # 格納される。 proxy に wrap するのはこの 2 種類のみ。
     def opaque_ref_return?(sym)
       kind = sym[:return_kind]
       return false if kind.nil?
@@ -236,12 +180,6 @@ module AppleSDKMac
       end
     end
 
-    # canonical proxy class factory。 ensure_proxy_class (Apple.discover 経由) と
-    # define_type_constant (bootstrap! の DB struct/class kind 走査経由) の両 path
-    # が同じ shape の proxy を install できるよう、 唯一の生成箇所。
-    # shape: singleton(framework, type_name, from_ref) / instance(__opaque_ref,
-    # initialize(raw))。 postmortem 2026-05-14 #9 の root cause (path 分岐で
-    # from_ref / __opaque_ref が片方欠落) を構造的に塞ぐ。
     def build_proxy_class(framework, klass_name)
       Class.new do
         define_singleton_method(:framework) { framework }
@@ -256,14 +194,7 @@ module AppleSDKMac
       end
     end
 
-    # canonical の dot 後ろを Ruby identifier に sanitize。
-    # `stringWithUTF8String` → `stringWithUTF8String`（変化なし）
-    # `init(string:)`        → `init_string`
-    # `init(cgImage:options:)` → `init_cgImage_options`
-    # `(` → `_`, `)` → drop, `:` → `_`, 連続 `_` を 1 つに、末尾 `_` を drop。
     def ruby_method_name_for(method_part)
-      # Swift throws suffix (`init(forReading:) throws` 等) は Ruby method 名に
-      # 反映せえへん。 emit 側だけが throws マーカーを利用する。
       method_part.sub(/\s+throws\z/, "")
                  .gsub("(", "_")
                  .gsub(")", "")
@@ -273,18 +204,8 @@ module AppleSDKMac
     end
 
     def define_type_constant(mod, framework, type_name)
-      # Ruby constants must start with an uppercase letter. Apple SDK exposes
-      # some C struct tags in snake_case (e.g. ar_anchor_s, swift_interop_t);
-      # skip those rather than raising NameError. Future enhancement could
-      # camelize them, but the dispatcher reaches Apple's typed APIs by symbol
-      # name not by Ruby constant, so the snake_case ones simply have no Ruby
-      # constant proxy.
       return unless type_name =~ /\A[A-Z]/
       return if mod.const_defined?(type_name, false)
-      # build_proxy_class が ensure_proxy_class と同一 shape を保証する。
-      # define_method_under_klass の wrap_class.from_ref(result) で使うため、
-      # type_constant 経由で先に install された proxy も raw → proxy 変換に
-      # 対応せなあかん (NSURL.URLWithString の戻り値 wrap が典型例)。
       mod.const_set(type_name, build_proxy_class(framework, type_name))
     end
   end

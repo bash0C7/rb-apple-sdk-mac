@@ -1,77 +1,57 @@
 # rb-apple-sdk-mac
 
-> **This gem is experimental.** Ruby 4 Box namespace isolation
-> (`RUBY_BOX=1`) は実験 flag、 production runtime は決定論 template で動く。
-> Knowledge Base 未知 / coverage 外 symbol の Swift glue は生成保守時に
-> `claude -p` ヘッドレス推論で合成され (この合成は確率的)、 round-trip 等価
-> 検証を通った GREEN なものだけ採用・永続化される (production default には
-> 未配線、 end user は検証済みの決定論 glue を replay)。 public API shape は
-> v1.x の間に変わりうる。 production 投入は自己責任で。
+Runtime dynamic Ruby ↔ Apple SDK bridge for macOS. Call public Apple framework APIs from Ruby with no pre-declarations.
 
-Runtime dynamic Ruby ↔ Apple SDK bridge for macOS. Call any public Apple framework API from Ruby with no pre-declarations.
+> **This gem is experimental.** Ruby 4 Box namespace isolation (`RUBY_BOX=1`) is an experimental Ruby feature. The production runtime emits Swift glue from a deterministic template catalog. Glue for symbols outside that catalog is synthesized at generation/maintenance time with headless `claude -p` inference, and only glue that passes a round-trip equivalence check is adopted and persisted; that inference path is not wired into the runtime default. The public API shape may change during v1.x.
 
-> Swift overlay framework (AVFoundation / AppKit / Vision / SwiftUI 系) の API も
-> `bootstrap!` だけで動く。 ObjC selector → Swift imported name は Knowledge
-> Base に `swift_imported_name` column として取り込まれ、 ObjC↔Swift bridge
-> 名前解決は Knowledge Base lookup → 内蔵 heuristic の順 (runtime は決定論)。
-> Knowledge Base 未知 symbol の glue は生成保守時の `claude -p` 推論 +
-> round-trip 等価検証で起こす (runtime safety net ではない)。
-> `examples/avspeech_synth.rb` / `examples/vision_ocr.rb` が end-to-end の
-> release-quality 検収例。 `Apple.discover` は escape hatch 専用 (private
-> framework / 第三者 framework / 自前 ObjC selector / Knowledge Base 分類の
-> 上書きにのみ使う)、 `examples/discover_escape.rb` を参照。
+Swift overlay frameworks (AVFoundation, AppKit, Vision, SwiftUI, ...) work through `bootstrap!` as well. The Knowledge Base stores the ObjC selector → Swift imported name mapping in its `swift_imported_name` column; name resolution looks up the Knowledge Base first and falls back to a built-in heuristic. `examples/avspeech_synth.rb` and `examples/vision_ocr.rb` are end-to-end acceptance examples. `Apple.discover` is an escape hatch for private frameworks, third-party frameworks, custom ObjC selectors, and overriding the Knowledge Base classification; see `examples/discover_escape.rb`.
 
 ## Requirements
 
-- macOS 26+
-- Ruby 4.x master with `RUBY_BOX=1` (required for namespace isolation)
-- Xcode + Swift 6.3+
-- Runtime gem dependencies: `rb-apple-sdk-knowledge` (Knowledge Base) + `sqlite3`。 主 gem はこれ以外に依存しない (IRB / Reline / foundation_model_mac 系依存は `irb/` sub-gem 側にのみ存在)
-- Generation/maintenance-time のみ: `claude` CLI を PATH に (coverage 外 symbol の `claude -p` glue 推論 + round-trip rebuild 用)。 end-user runtime には不要
-- Internal sub-gems (same repo, separate gemspecs): `knowledge/` (Apple SDK Knowledge Base ingester), `irb/` (IRB autocomplete + doc preview), `mcp/` (MCP server)
+- macOS 27+, Apple Silicon
+- Xcode 27 (builds run `xcrun swift`; glue compiles run `xcrun swiftc`)
+- Ruby 4.0+ with `RUBY_BOX=1` for namespace isolation, Bundler 4.x
+- `claude` CLI on `PATH` only for generation/maintenance-time glue inference
+- Runtime gem dependencies: `rb-apple-sdk-knowledge` (the `knowledge/` sub-gem) and `sqlite3`
+
+The repository also holds these sub-gems, each with its own gemspec:
+
+- `knowledge/` — `rb-apple-sdk-knowledge`, the Apple SDK Knowledge Base importer
+- `irb/` — `apple_sdk_mac-irb`, IRB autocomplete and documentation preview
+- `mcp/` — `rb-apple-sdk-mac-mcp`, an MCP server over the Knowledge Base
 
 ## Installation
 
-```ruby
-gem "rb-apple-sdk-mac"
-```
-
-After install:
+Install from source:
 
 ```bash
-bundle exec rake apple:knowledge:rebuild   # 50+ 分 / forground; CI / 単体実行向き
-# あるいは長時間 detached で走らせる:
-bundle exec rake apple:knowledge:rebuild_async   # screen -dmS で背景化、 tmp/longrun/<NAME>.log を tail
+git clone https://github.com/bash0C7/rb-apple-sdk-mac.git
+cd rb-apple-sdk-mac
+bundle install
+bundle exec rake compile
+bundle exec rake apple:knowledge:rebuild
 ```
 
-`rebuild` は ObjC framework + Swift overlay framework 両方の
-`*.swiftinterface` を ingest し、 `<project>/.rb-apple-sdk-mac/knowledge/`
-に SQLite を生成する。 完了後 `Apple::<Framework>::<Type>.<method>` が
-全て呼び出し可能になる。
+`rake compile` builds the Swift runtime (`xcrun swift build -c release --package-path ext/apple_sdk_mac_runtime`) and the C extension into `lib/apple_sdk_mac/apple_sdk_mac_runtime.bundle`.
+
+`rake apple:knowledge:rebuild` ingests the ObjC/C headers and the Swift overlay `*.swiftinterface` files of the active SDK and writes `.rb-apple-sdk-mac/knowledge/<sdk_version>/sdk_knowledge.sqlite` under the project root (the directory of the Bundler `Gemfile`). `rake apple:knowledge:rebuild_async` runs the same rebuild in a detached `screen` session and logs to `tmp/longrun/<NAME>.log`.
 
 ## Usage
 
-Pick one of two startup styles, then just call the APIs.
+Pick one of two startup styles, then call the APIs.
 
-### Recommended: bootstrap once, call freely
+### Bootstrap once, call freely
 
 ```ruby
 require "apple_sdk_mac"
-AppleSDKMac.bootstrap!   # ~1 s — eager-defines Apple::<Framework> shells from the Knowledge Base
+AppleSDKMac.bootstrap!
 
 client = Apple::CoreMIDI.MIDIClientCreate("MyClient", nil, nil)
 ```
 
-After `bootstrap!`, every Knowledge-Base-known symbol has a Ruby method
-shell ready to go. The dispatcher compiles the Swift glue dylib inline on
-the first invocation per symbol (~1–3 s swiftc latency); subsequent calls
-hit the compiled-glue cache and dispatch in sub-millisecond time.
+`bootstrap!` defines a Ruby method shell for every Knowledge-Base-known symbol. The first call of each symbol compiles its Swift glue dylib with `swiftc`; later calls hit the compiled-glue cache.
 
-### Lightweight: per-symbol on-demand
-
-If you don't want the bootstrap startup cost — e.g. a script that touches
-a handful of symbols — use `Apple.discover` to set up the namespace for
-just those symbols:
+### Per-symbol on demand
 
 ```ruby
 require "apple_sdk_mac"
@@ -80,20 +60,11 @@ Apple.discover(framework: :CoreMIDI, symbol: :MIDIClientCreate)
 client = Apple::CoreMIDI.MIDIClientCreate("MyClient", nil, nil)
 ```
 
-`Apple.discover` builds the namespace shell **and** compiles glue for the
-single symbol it's given. This is the right shape for one-off scripts and
-is also required for the cases the transparent path can't resolve (next
-section).
+`Apple.discover` builds the namespace shell and compiles glue for the one symbol it is given.
 
-### When you still need `Apple.discover`
+### When you need `Apple.discover`
 
-`Apple.discover` is the manual escape hatch for cases the transparent path
-cannot resolve on its own:
-
-1. **You want to override the Knowledge Base classification.** The Knowledge
-   Base sometimes labels a C parameter as `:string` when your call site needs
-   `:opaque_ref`, tags a return as `:bool` when it's an `Int`, etc. Force the
-   shape with explicit `params:` / `return_kind:`:
+1. **Override the Knowledge Base classification.** Force the shape with explicit `params:` / `return_kind:`:
 
    ```ruby
    Apple.discover(
@@ -102,11 +73,7 @@ cannot resolve on its own:
    )
    ```
 
-2. **The symbol isn't in the Knowledge Base at all.** Private framework
-   methods, custom ObjC selectors, anything outside the indexed
-   `*.swiftinterface` set — the eager method shell never gets installed
-   because nothing told the namespace builder it exists. Declare the shape so
-   the dispatcher knows how to compile it:
+2. **The symbol is not in the Knowledge Base.** Private framework methods and custom ObjC selectors get no method shell from `bootstrap!`. Declare the shape:
 
    ```ruby
    Apple.discover(
@@ -115,98 +82,61 @@ cannot resolve on its own:
    )
    ```
 
-3. **Pre-warm.** Even for Knowledge-Base-known symbols, calling
-   `Apple.discover` at boot avoids paying the swiftc latency on the first
-   user-facing invocation.
+3. **Pre-warm.** Calling `Apple.discover` at boot compiles the glue before the first user-facing call.
 
-For everything else, just call the API directly. See `examples/` for more.
+See `examples/` for more.
+
+### Errors
+
+- A non-zero `OSStatus` raises `RuntimeError`.
+- A thrown `NSError` raises `AppleSDKMac::ObjcError`; a thrown Swift error raises `AppleSDKMac::SwiftError`.
+- `AppleSDKMac::CompileError` (also `Apple::CompileError`) is raised when glue fails to compile.
 
 ## IRB autocomplete
 
-IRB / autocomplete / LLM doc preview / auto-discover prefetch features
-live in the **logical sub-gem `apple_sdk_mac-irb`** under `irb/` (same
-repo, separate gemspec). The main gem stays free of IRB / Reline /
-foundation_model_mac dependencies.
-
-```ruby
-require "apple_sdk_mac"
-require "apple_sdk_mac/irb"
-AppleSDKMac::IRB.install!
-```
-
-After `install!`, a Reline completion hook lists Apple SDK frameworks,
-types, and methods inside any IRB session:
+IRB autocomplete, documentation preview, and discover prefetch live in the `irb/` sub-gem. The main gem has no IRB or Reline dependency.
 
 ```
-$ irb -r apple_sdk_mac -r apple_sdk_mac/irb
+$ RUBY_BOX=1 bundle exec irb -r apple_sdk_mac -r apple_sdk_mac/irb
 > AppleSDKMac::IRB.install!
 > Apple::<TAB>
-  → ARKit, AVFAudio, AVFoundation, AVKit, AVRouting, ... (100 frameworks)
 > Apple::Foundation::U<TAB>
-  → URL, URLComponents, URLError, URLQueryItem, URLRequest, ... (8 types)
 > Apple::Foundation::URL.<TAB>
-  → appendingPathComponent, appendingPathExtension, fragment, ... (15 methods)
 ```
 
-### Doc preview, prefetch, and on-the-fly translation
+Hovering an Apple SDK candidate fills the `:show_doc` dialog with documentation from the Knowledge Base and starts a background `Apple.discover` for that symbol. See `irb/README.md`.
 
-When the Reline autocomplete popup opens, hovering an Apple SDK
-candidate fills the right-side `:show_doc` dialog with documentation
-sourced from the Apple SDK Knowledge Base (clang FullComment AST
-ingested by the `knowledge/` sub-gem):
-
-- ObjC / C frameworks (CoreFoundation, Security, AudioToolbox, ARKit,
-  CoreMedia, etc.) ship with rich Apple-official doc strings.
-- Swift-overlay frameworks (Foundation, AppKit, SwiftUI) currently
-  ship empty — Apple's compiler strips `///` from `*.swiftinterface`.
-- `Apple::<Framework>` (no symbol) shows a synthesized description
-  with Swift module + (when present) category / macOS minimum / doc URL.
-- Non-Apple candidates fall back to IRB's standard RDoc-driven
-  `:show_doc`. Errors there are caught silently so a broken `~/.ri`
-  store does not leak into the prompt.
-
-While the popup renders, the same hover triggers a **background
-prefetch**: the symbol's `Apple.discover` runs in a separate Thread
-so the first real call has its glue dylib already compiled.
-Idempotent per `(framework, klass, name)`.
-
-Design notes and decision log: `docs/superpowers/specs/2026-05-08-irb-subgem-and-doc-discover-design.md`.
-
-Note that the Knowledge Base ingests Swift framework interfaces (`*.swiftinterface`),
-so types appear under their Swift import names (`URL` rather than `NSURL`,
-`Data` rather than `NSData`). ObjC-only types whose selectors aren't in the
-Knowledge Base (e.g. private framework methods) still need explicit
-`Apple.discover` with `klass:` and `selector:`/`class_method:`;
-Knowledge-Base-known selectors compile transparently on first call like
-everything else.
+The Knowledge Base ingests Swift interfaces, so types appear under their Swift import names (`URL` rather than `NSURL`, `Data` rather than `NSData`).
 
 ## Architecture
 
-See `docs/superpowers/specs/2026-05-04-rb-apple-sdk-mac-design.md` in the
-swift_gem repo for the original design, and
-`docs/superpowers/specs/2026-05-09-v1.2-bootstrap-principle-design.md` for
-the bootstrap-principle thesis.
+- **Glue runtime** (`ext/apple_sdk_mac_runtime/`): a Swift dynamic library with the Ref Table, Marshal, Callback, ARC, Error, Async, Threading, RunLoop, and Conformance pillars, exported to the CRuby extension with SE-0495 `@c`.
+- **Ruby cache layer**: `Config` (XDG / ENV / YAML), `CompiledGlueCache` (SQLite + dylibs under `.rb-apple-sdk-mac/<sdk_version>/`), `KnowledgeCache` (reads the `knowledge/` sub-gem's SQLite).
+- **Discovery / shape resolution**: `SelectorBridge` (canonical method names and acronym normalization), `DiscoveryShape` (symbol record synthesis and C-symbol parameter overrides).
+- **Glue compiler pipeline**: `TemplateGenerator` → `ObjcMarshalling` → `SwiftBridgeName` → `ValidationGates` (allowed imports, banned APIs, glue shape) → `SwiftcInvoker`.
+- **Inference and round-trip** (`inference/`, `round_trip/`, generation/maintenance time): `ClaudePBackend` synthesizes Swift glue from Knowledge Base metadata, `ProductionRunner` checks that the glue and a native call behave identically, and only matching glue is persisted.
+- **Ruby runtime**: `GlueLoader` (dlopen + pointer cache), `Dispatcher` (cache miss → compile + invoke), `SecurityCop` (in-Box monkey patches with an allow-list), `NamespaceBuilder` (`Apple::<Framework>` shells), and the `Apple` `Ruby::Box`.
 
-The bridge is composed of:
+## Maintainer tools
 
-- **Glue Runtime** (`ext/apple_sdk_mac_runtime/`): static Swift dylib with 9 pillars (Ref Table, Marshal, Callback, ARC, Error, Async, Threading, RunLoop, Conformance) bridged to CRuby via SE-0495 `@c`.
-- **Ruby cache layer**: Config (XDG/ENV/YAML), CompiledGlueCache (SQLite + dylib FS), KnowledgeCache (reads the `knowledge/` sub-gem's SQLite output).
-- **Discovery / shape resolution**: SelectorBridge (canonical method-name + acronym normalization, single source for `public_api` and `template_generator`), DiscoveryShape (`synthesize_symbol_record` + `KIND_SYM_TO_TYPE` + C-symbol param overrides).
-- **Glue Compiler pipeline** (production runtime, deterministic): TemplateGenerator (deterministic shape catalog) → ObjcMarshalling (ObjC `in_load` + `return_lines` emit) → SwiftBridgeName (Knowledge Base lookup; falls through to in-template heuristic) → ValidationGates (allowed imports / banned APIs / glue shape) → SwiftcInvoker. Symbols outside the template coverage are handled at generation/maintenance time (below), not at runtime.
-- **Inference + round-trip** (`inference/`, `round_trip/` — generation/maintenance-time, **not wired into the production default**): ClaudePBackend (`claude -p` headless synthesizes Swift glue from Knowledge Base symbol metadata) → ProductionRunner round-trip equivalence (generated glue vs native call must behave identically) → only GREEN glue is adopted and persisted. End users replay the persisted, round-trip-verified deterministic glue; the cloud inference path is never on the gem's public runtime path.
-- **Ruby runtime**: GlueLoader (dlopen + pointer cache), Dispatcher (cache miss → inline compile + invoke; transparent for Knowledge-Base-known symbols), SecurityCop (in-Box monkey patches with allow-list bypass), NamespaceBuilder (eager `Apple::<Framework>` shell definition at bootstrap), `Apple` Ruby::Box bootstrap.
-- **Knowledge Base** (`knowledge/` sub-gem): `*.swiftinterface` ingester for both ObjC frameworks and Swift overlay frameworks; ObjC selector → Swift imported name correspondence is stored in `symbols.swift_imported_name`.
+`tooling/` holds the human-in-the-loop emitter improvement workflow (`bundle exec rake apple:emitter:candidates` and the related tasks). See `tooling/README.md`. The workflow is also started with the `/rb-apple-sdk-mac-improve-emitter [--mode=add|trim|all] [--top=N]` Claude Code skill.
 
-## Maintainer tools (`tooling/`)
+## Development
 
-長期改善 (新 emitter 追加 / 冗長 marshaller 統合) を 2-gate HITL workflow
-で回す `tooling/` サブツリー。 `bundle exec rake apple:emitter:candidates`
-で compile_history + RedundancyScanner から候補を ranking、 `git worktree`
-で隔離 → implementer subagent → fact bundle gate → 非 fast-forward merge と
-進む。 詳細は `tooling/README.md` および
-`docs/superpowers/specs/2026-05-09-hitl-emitter-improvement-design.md`。
+```bash
+bundle install
+bundle exec rake test
+```
 
-Slash command 経由起動: `/rb-apple-sdk-mac-improve-emitter [--mode=add|trim|all] [--top=N]`
+`rake test` validates `sig/apple_sdk_mac.rbs`, regenerates `CallbackPillarGenerated.swift` from `callback_signatures.yml`, builds the Swift runtime and the C extension, then runs `test/` (except `test/integration/`) and the top-level `knowledge/test/` files. Several tests read the Knowledge Base, so run `rake apple:knowledge:rebuild` first.
+
+`rake test:release_quality` runs `rake test`, the README, examples, Knowledge Base, coverage, memory-leak, and concurrency suites under `test/integration/`, and `benchmark/dispatch_overhead.rb`. Run any other file under `test/integration/` with `bundle exec ruby -Ilib -Itest <file>`; `coverage_matrix_test.rb` and `examples_coreaudio_e2e_test.rb` run only with `APPLE_SDK_MAC_RUN_E2E=1`.
+
+```bash
+bundle exec rake console
+```
+
+opens IRB with the gem loaded.
 
 ## License
 

@@ -67,12 +67,9 @@ class TestErrorsPhase2 < Test::Unit::TestCase
       pattern: "novel_pattern",
       framework: "Foo",
       symbol: "Foo.bar"
-      # hint not specified
     )
     msg = e.message
-    # hint 無しでも Workaround セクションは存在する (default 文言)
     assert_match(/Workaround:/, msg)
-    # default workaround 文は github URL / docs / wrapper 等の generic guidance を含む
     assert_match(%r{https?://}, msg)
   end
 end

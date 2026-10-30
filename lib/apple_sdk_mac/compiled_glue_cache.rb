@@ -4,7 +4,6 @@ require "fileutils"
 
 module AppleSDKMac
   class CompiledGlueCache
-    # Bump on any HEADER / marshaller / gate change to invalidate prior rows.
     CACHE_SCHEMA_VERSION = "1.5"
 
     SCHEMA_SQL = <<~SQL.freeze
@@ -77,9 +76,6 @@ module AppleSDKMac
       stored = @db.execute("SELECT value FROM schema_meta WHERE key='schema_version'").first
       stored_v = stored && stored[0]
       if stored_v && stored_v != @schema_version
-        # schema_version bump invalidates pre-bump rows. Wipe compiled glue +
-        # history so the next discover recompiles fresh against the current
-        # template HEADER / marshaller emit shape.
         @db.execute("DELETE FROM compiled_glue")
         @db.execute("DELETE FROM compile_history")
       end
@@ -111,13 +107,6 @@ module AppleSDKMac
 
     def insert(glue_id:, framework:, symbol:, swift_source:, dylib_path:,
                exported_symbol:, generator:, llm_model_version: nil, llm_prompt_hash: nil)
-      # Invariant: at most 1 row per (framework_name, symbol_name).
-      # 同 (framework, symbol) で別 glue_id (= parameters_json 差) の row が並存すると、
-      # lookup が LIMIT 1 / no ORDER BY で旧 row を返して dlopen に古い dylib が当たる
-      # cache pollution が起きる (postmortem 2026-05-14 #1)。 Apple.discover 経由で
-      # override (`params:` / `return_kind:`) が渡された場合や、 transient synth record の
-      # 形が変わった場合、 旧 glue_id row を invalidate して invariant を保つ。
-      # 同 glue_id 再 insert は OR REPLACE 経路で idempotent。
       @db.transaction do |db|
         db.execute(
           "DELETE FROM compiled_glue WHERE framework_name = ? AND symbol_name = ? AND glue_id != ?",

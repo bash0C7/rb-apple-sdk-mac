@@ -37,10 +37,18 @@ class TestGlueCompilerNoLLMFallback < Test::Unit::TestCase
     end
   end
 
+  class FlunkingBackend
+    def initialize(test) ; @test = test ; end
+    def name ; "flunking" ; end
+    def generate_glue(**_kwargs)
+      @test.flunk("covered template failure must not fall back to inference")
+    end
+  end
+
   def setup
     @tmpdir = Dir.mktmpdir("glue_compiler_no_llm")
     @cache = FakeCache.new(@tmpdir)
-    @symbol = { name: "fooBar", signature: "void fooBar(void)", parameters_json: "[]" }
+    @symbol = { name: "fooBar", kind: "function", abi: "c", signature: "void fooBar(void)", parameters_json: "[]" }
   end
 
   def teardown
@@ -54,6 +62,7 @@ class TestGlueCompilerNoLLMFallback < Test::Unit::TestCase
       template_generator: FakeTemplate.new("dummy swift"),
       swiftc_invoker: FakeSwiftc.new(success: true),
       gates: FakeGates.new(pass: false),
+      inference_backend: FlunkingBackend.new(self),
     )
 
     result = compiler.compile(framework: "Foundation", symbol: @symbol)
@@ -73,6 +82,7 @@ class TestGlueCompilerNoLLMFallback < Test::Unit::TestCase
       template_generator: FakeTemplate.new("import Foundation\n"),
       swiftc_invoker: FakeSwiftc.new(success: false),
       gates: FakeGates.new(pass: true),
+      inference_backend: FlunkingBackend.new(self),
     )
 
     result = compiler.compile(framework: "Foundation", symbol: @symbol)

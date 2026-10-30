@@ -42,9 +42,6 @@ module AppleSDKMac
       result = try_template(framework: framework, symbol: symbol)
       return result if result.success?
 
-      # template が成功しなかった。契約範囲内なら「穴」= バグなので
-      # Result(success?:false) をそのまま返す(呼び出し側で別途修正対象)。
-      # 範囲外なら inference backend に委譲、無効なら loud fail。
       if @contract.covered?(symbol)
         return result
       end
@@ -62,12 +59,6 @@ module AppleSDKMac
 
     private
 
-    # budget 付き seed-inject 閉ループ。各 attempt の失敗 detail と reject された
-    # glue を次 attempt の seed に返し、backend が文脈付きで修正できるようにする。
-    # budget 枯渇で loud fail (OutOfCoverageError)。
-    #
-    # context: ユーザが retry_with(context:) 経由で渡すヒント。Task 3 で
-    # OutOfCoverageError#retry_with から再投入される配線が入る。
     def try_inference(framework:, symbol:, reason:, context: nil)
       glue_id = compute_glue_id(framework, symbol)
       base = File.join(@cache.base_dir, @cache.sdk_version)
@@ -85,10 +76,6 @@ module AppleSDKMac
       last_glue = nil
 
       @inference_budget.times do |attempt_i|
-        # attempt ごとに別 dylib パスへコンパイルする。dlopen は同一パスの再コンパイル済み
-        # イメージをプロセス内で再ロードしないため、同一パスを使い回すと round-trip 検証が
-        # 最初の attempt の glue で固定され、後続 attempt の修正が反映されない。受理時に
-        # canonical パスへ mv し、cache / production が安定パスで参照できるようにする。
         attempt_dylib = File.join(base, "lib", "#{glue_id}.attempt#{attempt_i}.dylib")
         seed = {
           rule_scaffold: rule_scaffold,
@@ -123,9 +110,6 @@ module AppleSDKMac
           next
         end
 
-        # round-trip 検証: A path の driver_inputs、無ければ C fallback で合成。
-        # runner と driver_inputs が揃ったときだけ走る。RED は閉ループに合流 (next)
-        # して握り潰さない。GREEN は round_trip_test と outcome を永続化する。
         driver_inputs = backend_result.driver_inputs
         driver_inputs ||= RoundTrip::GlueAnalyzer.extract_driver_inputs(swift_source)
         round_trip_outcome = nil
@@ -147,8 +131,6 @@ module AppleSDKMac
           )
         end
 
-        # 受理: attempt 専用 dylib を canonical パスへ昇格させ、cache / production が
-        # 安定した #{glue_id}.dylib を参照できるようにする。
         FileUtils.mv(attempt_dylib, dylib)
         @cache.insert(glue_id: glue_id, framework: framework, symbol: symbol[:name],
                       swift_source: swift_source, dylib_path: dylib,
@@ -163,9 +145,6 @@ module AppleSDKMac
                           dylib_path: dylib, exported_symbol: exported)
       end
 
-      # §3b: 対話実行中 (IRB) なら budget 枯渇時にその場で context を問い合わせ、
-      # 閉ループに再投入する。context.nil? ガードで retry_with(context:) 経由
-      # (既に context あり) の再試行では elicit せず、無限ループを防ぐ。
       if context.nil? && IrbElicitation.available?
         hint = IrbElicitation.elicit(framework: framework.to_s, symbol_name: symbol[:name].to_s)
         if hint
@@ -176,9 +155,6 @@ module AppleSDKMac
       @cache.record_attempt(framework: framework, symbol: symbol[:name],
                             generator: gen, error_stage: "inference_exhausted",
                             error_detail: last_failure)
-      # budget 枯渇。ユーザが retry_with(context:) で gap ヒントを渡したら
-      # 同 framework/symbol/reason の inference を context 付きで再開できるよう
-      # 自己再帰 lambda を error に持たせる。
       retry_proc = ->(context:) {
         try_inference(framework: framework, symbol: symbol, reason: reason, context: context)
       }

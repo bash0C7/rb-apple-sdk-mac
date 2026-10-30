@@ -3,10 +3,6 @@ require_relative "../test_helper"
 require "json"
 
 class GetSymbolInfoTest < Test::Unit::TestCase
-  # spec §4.2 — symbol full record (parameters_json 込み)。
-  # input: framework + symbol (both required)
-  # behavior: KnowledgeCache#lookup_symbol を呼ぶ、 transient → DB 優先順
-
   FakeKB = Struct.new(:fixture) do
     def lookup_symbol(framework:, symbol:)
       fixture[[framework, symbol]]

@@ -3,19 +3,6 @@ require "set"
 
 module AppleSDKMac
   class GlueCompiler
-    # Each parameter kind is realized as a Marshaller. Subclasses implement the
-    # subset of the protocol that applies to them; defaults below are no-ops.
-    #
-    # Protocol (each returns a Swift snippet or nil):
-    #   in_load          — argv[i] → Swift binding at the function entry
-    #   call_arg         — Swift expression for the argument at the C call site
-    #   out_handling     — {init:, addr:, to_ruby:} Hash for out-params, or nil if unsupported
-    #                      init:     var declaration before the call
-    #                      addr:     `&...` expression at the call site
-    #                      to_ruby:  Swift expression converting post-call value to Ruby VALUE
-    #   out_post_call    — optional Swift snippet between status check and return (e.g. struct marshal)
-    #   call_wrapper(inner) — optional wrapping around the C call expression
-    #                         (e.g. withUnsafePointer { ... }); base returns inner
     class Marshaller
       attr_reader :param, :index, :ctx
 
@@ -27,8 +14,8 @@ module AppleSDKMac
 
       def in_load;      nil end
       def call_arg;     @param[:name] end
-      def out_post_call; nil end  # Swift snippet between status check and return
-      def out_handling; nil end   # sentinel: nil means marshaller cannot handle out-param
+      def out_post_call; nil end
+      def out_handling; nil end
       def call_wrapper(inner); inner end
 
       REGISTRY = {}
@@ -57,13 +44,6 @@ module AppleSDKMac
         "let #{@param[:name]}: Int64 = rb_num2ll(argv[#{@index}])"
       end
 
-      # Narrow the Int64 in_load value to the target C scalar type at the
-      # call site. swiftc 6 rejects implicit Int64 → UInt32 / Int32 /
-      # CFStringEncoding conversions; numericCast infers the target
-      # FixedWidthInteger type from the call site, so framework-typedef'd
-      # integers (ItemCount, CFIndex, OSStatus, OSType, CFStringEncoding)
-      # all work without requiring the typedef to be visible at glue scope.
-      # For `Int64` the cast is unnecessary noise; pass through unchanged.
       def call_arg
         return "&#{@param[:name]}" if @param[:is_out_param]
         ctype = scalar_type_token(@param[:type])
@@ -136,10 +116,6 @@ module AppleSDKMac
 
       def out_handling
         return nil unless @param[:is_out_param]
-        # Double-pointer types (indirection > 1) cannot be handled by simple
-        # &outVal emission; return nil to route to the LLM safety net per
-        # spec principle 4. Knowledge Base contains 2 such float-kind symbols:
-        # "double * _Nonnull * _Nonnull" and "float * _Nonnull * _Nonnull".
         return nil if @param[:type].to_s.scan("*").length > 1
         swift_type = scalar_float_type(@param[:type]) || "Double"
         to_ruby = (swift_type == "Double") \
@@ -161,11 +137,7 @@ module AppleSDKMac
                      .sub(/\s*\*+\s*\z/, "")
                      .strip
         return nil if cleaned.empty? || cleaned.include?("*") || cleaned == "void"
-        # Reject multi-token types (e.g. "long double") — not valid Swift
-        # identifiers. Knowledge Base contains one "long double *" symbol;
-        # returning nil causes out_handling to fall back to "Double".
         return nil unless cleaned.match?(/\A[A-Za-z_]\w*\z/)
-        # Normalize C primitive names to Swift equivalents
         return "Float"  if cleaned == "float"
         return "Double" if cleaned == "double"
         cleaned
@@ -210,30 +182,16 @@ module AppleSDKMac
       def unsigned?(t)
         return true  if t.match?(/\b(UInt|UInt8|UInt16|UInt32|UInt64|uint(8|16|32|64)_t|unsigned)\b/)
         return false if t.match?(/\b(SInt|SInt8|SInt16|SInt32|SInt64|int(8|16|32|64)_t|signed)\b/)
-        # Apple SDK convention: *Ref typedefs without explicit signedness marker
-        # are unsigned 32-bit handles (MIDIClientRef, AudioComponentInstance, etc.).
         t.match?(/\b\w+Ref\b/)
       end
     end
     Marshaller::REGISTRY["opaque_ref"] = OpaqueRefMarshaller
 
-    # CF/CG/CV/CT/CM/CL/IO/Sec/AX pointer-typed Refs. Underlying clang shape is
-    # `struct OpaqueX *`, so the Ruby integer (a pointer bit-pattern) must round
-    # trip via OpaquePointer(bitPattern:) and then unsafeBitCast to the real
-    # Swift Ref type. The OpaqueRefMarshaller's `T(rb_num2ull(...))` path is
-    # rejected by swiftc for these typedefs.
     class CFTypeRefMarshaller < Marshaller
       def in_load
         return nil if @param[:is_out_param]
         type = ref_type(@param[:type])
         name = @param[:name]; i = @index
-        # Qnil and 0-pointer both pass through as Swift nil. CF types are
-        # pervasively nullable (kCFAllocatorDefault is a NULL CFAllocatorRef,
-        # etc.), so force-unwrapping SIGTRAPs on valid Apple-API NULL conventions.
-        # autoarc box pointer (runtime_arc_box_cftype の戻り値) を受け取った場合は
-        # runtime_arc_unbox_cftype で内部 CF pointer に unwrap、 box でない raw
-        # pointer 直渡しは 0 が返るので raw に fall-back する。
-        # rb_num2ull は Qnil 入力で raise するため、 Qnil 検査を最初に行う。
         <<~SWIFT.chomp
           let #{name}: #{type}?
               if argv[#{i}] == Qnil {
@@ -254,10 +212,6 @@ module AppleSDKMac
       end
 
       def call_arg
-        # CFTypeRef in_load は Optional<T> 形 (Qnil → nil branch)。 既定では
-        # Optional のまま渡す (Apple SDK の多くの CF API は Optional 受け付け)。
-        # Swift bridge で T (non-Optional) 必須の関数は param に
-        # `nilable: false` を指定して force-unwrap (arg!) させる。
         return "&#{@param[:name]}" if @param[:is_out_param]
         return "#{@param[:name]}!" if @param[:nilable] == false
         @param[:name]
@@ -280,19 +234,11 @@ module AppleSDKMac
                 .sub(/\s*\*.*\z/, "")
                 .gsub(/\b_(Nonnull|Nullable)\b/, "")
                 .strip
-        # Swift 6 dropped the trailing `Ref` from CF / CG / CV / CT / CM /
-        # IO / Sec / AX bridged type names: `CFStringRef` is now `CFString`,
-        # `CFAllocatorRef` is `CFAllocator`. The `*Ref` typealias is
-        # deprecated and emits a swiftc 6.0 error in our glue. Strip `Ref`
-        # so `unsafeBitCast(..., to: T.self)` finds the canonical type.
         base.sub(/Ref\z/, "")
       end
     end
     Marshaller::REGISTRY["cftype_ref"] = CFTypeRefMarshaller
 
-    # Callback type → CallbackPillar route. MVP catalog: MIDINotifyProc only.
-    # Additional signatures are added by listing them in
-    # ext/apple_sdk_mac_runtime/callback_signatures.yml + extending this map.
     CALLBACK_PILLAR_ROUTES = {
       "MIDINotifyProc" => :midi_notify,
       "MIDIReadProc"   => :midi_read
@@ -333,12 +279,6 @@ module AppleSDKMac
     Marshaller::REGISTRY["callback_nilable"] = CallbackNilableMarshaller
 
     class CallbackNonNilMarshaller < Marshaller
-      # Outside the catalog we cannot synthesize a real C function pointer
-      # without crashing (the previous "let cb: T?; rb_raise(...)" stub was
-      # rejected by swiftc because optional T? cannot be passed where the C
-      # function expects T). Mark the marshaller as broken so the template
-      # generator returns nil and the symbol falls through to LLM fallback
-      # / unsupported. Catalog routes still produce real glue.
       def initialize(param, index, ctx)
         super
         type = @param[:type].sub(/\s*_(?:Nullable|Nonnull)\b/, "").strip
@@ -368,12 +308,6 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["callback_non_nil"] = CallbackNonNilMarshaller
 
-    # Noescape completion block. `void (^)(NSError *)`-style.
-    # @convention(block) literal lives on the Swift stack for the duration of
-    # the call; the Ruby Proc is pinned in runtime_proc_registry by object_id
-    # so a Ruby GC during the Apple-side execution can't reclaim it. Fired via
-    # ThreadingBridge.enqueueFromAppleThread (single Int64 arg dispatch — for
-    # NSError? completions, nil → 0, non-nil → -1).
     class BlockNilableMarshaller < Marshaller
       def in_load
         name = @param[:name]
@@ -422,22 +356,12 @@ module AppleSDKMac
         if args.first.start_with?("NSError")
           "_a0 == nil ? 0 : -1"
         else
-          # Multi-arg or non-Error: dispatcher only carries one Int64. Pass 0
-          # as a heartbeat; downstream multi-arg dispatch is layered on top
-          # via the persistent-block path (BoxedBlockHandle).
           "0"
         end
       end
     end
     Marshaller::REGISTRY["block_nilable"] = BlockNilableMarshaller
 
-    # Escaping completion block. Block outlives the call, so the
-    # @convention(block) thunk lives in the persistent slot table (managed by
-    # CallbackPillar's runtime_callback_register_block_persistent). The user
-    # gets back a BoxedBlockHandle whose Ruby Box deinit calls
-    # runtime_callback_release_auto_block — so escape blocks released by Ruby
-    # GC unregister cleanly. Manual lifetime callers can use
-    # Apple.unregister_block(handle) explicitly.
     class BlockPersistentMarshaller < Marshaller
       def in_load
         name = @param[:name]
@@ -456,29 +380,12 @@ module AppleSDKMac
         SWIFT
       end
 
-      # The Apple API takes the @convention(block) thunk, not the BoxedBlockHandle.
-      # The thunk is stored in the slot table; the persistent path resolves it
-      # at call site via runtime_callback_get_block_persistent_thunk(slotId).
-      # We expose the handle in `_handle` and let the call_arg fetch.
       def call_arg
-        # The Apple-side block parameter receives the persistent thunk pointer
-        # if non-nil, else nil. CallbackPillar exposes thunk-by-slot-id via
-        # runtime_callback_get_block_persistent_thunk; if the param is nil,
-        # pass nil.
         "#{@param[:name]}_handle.map { runtime_callback_get_block_persistent_thunk($0.slotId) }"
       end
     end
     Marshaller::REGISTRY["block_persistent"] = BlockPersistentMarshaller
 
-    # `() -> Void` escaping block (e.g. NSBlockOperation の
-    # +blockOperationWithBlock:)。 BlockPersistentMarshaller は
-    # BoxedBlockHandle + arity 1 前提なので、 arity 0 / void return の
-    # 直接 emit パスを別 kind として用意。
-    #
-    # ライフタイム: block literal が ObjC ブロックに bridge される時点で
-    # Block_copy 相当が走り Apple 側 (NSOperationQueue) が retain する。
-    # Ruby Proc は proc_registry に pin して GC を防ぐ。block_persistent と
-    # 違い handle を返さない (1-shot 用途想定、auto release は queue 任せ)。
     class BlockPersistentVoidMarshaller < Marshaller
       def in_load
         name = @param[:name]
@@ -515,14 +422,6 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["void_ptr_nilable"] = VoidPtrNilableMarshaller
 
-    # Ruby Array<Integer (opaque ref pointer)> → Swift [<OpaqueType>].
-    # Apple framework instance methods that take NSArray<X*>* (e.g.
-    # NSOperationQueue.addOperations:waitUntilFinished:, VNImageRequestHandler
-    # .performRequests:error:) require a Swift-typed array. We construct an
-    # NSMutableArray, populate it by unsafeBitCast from each Ruby integer's
-    # bit-pattern back to the requested Swift Ref type, then `as!` cast to
-    # the typed Swift array. Empty array passes through as []; nil entries
-    # (Qnil or 0) are skipped.
     class ArrayOfOpaqueRefMarshaller < Marshaller
       def in_load
         return nil if @param[:is_out_param]
@@ -570,8 +469,6 @@ module AppleSDKMac
       end
 
       def call_arg
-        # Swift auto-promotes `&var` to UnsafePointer<T> / UnsafeMutablePointer<T>
-        # for C function calls — no withUnsafePointer wrapper needed.
         "&#{@param[:name]}_struct"
       end
 
@@ -716,13 +613,6 @@ module AppleSDKMac
     end
     Marshaller::REGISTRY["struct_out"] = StructOutMarshaller
 
-    # `struct_in_pointer` — C function takes `const Struct *`.
-    # When the knowledge cache has field info for the struct type, builds the
-    # struct locally from a Ruby Hash (same field-load pattern as StructInMarshaller)
-    # and passes its address (`&local_struct`). This lets callers pass a Ruby Hash
-    # with symbol keys matching the struct field names.
-    # Falls back to raw integer bit-pattern path when no field info is available
-    # (i.e. the caller must pass a pre-allocated pointer as a Ruby Integer).
     class StructInPointerMarshaller < Marshaller
       def initialize(param, index, ctx)
         super
@@ -734,7 +624,6 @@ module AppleSDKMac
         type = struct_type(@param[:type])
         name = @param[:name]; i = @index
         if @use_hash_path
-          # Build struct from Ruby Hash (field-by-field), then pass &local_struct.
           lines = ["let #{name}_h = argv[#{i}]", "var #{name}_struct = #{type}()"]
           @fields.each do |f|
             case f[:kind]
@@ -748,7 +637,6 @@ module AppleSDKMac
           end
           lines.join("\n    ")
         else
-          # Raw integer bit-pattern path: caller passes a pre-allocated pointer.
           "let #{name}: UnsafePointer<#{type}> = UnsafePointer<#{type}>(bitPattern: UInt(rb_num2ull(argv[#{i}])))!"
         end
       end
@@ -768,7 +656,6 @@ module AppleSDKMac
       end
 
       def struct_type(type_str)
-        # Strip leading const, trailing *, nullability annotations.
         type_str
           .sub(/\Aconst\s+/, "")
           .sub(/\s*\*.*\z/, "")
@@ -785,9 +672,6 @@ module AppleSDKMac
     class VariadicMarshaller < Marshaller
       def in_load
         i = @index
-        # Build a [CVarArg] from the trailing argv entries beyond the fixed count.
-        # `rubyValueToCVarArg` is provided by the runtime ext (CallbackPillar /
-        # Marshal pillar helpers).
         <<~SWIFT.chomp
           var __cVarArgs: [CVarArg] = []
               for __k in #{i}..<Int(argc) {
@@ -797,7 +681,7 @@ module AppleSDKMac
       end
 
       def call_arg
-        "__va"  # bound by withVaList wrapper in template_generator orchestrator
+        "__va"
       end
     end
     Marshaller::REGISTRY["variadic_args"] = VariadicMarshaller

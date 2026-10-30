@@ -4,9 +4,6 @@ require "open3"
 require "rbconfig"
 
 class TestKnowledgeTopLoadHasNoProgressbar < Test::Unit::TestCase
-  # The main gem's runtime path (`require "rb_apple_sdk_knowledge"`) must not
-  # transitively `require "ruby-progressbar"`. The importer (only consumer)
-  # is rake-task-only.
   def test_top_require_does_not_load_progressbar
     repo_root = File.expand_path("..", __dir__)
     ruby = RbConfig.ruby

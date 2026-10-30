@@ -44,13 +44,8 @@ class TestDispatcher < Test::Unit::TestCase
     assert_equal [["/tmp/g.dylib", "glue_g_MIDIDispose"]], loader.calls
   end
 
-  # dispatcher は cache.lookup を **sym_meta[:name] = canonical_name** 経由で
-  # 行う必要がある。 user-facing symbol arg と canonical_name が一致しない
-  # ケース (user が Knowledge Base の alias を渡した、 selector colon の有無、 等) でも
-  # cache hit を取れる contract をピン止めする。
   class FakeKnowledgeCanonical
     def lookup_symbol(framework:, symbol:)
-      # user passed "alias_name" but canonical name in synth/DB is "NSString.stringWithUTF8String"
       { name: "NSString.stringWithUTF8String", kind: "objc_method_class" }
     end
   end
@@ -64,8 +59,6 @@ class TestDispatcher < Test::Unit::TestCase
       knowledge_cache: FakeKnowledgeCanonical.new, glue_cache: cache,
       loader: loader, compiler: nil
     )
-    # user-facing symbol differs from canonical, but dispatcher must route cache
-    # lookup via sym_meta[:name] (canonical) so the cache hit lands.
     result = d.dispatch(framework: "Foundation", symbol: "alias_name", args: [])
     assert_equal ["invoked", 0xCAFE, []], result
     assert_equal [["/tmp/g.dylib", "glue_g_NSString_stringWithUTF8String"]], loader.calls
@@ -82,10 +75,6 @@ class TestDispatcher < Test::Unit::TestCase
     end
   end
 
-  # Transparent auto-discover (2026-05-08): when KB has the symbol record
-  # but the glue is not yet compiled, Dispatcher must trigger compile +
-  # cache populate inline so the call succeeds without an upfront
-  # `Apple.discover` from the user.
   class FakeCompilerThatPopulatesCache
     def initialize(cache); @cache = cache; @calls = []; end
     attr_reader :calls
@@ -111,7 +100,6 @@ class TestDispatcher < Test::Unit::TestCase
       knowledge_cache: FakeKnowledge.new, glue_cache: cache,
       loader: loader, compiler: compiler
     )
-    # No fake_hit! before dispatch — cache miss path. Must not raise.
     result = d.dispatch(framework: "CoreMIDI", symbol: "MIDIClientCreate", args: [1, 2])
     assert_equal ["invoked", 0xCAFE, [1, 2]], result
     assert_equal [["CoreMIDI", "MIDIClientCreate"]], compiler.calls,
@@ -129,10 +117,6 @@ class TestDispatcher < Test::Unit::TestCase
       d.dispatch(framework: "CoreMIDI", symbol: "MIDIClientCreate", args: [])
     end
   end
-
-  # NS-0 — Dispatcher が 3 typed raise 経路で compile_history.record_attempt
-  # を必ず呼ぶ contract をピン止めする。 telemetry jsonl と compile_history
-  # SQLite の二重観測点を維持。
 
   def test_record_attempt_on_symbol_missing
     cache = FakeCache.new
@@ -181,7 +165,7 @@ class TestDispatcher < Test::Unit::TestCase
   end
 
   class FakeCompilerNoOp
-    def compile(**); end  # no exception, but also produces no cache row
+    def compile(**); end
   end
 
   def test_record_attempt_on_compile_failed

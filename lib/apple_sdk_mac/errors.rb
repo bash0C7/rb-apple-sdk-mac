@@ -1,46 +1,18 @@
 # frozen_string_literal: true
 
 module AppleSDKMac
-  # Public exception hierarchy. All Apple framework dispatch paths surface
-  # failures through these classes; raw swiftc / clang errors are wrapped
-  # (CompileError) rather than escaping to user rescue blocks.
-  #
-  # Implementation note: the implementations are defined under AppleSDKMac
-  # (not Apple) because Apple is a Ruby::Box that gets reset late in the
-  # gem load sequence — class objects defined under Apple before the Box
-  # bootstrap would lose their Apple::* lookup path. AppleSDKMac is a plain
-  # module that survives Box bootstrap, so it owns the canonical hierarchy.
-  # Apple::Error etc. are aliased into the Apple Box after bootstrap so
-  # `rescue Apple::Error` keeps working.
-
-  # Knowledge Base SQLite schema version (Phase 2 で導入)。
-  # bump 時は importer の rebuild と cache invalidation を伴う。
-  # Telemetry や error message が独立して参照するため module top-level に置く。
   KNOWLEDGE_BASE_SCHEMA = 9
 
   class Error < StandardError; end
 
-  # Raised when Apple.discover(...) cannot resolve a symbol or shape:
-  # - keyword combination not recognized
-  # - symbol absent from Knowledge Base (after LLM-fallback exhaust)
-  # - generic `type_args:` resolution failure
   class DiscoveryError < Error; end
 
-  # Raised when the Glue Compiler pipeline (TemplateGenerator → ValidationGates
-  # → SwiftcInvoker) fails to produce a working dylib.
-  # Carries the failing stage in the message; raw swiftc stderr is captured
-  # in `Apple.diagnostics` for issue reproduction.
   class CompileError < Error; end
 
-  # Raised when a requested framework is not present in the Knowledge Base.
   class FrameworkMissingError < Error; end
 
-  # Raised when a requested symbol is absent from the Knowledge Base.
   class SymbolMissingError < Error; end
 
-  # Raised when the requested API pattern (e.g. swift_macro, async throws)
-  # is not yet supported by the glue generator pipeline. Carries structured
-  # metadata (pattern / framework / symbol) for diagnostic surfacing.
   class UnsupportedPatternError < Error
     attr_reader :pattern, :framework, :symbol, :hint
 
@@ -80,26 +52,13 @@ module AppleSDKMac
     end
   end
 
-  # Alias: GlueCompileError is the same class as CompileError.
-  # Callers in the glue pipeline may rescue either name.
   GlueCompileError = CompileError
 
-  # Raised when an Objective-C runtime error crosses the bridge
-  # (NSError, OSStatus, kIOReturn*, etc.).
   class ObjcError < Error; end
 
-  # Raised when a Swift-side error crosses the bridge
-  # (thrown Swift Error values, URLError, etc.).
   class SwiftError < Error; end
 
-  # Raised when a symbol falls outside the rule-based CoverageContract and no
-  # inference backend resolved it. Distinct from UnsupportedPatternError
-  # (which marks Knowledge-Base-flagged unbridgeable shapes): OutOfCoverageError
-  # is the loud-fail boundary of the *currently guaranteed* rule coverage.
   class OutOfCoverageError < Error
-    # Raised by retry_with(context:) when no inference backend was configured
-    # at the time the OutOfCoverageError was constructed, so there is nothing
-    # to re-run with the user-supplied hint.
     RetryUnavailableError = Class.new(Error)
 
     attr_reader :framework, :symbol, :pattern, :reason, :last_failure_detail
@@ -116,8 +75,6 @@ module AppleSDKMac
             "(pattern=#{pattern}): #{reason}")
     end
 
-    # ユーザが埋まっていない gap を埋めるヒント (context) を渡して推論を再開する。
-    # inference backend が構築時に配線されていなければ RetryUnavailableError。
     def retry_with(context:)
       unless @retry_proc
         raise RetryUnavailableError,

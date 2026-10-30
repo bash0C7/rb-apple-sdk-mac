@@ -1,0 +1,30 @@
+module AppleSDKMac
+  # An MCP server over the Apple SDK Knowledge Base.
+  module MCP
+    # Builds the MCP tools and resources and serves them over stdio.
+    class Server
+      # The registered tool classes, set by build_mcp_server.
+      attr_reader tool_classes: Array[untyped]
+
+      # The registered resources, set by build_mcp_server.
+      attr_reader resource_list: Array[untyped]
+
+      # Runs the block, writes one JSON line ({ts, kind, tool, result_rows, elapsed_ms}) to stderr, and returns the block's result.
+      def self.wrap_with_log: [T] (tool_name: String) { () -> T } -> T
+
+      # Returns the length of a JSON array in the first text content of +response+, or 0.
+      def self.extract_row_count: (untyped response) -> Integer
+
+      # Uses +kb+ as the Knowledge Base, or AppleSDKMac::KnowledgeCache.open when nil.
+      def initialize: (?kb: untyped) -> void
+
+      def kb: () -> untyped
+
+      # Returns an MCP::Server with every tool and resource registered.
+      def build_mcp_server: () -> untyped
+
+      # Serves the MCP protocol on stdin and stdout until stdin closes.
+      def run: () -> untyped
+    end
+  end
+end

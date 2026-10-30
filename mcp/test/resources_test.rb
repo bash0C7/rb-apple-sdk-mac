@@ -2,9 +2,6 @@
 require_relative "test_helper"
 
 class ResourcesTest < Test::Unit::TestCase
-  # spec §5 — 8 個の Resources (静的 markdown 6 + KB 動的 2)。
-  # v0.6 gate: resources/list で 8 件返る、 resources/read で内容取得できる。
-
   FakeKB = Struct.new(:list_frameworks) do
     def search(framework:, query:, limit: 5); []; end
     def lookup_symbol(framework:, symbol:); nil; end

@@ -9,8 +9,8 @@ module AppleSDKKnowledge
         @worker_factory = worker_factory
         @channel = channel
         @pids = []
-        @to_worker = []     # parent → worker (request)
-        @from_worker = []   # worker → parent (response)
+        @to_worker = []
+        @from_worker = []
         @worker_idx_by_reader = {}
         @pending_seqs = Array.new(size) { [] }
         @pending_mutex = Mutex.new
@@ -21,15 +21,11 @@ module AppleSDKKnowledge
 
       def submit(seq:, payload:)
         msg = JSON.dump(seq: seq, payload: payload)
-        @to_worker[@next_worker].puts(msg)
         @pending_mutex.synchronize { @pending_seqs[@next_worker] << seq }
+        @to_worker[@next_worker].puts(msg)
         @next_worker = (@next_worker + 1) % @size
       end
 
-      # Fix C2: join reader before waitpid to drain pipes and avoid deadlock.
-      # Fix C3: close @from_worker read-ends after reader exits to prevent FD
-      # leak into subsequent Process.fork calls (children inherit open FDs,
-      # which can cause timing-sensitive deadlocks in the result channel).
       def shutdown(wait: true)
         @to_worker.each(&:close)
         @reader.join if wait
@@ -48,20 +44,15 @@ module AppleSDKKnowledge
             req_w.close
             res_r.close
             dispatch = @worker_factory.call
-            if dispatch.is_a?(Proc) && dispatch.arity == 1
-              # new polymorphic dispatcher
-            elsif dispatch.respond_to?(:call)
-              # legacy single-worker: wrap to payload signature
-              legacy = dispatch
-              dispatch = ->(payload) { legacy.call(framework: payload[:framework], header: payload[:header]) }
-            else
-              raise ArgumentError, "worker_factory must return a Proc or a worker with #call"
+            unless dispatch.is_a?(Proc) && dispatch.arity == 1
+              raise ArgumentError, "worker_factory must return a Proc or a worker with #call" unless dispatch.respond_to?(:call)
+              worker = dispatch
+              dispatch = ->(payload) { worker.call(framework: payload[:framework], header: payload[:header]) }
             end
             req_r.each_line do |line|
               data = JSON.parse(line, symbolize_names: true)
               payload = data[:payload]
               res = dispatch.call(payload)
-              # Fix I4: rename inner :payload → :request to eliminate double-nesting
               res_w.puts JSON.dump(
                 seq: data[:seq],
                 result: res[:result],
@@ -90,7 +81,6 @@ module AppleSDKKnowledge
             ready.each do |r|
               line = r.gets
               if line.nil?
-                # Fix C1: synthesize error payloads for any pending seqs on crashed worker
                 idx = @worker_idx_by_reader[r]
                 crashed = nil
                 @pending_mutex.synchronize do

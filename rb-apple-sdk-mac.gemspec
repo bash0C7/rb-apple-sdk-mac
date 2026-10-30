@@ -19,12 +19,13 @@ Gem::Specification.new do |spec|
     claude -p inference, round-trip verified for behavioral equivalence,
     and persisted; end users replay the verified deterministic glue (the
     inference path is not on the runtime default). Returns Ruby-native
-    types; out-pointer parameters are auto-allocated; OSStatus / NSError
-    surface as Apple::CallError. macOS 26+ / Ruby 4.x master.
+    types; out-pointer parameters are auto-allocated; a non-zero OSStatus
+    raises RuntimeError and a thrown NSError raises AppleSDKMac::ObjcError.
+    macOS 27+ / Ruby 4.0+.
   DESC
   spec.homepage = "https://github.com/bash0C7/rb-apple-sdk-mac"
   spec.license = "MIT"
-  spec.required_ruby_version = ">= 4.0.0"
+  spec.required_ruby_version = ">= 4.0"
 
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = "https://github.com/bash0C7/rb-apple-sdk-mac"
@@ -43,5 +44,4 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "rb-apple-sdk-knowledge"
   spec.add_dependency "sqlite3", "~> 2.0"
-  spec.add_development_dependency "test-unit", "~> 3.6"
 end
