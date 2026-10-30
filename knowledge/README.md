@@ -1,45 +1,37 @@
 # rb-apple-sdk-knowledge
 
-A SQLite knowledge base of every public Apple framework on the local Xcode SDK.
-Built at install time on the user's machine. Read-only after that.
-
-## Use cases
-
-- Lexical and semantic search over Apple SDK symbols
-- IDE/editor autocomplete data source
-- RBS generation for Apple frameworks
-- Knowledge backend for `rb-apple-sdk-mac` (the dynamic Ruby↔Apple bridge)
+A SQLite knowledge base of every public Apple framework on the local Xcode SDK. It ingests Objective-C and C headers through clang's JSON AST and Swift overlays through `*.swiftinterface`, and is the knowledge backend of `rb-apple-sdk-mac`.
 
 ## Requirements
 
-- macOS with Xcode installed (provides `xcrun`, headers, `.swiftinterface` files, optional DocC archives)
-- Ruby 3.2+
-- swift-syntax-compatible Swift 6.3+ toolchain (only required at SDK parse time)
+- macOS 27+, Apple Silicon
+- Xcode 27 (the importer runs `xcrun clang` and reads the SDK from `xcrun --show-sdk-path`)
+- Ruby 4.0+, Bundler 4.x
 
 ## Installation
 
-```ruby
-gem "rb-apple-sdk-knowledge"
+Install from source:
+
+```bash
+git clone https://github.com/bash0C7/rb-apple-sdk-mac.git
+cd rb-apple-sdk-mac/knowledge
+bundle install
 ```
 
-After install, build the knowledge base for your local SDK:
+Build the knowledge base for the active SDK:
 
 ```bash
 bundle exec rake apple:knowledge:rebuild
 ```
 
-Skip embeddings (much faster, FTS5 search still works):
-
-```bash
-RB_APPLE_SDK_KNOWLEDGE_FAST=1 bundle exec rake apple:knowledge:rebuild
-```
+The SQLite file is written to `data/sdk_knowledge_<sdk_version>.sqlite`, or to `<APPLE_SDK_MAC_KB_BASE_DIR>/<sdk_version>/sdk_knowledge.sqlite` when `APPLE_SDK_MAC_KB_BASE_DIR` is set.
 
 ## CLI
 
 ```bash
-apple-sdk-knowledge rebuild
-apple-sdk-knowledge info
-apple-sdk-knowledge search CoreMIDI MIDIClient
+bundle exec exe/apple-sdk-knowledge rebuild
+bundle exec exe/apple-sdk-knowledge info
+bundle exec exe/apple-sdk-knowledge search CoreMIDI MIDIClient
 ```
 
 ## Library API
@@ -48,8 +40,7 @@ apple-sdk-knowledge search CoreMIDI MIDIClient
 require "rb_apple_sdk_knowledge"
 
 store = AppleSDKKnowledge.open
-search = AppleSDKKnowledge::Search.new(store)
-search.lexical(framework: "CoreMIDI", query: "MIDIClient").each do |r|
+store.fts_search("CoreMIDI", "MIDIClient").each do |r|
   puts "#{r[:name]} (#{r[:kind]})"
 end
 store.close
@@ -57,13 +48,22 @@ store.close
 
 ## Environment variables
 
-| ENV var | Default | 用途 |
-|---------|---------|------|
-| `APPLE_SDK_MAC_KB_WORKERS` | `Etc.nprocessors` | rebuild 時の per-framework worker pool 並列度 (clang + swift overlay parse 用)。 Phase 2 default は CPU core 数 |
-| `APPLE_SDK_MAC_KB_FRAMEWORK_PARALLELISM` | `4` | 同時並列処理する framework 数 (FrameworkScheduler の K)。 Phase 2 で追加 |
-| `APPLE_SDK_MAC_KB_BATCH_SIZE` | `1000` | StoreWriter の transaction batch size |
-| `APPLE_SDK_MAC_KB_BASE_DIR` | (なし) | Knowledge Base SQLite の base dir。 親 gem の rake task 経由で設定される |
-| `APPLE_SDK_MAC_KB_INTEGRATION` | (なし) | `1` で `rake integration` が bit-identical test を実行 (heavy、 default skip) |
+| Variable | Default | Purpose |
+|---|---|---|
+| `APPLE_SDK_MAC_KB_WORKERS` | `Etc.nprocessors` | Header-parsing worker processes per framework |
+| `APPLE_SDK_MAC_KB_FRAMEWORK_PARALLELISM` | `4` | Frameworks processed in parallel |
+| `APPLE_SDK_MAC_KB_BATCH_SIZE` | `1000` | Rows per write transaction |
+| `APPLE_SDK_MAC_KB_BASE_DIR` | none | Base directory of the SQLite file; the parent gem's rake task sets it |
+| `APPLE_SDK_MAC_KB_INTEGRATION` | none | `1` makes `rake integration` run the parallel-import determinism test against the real SDK |
+
+## Development
+
+```bash
+bundle install
+bundle exec rake test
+```
+
+`rake test` validates `sig/rb_apple_sdk_knowledge.rbs`, then runs the tests.
 
 ## License
 
